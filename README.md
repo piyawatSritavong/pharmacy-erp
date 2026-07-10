@@ -55,6 +55,7 @@ Seed data also creates:
 - `Super Admin`
   - `/dashboard`
   - `/inventory-management`
+  - `/installments`
   - `/finance-central`
   - `/global-reports`
   - `/settings`
@@ -62,15 +63,20 @@ Seed data also creates:
   - `/branch-dashboard`
   - `/branch-inventory`
   - `/sales-invoices`
+  - `/installments`
   - `/local-finance`
 - `Branch POS`
   - `/sales`
   - `/inventory-check`
+  - `/installments`
   - `/transfer-receipts`
   - `/daily-sales`
 
 ## Added Flows
 
+- Installment billing (ported from DockBill): split an unpaid invoice into monthly installments (`installment_plans` / `installment_payments`), collect per due date into `invoice_payments`, overdue tracking, and automatic invoice settlement when the final installment is paid
+- 3-tier pricing (ported from DockBill): `cash` (base/branch price), `retail_price`, and `installment_price` per product; sales lines carry `price_tier` with precedence override > government alias > tier > branch/base
+- Stock receiving (ported from DockBill): `POST /inventory/receive` books one shipment into real and ghost buckets in a single transaction with movements and audit
 - Fixed branch-scoped document numbering with `PREFIXYYYYMMDDNNNNN`, non-reset running numbers, and lock semantics that block edits without blocking issuance
 - Invoice print / reprint via `/print/invoices/:invoiceID`
 - QR-based transfer receipt with local SVG QR rendering, browser camera scan, and manual transfer-code fallback

@@ -2,6 +2,23 @@
 
 > จัดทำ: 2026-07-11 — วิเคราะห์จากโค้ดจริงทั้งสองระบบ (ไม่ใช่จากเอกสาร)
 
+## ✅ สถานะ: ดำเนินการเสร็จสิ้นแล้ว (2026-07-11)
+
+ตามการตัดสินใจ: ไม่ merge โค้ด แต่ port ฟีเจอร์เข้าสถาปัตยกรรมโปรเจคหลัก — **ทำครบทั้ง 3 ฟีเจอร์และลบโฟลเดอร์ DockBill แล้ว**
+
+| ฟีเจอร์ | ผลลัพธ์ |
+|---|---|
+| บิลผ่อน/งวด | migration `003_installments_price_tiers.sql` + `modules/installments` + หน้า `/installments` (ทั้ง 3 role) — เก็บเงินงวดลง `invoice_payments` เดิม รายงานการเงินเห็นครบ, ครบงวดแล้ว invoice เปลี่ยนเป็น paid อัตโนมัติ |
+| ราคา 3 ระดับ | `products.retail_price`/`installment_price` + `price_tier` ต่อบรรทัดขาย (override > gov alias > tier > branch/base) + UI ใน product console / document composer |
+| รับสินค้าเข้าแยก real/ghost | `POST /inventory/receive` (tx เดียว: upsert + movements + audit) + โหมด Receive Stock ใน inventory console |
+| การทดสอบ | `go vet`/`go test` ผ่าน, `next build` ผ่าน, ทดสอบ E2E 27 ข้อกับ Postgres 16 จริงผ่านทั้งหมด (migration, seed, RBAC, edge cases) |
+| DockBill | ลบโฟลเดอร์ออกจากโปรเจคแล้ว (ไม่เคยเข้า git) — โค้ดวิเคราะห์ไว้ในรายงานนี้ |
+| การย้ายข้อมูลจาก Google Sheets | **ยังไม่ทำ** — ถ้าลูกค้ารายเดิมของ DockBill จะย้ายเข้าระบบนี้ ใช้ mapping ในหัวข้อ 5 ด้านล่าง |
+
+รายละเอียดการวิเคราะห์เดิมอยู่ด้านล่าง (คงไว้เพื่ออ้างอิง โดยเฉพาะหัวข้อ 5 สำหรับ import ข้อมูลในอนาคต)
+
+---
+
 ---
 
 ## 1. สถานะ QUICKSTART.md — ตรวจสอบแล้ว: ทุกอย่างมีอยู่แล้วในโค้ดจริง
