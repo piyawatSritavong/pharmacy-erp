@@ -1,0 +1,54 @@
+services:
+  database:
+    image: postgres:16-alpine
+    container_name: pharmacy-erp-db
+    environment:
+      POSTGRES_DB: pharmacy_erp
+      POSTGRES_USER: pharmacy
+      POSTGRES_PASSWORD: pharmacy
+    ports:
+      - "5432:5432"
+    volumes:
+      - pharmacy_erp_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pharmacy -d pharmacy_erp"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/backend.Dockerfile
+    container_name: pharmacy-erp-backend
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      APP_ENV: development
+      HTTP_PORT: 8080
+      DATABASE_URL: postgres://pharmacy:pharmacy@database:5432/pharmacy_erp?sslmode=disable
+      JWT_SECRET: pharmacy-erp-dev-secret
+      FRONTEND_URL: http://localhost:3000
+      COOKIE_NAME: pharmacy_erp_auth
+      COOKIE_SECURE: "false"
+      DEFAULT_VAT_PCT: "7"
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/frontend.Dockerfile
+    container_name: pharmacy-erp-frontend
+    depends_on:
+      - backend
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8080
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:8080
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+
+volumes:
+  pharmacy_erp_db:

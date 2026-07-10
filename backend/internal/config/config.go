@@ -1,0 +1,65 @@
+package config
+
+import (
+	"os"
+	"strconv"
+	"strings"
+)
+
+type Config struct {
+	AppEnv        string
+	HTTPPort      string
+	DatabaseURL   string
+	JWTSecret     string
+	FrontendURL   string
+	CookieName    string
+	CookieSecure  bool
+	CookieDomain  string
+	DefaultVATPct float64
+}
+
+func Load() Config {
+	return Config{
+		AppEnv:        getenv("APP_ENV", "development"),
+		HTTPPort:      getenv("HTTP_PORT", "8080"),
+		DatabaseURL:   getenv("DATABASE_URL", "postgres://pharmacy:pharmacy@localhost:5432/pharmacy_erp?sslmode=disable"),
+		JWTSecret:     getenv("JWT_SECRET", "pharmacy-erp-dev-secret"),
+		FrontendURL:   getenv("FRONTEND_URL", "http://localhost:3000"),
+		CookieName:    getenv("COOKIE_NAME", "pharmacy_erp_auth"),
+		CookieSecure:  getenvBool("COOKIE_SECURE", false),
+		CookieDomain:  os.Getenv("COOKIE_DOMAIN"),
+		DefaultVATPct: getenvFloat("DEFAULT_VAT_PCT", 7),
+	}
+}
+
+func getenv(key string, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func getenvBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getenvFloat(key string, fallback float64) float64 {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}

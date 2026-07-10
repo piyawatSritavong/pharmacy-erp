@@ -1,0 +1,216 @@
+import type { ReactNode } from "react";
+
+import {
+  Badge,
+  Card,
+  CardBody,
+  CardHeader,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeader,
+  TableRow
+} from "@/components/ui/primitives";
+import { buildQRCodeSVG } from "@/lib/qr";
+import { cn, currency, dateTime } from "@/lib/utils";
+
+export function PageIntro({
+  eyebrow,
+  title,
+  description
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="mb-6 space-y-3 rounded-[32px] border border-black/10 bg-white/70 px-6 py-7 shadow-panel backdrop-blur">
+      <Badge>{eyebrow}</Badge>
+      <div className="space-y-2">
+        <h1 className="text-3xl font-semibold tracking-tight text-black">{title}</h1>
+        <p className="max-w-3xl text-sm leading-6 text-black/58">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+export function MetricGrid({
+  items
+}: {
+  items: Array<{ key: string; label: string; value: string | number }>;
+}) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+      {items.map((item) => (
+        <Card key={item.key}>
+          <CardBody className="space-y-3">
+            <p className="text-xs uppercase tracking-[0.24em] text-black/40">{item.label}</p>
+            <p className="text-3xl font-semibold tracking-tight text-black">
+              {typeof item.value === "number" ? item.value.toLocaleString("th-TH") : item.value}
+            </p>
+          </CardBody>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+export function SectionCard({
+  title,
+  description,
+  actions,
+  children,
+  className
+}: {
+  title: string;
+  description?: string;
+  actions?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Card className={className}>
+      <CardHeader title={title} description={description} actions={actions} />
+      <CardBody>{children}</CardBody>
+    </Card>
+  );
+}
+
+export function DataTable({
+  columns,
+  rows,
+  rowActions
+}: {
+  columns: Array<{ key: string; label: string; type?: "currency" | "datetime" | "default" }>;
+  rows: Array<Record<string, unknown>>;
+  rowActions?: (row: Record<string, unknown>) => ReactNode;
+}) {
+  return (
+    <TableContainer>
+      <Table>
+        <TableHeader>
+          <TableRow className="text-xs uppercase tracking-[0.22em] text-black/45">
+            {columns.map((column) => (
+              <TableHead key={column.key}>
+                {column.label}
+              </TableHead>
+            ))}
+            {rowActions ? <TableHead className="text-right">Actions</TableHead> : null}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row, rowIndex) => (
+            <TableRow key={String(row.id || rowIndex)} className="text-sm text-black/80">
+              {columns.map((column) => (
+                <TableCell key={column.key}>
+                  {renderCell(row[column.key], column.type)}
+                </TableCell>
+              ))}
+              {rowActions ? <TableCell className="text-right">{rowActions(row)}</TableCell> : null}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+}
+
+function renderCell(value: unknown, type?: "currency" | "datetime" | "default") {
+  if (value === null || value === undefined || value === "") {
+    return <span className="text-black/30">-</span>;
+  }
+  if (type === "currency" && typeof value === "number") {
+    return currency(value);
+  }
+  if (type === "datetime" && typeof value === "string") {
+    return dateTime(value);
+  }
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+  return String(value);
+}
+
+export function InvoiceSummary({ summary }: { summary?: Record<string, unknown> }) {
+  if (!summary) {
+    return null;
+  }
+
+  return (
+    <div className="grid gap-3 rounded-[24px] border border-black/10 bg-surface-50 p-4 sm:grid-cols-4">
+      {[
+        { key: "subtotal", label: "Subtotal" },
+        { key: "tax_rate", label: "VAT %" },
+        { key: "tax_amount", label: "VAT" },
+        { key: "total_amount", label: "Total" }
+      ].map((item) => (
+        <div key={item.key}>
+          <p className="text-xs uppercase tracking-[0.2em] text-black/45">{item.label}</p>
+          <p className="mt-2 text-lg font-semibold text-black">
+            {typeof summary[item.key] === "number"
+              ? item.key === "tax_rate"
+                ? `${summary[item.key]}%`
+                : currency(Number(summary[item.key]))
+              : "-"}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function AuditTimeline({ items }: { items: Array<Record<string, unknown>> }) {
+  return (
+    <div className="space-y-3">
+      {items.map((item, index) => (
+        <div
+          key={String(item.id || index)}
+          className="rounded-[24px] border border-black/10 bg-surface-50 p-4"
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge className="bg-white">{String(item.action || "audit")}</Badge>
+            <p className="text-sm font-medium text-black">{String(item.entity_type || "entity")}</p>
+            <p className="text-xs text-black/50">{String(item.actor_name || "system")}</p>
+          </div>
+          <p className="mt-3 text-xs leading-6 text-black/55">
+            {String(item.after_data || "{}")}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function QRPanel({ code, title }: { code?: string; title: string }) {
+  const qrMarkup = code ? buildQRCodeSVG(code) : null;
+  return (
+    <div className="rounded-[28px] border border-dashed border-black/20 bg-white px-6 py-8 text-center">
+      <p className="text-xs uppercase tracking-[0.24em] text-black/45">{title}</p>
+      {qrMarkup ? (
+        <div
+          aria-label={`QR ${code}`}
+          className="mx-auto mt-4 h-40 w-40 rounded-[24px] border border-black/10 bg-white p-2"
+          dangerouslySetInnerHTML={{ __html: qrMarkup }}
+        />
+      ) : (
+        <div className="mx-auto mt-4 grid h-40 w-40 place-items-center rounded-[24px] border border-black/10 bg-[#f5f5f4] text-xs uppercase tracking-[0.3em] text-black/40">
+          No QR
+        </div>
+      )}
+      <p className="mt-4 text-sm font-medium text-black">{code || "No code"}</p>
+      <p className="mt-2 text-xs text-black/45">Camera scan is available on the receipt screen, with manual code fallback.</p>
+    </div>
+  );
+}
+
+export function Grid({
+  className,
+  children
+}: {
+  className?: string;
+  children: ReactNode;
+}) {
+  return <div className={cn("grid gap-6 xl:grid-cols-[1.2fr_0.8fr]", className)}>{children}</div>;
+}
