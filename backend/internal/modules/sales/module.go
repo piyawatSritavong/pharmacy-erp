@@ -20,6 +20,7 @@ type LineInput struct {
 	AliasID           *string  `json:"alias_id"`
 	Quantity          int      `json:"quantity"`
 	StockBucket       string   `json:"stock_bucket"`
+	PriceTier         string   `json:"price_tier"`
 	OverrideUnitPrice *float64 `json:"override_unit_price"`
 	OverrideReason    string   `json:"override_reason"`
 }
@@ -767,26 +768,31 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 		if item.StockBucket != "real" && item.StockBucket != "ghost" {
 			return nil, 0, 0, 0, platform.NewError(http.StatusBadRequest, "stock bucket must be real or ghost")
 		}
+		if item.PriceTier != "" && item.PriceTier != "cash" && item.PriceTier != "retail" && item.PriceTier != "installment" {
+			return nil, 0, 0, 0, platform.NewError(http.StatusBadRequest, "price_tier must be cash, retail or installment")
+		}
 
 		var (
 			productID         string
 			productName       string
 			costPrice         float64
 			basePrice         float64
+			retailPrice       float64
+			installmentPrice  float64
 			taxExempt         bool
 			aliasID           sql.NullString
 			aliasName         sql.NullString
 			aliasDefaultPrice sql.NullFloat64
 		)
 		if err := db.QueryRowContext(ctx, `
-			SELECT p.id::text, p.name, p.cost_price, COALESCE(bpp.selling_price, p.base_selling_price), p.tax_exempt,
+			SELECT p.id::text, p.name, p.cost_price, COALESCE(bpp.selling_price, p.base_selling_price), p.retail_price, p.installment_price, p.tax_exempt,
 			       a.id::text, a.alias_name, a.default_government_price
 			FROM products p
 			LEFT JOIN branch_product_prices bpp ON bpp.product_id = p.id AND bpp.branch_id = $2
 			LEFT JOIN product_aliases a ON a.id = $3 AND a.product_id = p.id AND a.active = TRUE AND (a.branch_id IS NULL OR a.branch_id = $2)
 			WHERE p.id = $1 AND p.active = TRUE
 		`, item.ProductID, branchID, platform.NullUUID(item.AliasID)).Scan(
-			&productID, &productName, &costPrice, &basePrice, &taxExempt, &aliasID, &aliasName, &aliasDefaultPrice,
+			&productID, &productName, &costPrice, &basePrice, &retailPrice, &installmentPrice, &taxExempt, &aliasID, &aliasName, &aliasDefaultPrice,
 		); err != nil {
 			if err == sql.ErrNoRows {
 				return nil, 0, 0, 0, platform.NewError(http.StatusNotFound, "product not found")
@@ -797,7 +803,7 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 			return nil, 0, 0, 0, err
 		}
 
-		displayName, unitPrice, priceSource, err := resolveLineDisplayAndPrice(productName, basePrice, aliasID, aliasName, aliasDefaultPrice, isGovernment, item.OverrideUnitPrice, canOverride(user))
+		displayName, unitPrice, priceSource, err := resolveLineDisplayAndPrice(productName, basePrice, retailPrice, installmentPrice, item.PriceTier, aliasID, aliasName, aliasDefaultPrice, isGovernment, item.OverrideUnitPrice, canOverride(user))
 		if err != nil {
 			return nil, 0, 0, 0, err
 		}
@@ -835,10 +841,25 @@ func validateAliasSelection(requestedAliasID *string, resolvedAliasID sql.NullSt
 	return nil
 }
 
-func resolveLineDisplayAndPrice(productName string, basePrice float64, aliasID sql.NullString, aliasName sql.NullString, aliasDefaultPrice sql.NullFloat64, isGovernment bool, overrideUnitPrice *float64, allowOverride bool) (string, float64, string, error) {
+func resolveLineDisplayAndPrice(productName string, basePrice float64, retailPrice float64, installmentPrice float64, priceTier string, aliasID sql.NullString, aliasName sql.NullString, aliasDefaultPrice sql.NullFloat64, isGovernment bool, overrideUnitPrice *float64, allowOverride bool) (string, float64, string, error) {
 	displayName := productName
 	priceSource := "branch_price"
 	unitPrice := basePrice
+
+	// Tier prices are product-level; 0 means the tier is not set and the
+	// branch/base price applies. Government alias and manual override win.
+	switch priceTier {
+	case "retail":
+		if retailPrice > 0 {
+			unitPrice = retailPrice
+			priceSource = "retail_tier"
+		}
+	case "installment":
+		if installmentPrice > 0 {
+			unitPrice = installmentPrice
+			priceSource = "installment_tier"
+		}
+	}
 
 	if isGovernment && aliasID.Valid {
 		displayName = aliasName.String

@@ -59,6 +59,10 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		{platform.MustUUID(), "inventory.manage.branch", "Manage Branch Inventory", "Adjust branch inventory"},
 		{platform.MustUUID(), "inventory.view.branch", "View Branch Inventory", "View inventory in assigned branch"},
 		{platform.MustUUID(), "inventory.rebalance", "Rebalance Inventory", "Move stock between real and ghost"},
+		{platform.MustUUID(), "inventory.receive", "Receive Inventory", "Receive incoming stock into real and ghost buckets"},
+		{platform.MustUUID(), "installment.view", "View Installments", "View installment plans and payments"},
+		{platform.MustUUID(), "installment.manage", "Manage Installments", "Create installment plans for invoices"},
+		{platform.MustUUID(), "installment.collect", "Collect Installment", "Record installment payments"},
 		{platform.MustUUID(), "price.override.global", "Global Price Override", "Override price centrally"},
 		{platform.MustUUID(), "price.override.branch", "Branch Price Override", "Override branch prices"},
 		{platform.MustUUID(), "price.override.pos", "POS Price Override", "Override prices from POS"},
@@ -94,33 +98,55 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		}
 	}
 
-	permissionByKey := map[string]string{}
 	for _, permission := range permissions {
-		permissionByKey[permission.Key] = permission.ID
 		if _, err = tx.ExecContext(ctx, `
 			INSERT INTO permissions (id, permission_key, name, description, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, NOW(), NOW())
+			ON CONFLICT (permission_key) DO NOTHING
 		`, permission.ID, permission.Key, permission.Name, permission.Description); err != nil {
 			return err
 		}
 	}
 
+	// Migrations may have inserted some permissions already (with their own
+	// ids), so map keys to the ids that actually landed in the database.
+	permissionByKey := map[string]string{}
+	permissionRows, err := tx.QueryContext(ctx, `SELECT id, permission_key FROM permissions`)
+	if err != nil {
+		return err
+	}
+	for permissionRows.Next() {
+		var id, key string
+		if err = permissionRows.Scan(&id, &key); err != nil {
+			permissionRows.Close()
+			return err
+		}
+		permissionByKey[key] = id
+	}
+	if err = permissionRows.Err(); err != nil {
+		permissionRows.Close()
+		return err
+	}
+	permissionRows.Close()
+
 	rolePermissionKeys := map[string][]string{
 		"super_admin": {
 			"dashboard.view.global", "products.manage", "products.view", "inventory.manage.global", "inventory.rebalance",
-			"price.override.global", "government.manage_alias", "government.use", "invoice.sequence.manage", "invoice.view",
-			"invoice.reprint", "quotation.manage", "transfer.approve", "transfer.request", "transfer.dispatch", "transfer.receive",
+			"inventory.receive", "price.override.global", "government.manage_alias", "government.use", "invoice.sequence.manage", "invoice.view",
+			"invoice.reprint", "quotation.manage", "installment.view", "installment.manage", "installment.collect",
+			"transfer.approve", "transfer.request", "transfer.dispatch", "transfer.receive",
 			"finance.manage.global", "payment.collect", "reports.view.global", "settings.manage", "users.manage",
 			"audit.view.global", "marketplace.manage.global", "marketplace.view.branch",
 		},
 		"branch_admin": {
 			"dashboard.view.branch", "products.view", "inventory.manage.branch", "inventory.view.branch", "inventory.rebalance",
-			"price.override.branch", "government.use", "invoice.create.branch", "invoice.view", "invoice.reprint",
-			"quotation.manage", "transfer.request", "transfer.dispatch", "finance.manage.branch", "marketplace.view.branch",
+			"inventory.receive", "price.override.branch", "government.use", "invoice.create.branch", "invoice.view", "invoice.reprint",
+			"quotation.manage", "installment.view", "installment.manage", "installment.collect",
+			"transfer.request", "transfer.dispatch", "finance.manage.branch", "marketplace.view.branch",
 		},
 		"branch_pos": {
 			"dashboard.view.self", "products.view", "inventory.view.branch", "price.override.pos", "government.use",
-			"invoice.create.pos", "invoice.view", "transfer.receive", "payment.collect",
+			"invoice.create.pos", "invoice.view", "installment.view", "installment.collect", "transfer.receive", "payment.collect",
 		},
 	}
 
@@ -134,6 +160,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 			if _, err = tx.ExecContext(ctx, `
 				INSERT INTO role_permissions (role_id, permission_id, created_at)
 				VALUES ($1, $2, NOW())
+				ON CONFLICT DO NOTHING
 			`, roleByKey[roleKey], permissionByKey[permissionKey]); err != nil {
 				return err
 			}

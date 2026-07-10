@@ -49,6 +49,7 @@ export function DocumentComposer({
   const [customerName, setCustomerName] = useState("");
   const [customerTaxID, setCustomerTaxID] = useState("");
   const [isGovernmentMode, setGovernmentMode] = useState(false);
+  const [priceTier, setPriceTier] = useState<"cash" | "retail" | "installment">("cash");
   const [lines, setLines] = useState<LineState[]>([{ ...emptyLine }]);
   const [aliasOptions, setAliasOptions] = useState<Record<string, Option[]>>({});
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
@@ -185,6 +186,7 @@ export function DocumentComposer({
           alias_id: isGovernmentMode && line.alias_id ? line.alias_id : undefined,
           quantity: Number(line.quantity),
           stock_bucket: line.stock_bucket,
+          price_tier: priceTier,
           override_unit_price: line.override_unit_price
             ? Number(line.override_unit_price)
             : undefined,
@@ -247,15 +249,29 @@ export function DocumentComposer({
           </label>
         </div>
 
-        <label className="flex items-center gap-3 rounded-[22px] border border-black/10 bg-surface-50 px-4 py-3 text-sm">
-          <input
-            aria-label="Government mode"
-            checked={isGovernmentMode}
-            onChange={(event) => setGovernmentMode(event.target.checked)}
-            type="checkbox"
-          />
-          Government mode
-        </label>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="flex items-center gap-3 rounded-[22px] border border-black/10 bg-surface-50 px-4 py-3 text-sm">
+            <input
+              aria-label="Government mode"
+              checked={isGovernmentMode}
+              onChange={(event) => setGovernmentMode(event.target.checked)}
+              type="checkbox"
+            />
+            Government mode
+          </label>
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-black/70">Price Tier</span>
+            <Select
+              aria-label="Price Tier"
+              value={priceTier}
+              onChange={(event) => setPriceTier(event.target.value as "cash" | "retail" | "installment")}
+            >
+              <option value="cash">Cash price</option>
+              <option value="retail">Retail price</option>
+              <option value="installment">Installment price</option>
+            </Select>
+          </label>
+        </div>
 
         <div className="space-y-3">
           {lines.map((line, index) => {

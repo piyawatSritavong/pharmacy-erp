@@ -12,6 +12,9 @@ func TestResolveLineDisplayAndPriceGovernmentMode(t *testing.T) {
 	displayName, unitPrice, priceSource, err := resolveLineDisplayAndPrice(
 		"เตียงผู้ป่วย",
 		5400,
+		0,
+		0,
+		"",
 		sql.NullString{String: "alias", Valid: true},
 		sql.NullString{String: "ผ้าอ้อมผู้ป่วย", Valid: true},
 		sql.NullFloat64{Float64: 5200, Valid: true},
@@ -24,6 +27,53 @@ func TestResolveLineDisplayAndPriceGovernmentMode(t *testing.T) {
 	}
 	if displayName != "ผ้าอ้อมผู้ป่วย" || unitPrice != 5200 || priceSource != "government_alias_default" {
 		t.Fatalf("unexpected government resolution: %s %.2f %s", displayName, unitPrice, priceSource)
+	}
+}
+
+func TestResolveLineDisplayAndPriceTiers(t *testing.T) {
+	cases := []struct {
+		name         string
+		tier         string
+		retailPrice  float64
+		installPrice float64
+		wantPrice    float64
+		wantSource   string
+	}{
+		{"retail tier set", "retail", 120, 150, 120, "retail_tier"},
+		{"installment tier set", "installment", 120, 150, 150, "installment_tier"},
+		{"retail tier not set falls back", "retail", 0, 150, 100, "branch_price"},
+		{"cash tier uses branch price", "cash", 120, 150, 100, "branch_price"},
+		{"empty tier uses branch price", "", 120, 150, 100, "branch_price"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, unitPrice, priceSource, err := resolveLineDisplayAndPrice(
+				"สินค้า", 100, tc.retailPrice, tc.installPrice, tc.tier,
+				sql.NullString{}, sql.NullString{}, sql.NullFloat64{},
+				false, nil, false,
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if unitPrice != tc.wantPrice || priceSource != tc.wantSource {
+				t.Fatalf("unexpected tier resolution: %.2f %s (want %.2f %s)", unitPrice, priceSource, tc.wantPrice, tc.wantSource)
+			}
+		})
+	}
+}
+
+func TestResolveLineDisplayAndPriceOverrideBeatsTier(t *testing.T) {
+	override := 99.0
+	_, unitPrice, priceSource, err := resolveLineDisplayAndPrice(
+		"สินค้า", 100, 120, 150, "retail",
+		sql.NullString{}, sql.NullString{}, sql.NullFloat64{},
+		false, &override, true,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if unitPrice != 99 || priceSource != "override" {
+		t.Fatalf("expected override to win over tier: %.2f %s", unitPrice, priceSource)
 	}
 }
 

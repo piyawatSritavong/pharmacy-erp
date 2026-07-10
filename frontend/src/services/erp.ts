@@ -66,6 +66,20 @@ export async function getInvoicePrint(id: string) {
   return apiServer<Record<string, unknown>>(`/invoices/${id}/print`);
 }
 
+export async function getInstallments(filters?: { branchId?: string; status?: string }) {
+  const query = new URLSearchParams();
+  if (filters?.branchId) {
+    query.set("branch_id", filters.branchId);
+  }
+  if (filters?.status) {
+    query.set("status", filters.status);
+  }
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return apiServer<{ items: Array<Record<string, unknown>>; summary: Record<string, unknown> }>(
+    `/installments${suffix}`
+  );
+}
+
 export async function getTransfers() {
   return apiServer<{ items: Array<Record<string, unknown>> }>("/transfers");
 }

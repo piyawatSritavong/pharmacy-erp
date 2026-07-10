@@ -20,6 +20,8 @@ type ProductInput struct {
 	Description      string  `json:"description"`
 	CostPrice        float64 `json:"cost_price"`
 	BaseSellingPrice float64 `json:"base_selling_price"`
+	RetailPrice      float64 `json:"retail_price"`
+	InstallmentPrice float64 `json:"installment_price"`
 	UnitName         string  `json:"unit_name"`
 	TaxExempt        bool    `json:"tax_exempt"`
 	Active           *bool   `json:"active"`
@@ -46,7 +48,7 @@ func NewService(db *sql.DB, auditService *audit.Service) *Service {
 func (s *Service) List(ctx context.Context, branchID string) ([]map[string]any, error) {
 	if branchID == "" {
 		rows, err := s.db.QueryContext(ctx, `
-			SELECT p.id, p.sku, p.name, p.description, p.cost_price, p.base_selling_price, p.unit_name, p.tax_exempt, p.active, p.base_selling_price
+			SELECT p.id, p.sku, p.name, p.description, p.cost_price, p.base_selling_price, p.retail_price, p.installment_price, p.unit_name, p.tax_exempt, p.active, p.base_selling_price
 			FROM products p
 			ORDER BY p.name
 		`)
@@ -58,7 +60,7 @@ func (s *Service) List(ctx context.Context, branchID string) ([]map[string]any, 
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT p.id, p.sku, p.name, p.description, p.cost_price, p.base_selling_price, p.unit_name, p.tax_exempt, p.active,
+		SELECT p.id, p.sku, p.name, p.description, p.cost_price, p.base_selling_price, p.retail_price, p.installment_price, p.unit_name, p.tax_exempt, p.active,
 		       COALESCE(bpp.selling_price, p.base_selling_price)
 		FROM products p
 		LEFT JOIN branch_product_prices bpp ON bpp.product_id = p.id AND bpp.branch_id = $1
@@ -75,9 +77,9 @@ func scanProducts(rows *sql.Rows) ([]map[string]any, error) {
 	items := []map[string]any{}
 	for rows.Next() {
 		var id, sku, name, description, unit string
-		var costPrice, baseSellingPrice, effectivePrice float64
+		var costPrice, baseSellingPrice, retailPrice, installmentPrice, effectivePrice float64
 		var taxExempt, active bool
-		if err := rows.Scan(&id, &sku, &name, &description, &costPrice, &baseSellingPrice, &unit, &taxExempt, &active, &effectivePrice); err != nil {
+		if err := rows.Scan(&id, &sku, &name, &description, &costPrice, &baseSellingPrice, &retailPrice, &installmentPrice, &unit, &taxExempt, &active, &effectivePrice); err != nil {
 			return nil, err
 		}
 		items = append(items, map[string]any{
@@ -87,6 +89,8 @@ func scanProducts(rows *sql.Rows) ([]map[string]any, error) {
 			"description":        description,
 			"cost_price":         costPrice,
 			"base_selling_price": baseSellingPrice,
+			"retail_price":       retailPrice,
+			"installment_price":  installmentPrice,
 			"effective_price":    effectivePrice,
 			"unit_name":          unit,
 			"tax_exempt":         taxExempt,
@@ -156,9 +160,9 @@ func (s *Service) CreateProduct(ctx context.Context, user platform.AuthUser, met
 			active = *input.Active
 		}
 		_, err := tx.ExecContext(ctx, `
-			INSERT INTO products (id, sku, name, description, cost_price, base_selling_price, unit_name, tax_exempt, active, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-		`, id, strings.TrimSpace(input.SKU), strings.TrimSpace(input.Name), strings.TrimSpace(input.Description), platform.Round2(input.CostPrice), platform.Round2(input.BaseSellingPrice), strings.TrimSpace(input.UnitName), input.TaxExempt, active)
+			INSERT INTO products (id, sku, name, description, cost_price, base_selling_price, retail_price, installment_price, unit_name, tax_exempt, active, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+		`, id, strings.TrimSpace(input.SKU), strings.TrimSpace(input.Name), strings.TrimSpace(input.Description), platform.Round2(input.CostPrice), platform.Round2(input.BaseSellingPrice), platform.Round2(input.RetailPrice), platform.Round2(input.InstallmentPrice), strings.TrimSpace(input.UnitName), input.TaxExempt, active)
 		if err != nil {
 			return err
 		}
@@ -183,9 +187,9 @@ func (s *Service) UpdateProduct(ctx context.Context, productID string, user plat
 		}
 		_, err := tx.ExecContext(ctx, `
 			UPDATE products
-			SET sku = $2, name = $3, description = $4, cost_price = $5, base_selling_price = $6, unit_name = $7, tax_exempt = $8, active = $9, updated_at = NOW()
+			SET sku = $2, name = $3, description = $4, cost_price = $5, base_selling_price = $6, retail_price = $7, installment_price = $8, unit_name = $9, tax_exempt = $10, active = $11, updated_at = NOW()
 			WHERE id = $1
-		`, productID, strings.TrimSpace(input.SKU), strings.TrimSpace(input.Name), strings.TrimSpace(input.Description), platform.Round2(input.CostPrice), platform.Round2(input.BaseSellingPrice), strings.TrimSpace(input.UnitName), input.TaxExempt, active)
+		`, productID, strings.TrimSpace(input.SKU), strings.TrimSpace(input.Name), strings.TrimSpace(input.Description), platform.Round2(input.CostPrice), platform.Round2(input.BaseSellingPrice), platform.Round2(input.RetailPrice), platform.Round2(input.InstallmentPrice), strings.TrimSpace(input.UnitName), input.TaxExempt, active)
 		if err != nil {
 			return err
 		}

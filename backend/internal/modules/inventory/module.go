@@ -29,6 +29,14 @@ type AdjustRequest struct {
 	Reason        string `json:"reason"`
 }
 
+type ReceiveRequest struct {
+	ProductID     string `json:"product_id"`
+	BranchID      string `json:"branch_id"`
+	RealQuantity  int    `json:"real_quantity"`
+	GhostQuantity int    `json:"ghost_quantity"`
+	Note          string `json:"note"`
+}
+
 type Service struct {
 	db    *sql.DB
 	audit *audit.Service
@@ -216,6 +224,69 @@ func (s *Service) Adjust(ctx context.Context, user platform.AuthUser, meta audit
 	})
 }
 
+func (s *Service) Receive(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, input ReceiveRequest) error {
+	if input.RealQuantity < 0 || input.GhostQuantity < 0 {
+		return platform.NewError(http.StatusBadRequest, "quantities must not be negative")
+	}
+	if input.RealQuantity == 0 && input.GhostQuantity == 0 {
+		return platform.NewError(http.StatusBadRequest, "at least one of real_quantity or ghost_quantity is required")
+	}
+	if strings.TrimSpace(input.BranchID) == "" {
+		return platform.NewError(http.StatusBadRequest, "branch_id is required")
+	}
+	if err := validateBranchScope(user, input.BranchID); err != nil {
+		return err
+	}
+	return platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
+		var productExists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM products WHERE id = $1 AND active = TRUE)`, input.ProductID).Scan(&productExists); err != nil {
+			return err
+		}
+		if !productExists {
+			return platform.NewError(http.StatusNotFound, "product not found")
+		}
+
+		var qtyReal, qtyGhost int
+		if err := tx.QueryRowContext(ctx, `
+			INSERT INTO inventory (id, branch_id, product_id, qty_real, qty_ghost, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+			ON CONFLICT (branch_id, product_id) DO UPDATE
+			SET qty_real = inventory.qty_real + EXCLUDED.qty_real,
+			    qty_ghost = inventory.qty_ghost + EXCLUDED.qty_ghost,
+			    updated_at = NOW()
+			RETURNING qty_real, qty_ghost
+		`, platform.MustUUID(), input.BranchID, input.ProductID, input.RealQuantity, input.GhostQuantity).Scan(&qtyReal, &qtyGhost); err != nil {
+			return err
+		}
+
+		note := strings.TrimSpace(input.Note)
+		for _, movement := range []struct {
+			Bucket string
+			Delta  int
+		}{
+			{"real", input.RealQuantity},
+			{"ghost", input.GhostQuantity},
+		} {
+			if movement.Delta == 0 {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO inventory_movements (id, branch_id, product_id, movement_type, stock_bucket, quantity_delta, reference_type, note, performed_by, created_at)
+				VALUES ($1, $2, $3, 'receive', $4, $5, 'inventory.receive', $6, $7, NOW())
+			`, platform.MustUUID(), input.BranchID, input.ProductID, movement.Bucket, movement.Delta, note, user.ID); err != nil {
+				return err
+			}
+		}
+
+		entityID := input.ProductID
+		meta.EntityType = "inventory"
+		meta.EntityID = &entityID
+		meta.Action = "inventory.receive"
+		meta.After = map[string]any{"qty_real": qtyReal, "qty_ghost": qtyGhost, "received_real": input.RealQuantity, "received_ghost": input.GhostQuantity}
+		return s.audit.Log(ctx, tx, meta)
+	})
+}
+
 func applyRebalanceResult(qtyReal, qtyGhost, quantity int, fromBucket string) (int, int, error) {
 	if fromBucket == "real" {
 		if qtyReal < quantity {
@@ -282,6 +353,22 @@ func (h *Handler) Rebalance(c echo.Context) error {
 		return platform.HandleHTTPError(c, err)
 	}
 	return platform.JSONMessage(c, http.StatusOK, "inventory rebalanced")
+}
+
+func (h *Handler) Receive(c echo.Context) error {
+	var input ReceiveRequest
+	if err := c.Bind(&input); err != nil {
+		return platform.HandleHTTPError(c, platform.NewError(http.StatusBadRequest, "invalid request body"))
+	}
+	user := platform.CurrentUser(c)
+	if input.BranchID == "" && user.BranchID != nil {
+		input.BranchID = *user.BranchID
+	}
+	meta := audit.MetaFromContext(c)
+	if err := h.service.Receive(c.Request().Context(), user, meta, input); err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
+	return platform.JSONMessage(c, http.StatusOK, "stock received")
 }
 
 func (h *Handler) Adjust(c echo.Context) error {

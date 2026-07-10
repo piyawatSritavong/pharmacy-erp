@@ -23,12 +23,14 @@ export function InventoryConsole({
   mode?: "manage" | "check";
 }) {
   const router = useRouter();
-  const [actionMode, setActionMode] = useState<"adjust" | "rebalance">("adjust");
+  const [actionMode, setActionMode] = useState<"adjust" | "rebalance" | "receive">("adjust");
   const [branchId, setBranchId] = useState(defaultBranchId || "");
   const [productId, setProductId] = useState("");
   const [stockBucket, setStockBucket] = useState("real");
   const [quantity, setQuantity] = useState("1");
   const [toBucket, setToBucket] = useState("ghost");
+  const [realQuantity, setRealQuantity] = useState("0");
+  const [ghostQuantity, setGhostQuantity] = useState("0");
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
@@ -47,7 +49,12 @@ export function InventoryConsole({
   const branchLabel = String(branches.find((item) => String(item.id) === branchId)?.name || "");
 
   async function submit() {
-    const path = actionMode === "adjust" ? "/inventory/adjust" : "/inventory/rebalance";
+    const path =
+      actionMode === "adjust"
+        ? "/inventory/adjust"
+        : actionMode === "rebalance"
+          ? "/inventory/rebalance"
+          : "/inventory/receive";
     const payload =
       actionMode === "adjust"
         ? {
@@ -57,14 +64,22 @@ export function InventoryConsole({
             quantity_delta: Number(quantity),
             reason
           }
-        : {
-            branch_id: branchId,
-            product_id: productId,
-            from_bucket: stockBucket,
-            to_bucket: toBucket,
-            quantity: Number(quantity),
-            reason
-          };
+        : actionMode === "rebalance"
+          ? {
+              branch_id: branchId,
+              product_id: productId,
+              from_bucket: stockBucket,
+              to_bucket: toBucket,
+              quantity: Number(quantity),
+              reason
+            }
+          : {
+              branch_id: branchId,
+              product_id: productId,
+              real_quantity: Number(realQuantity),
+              ghost_quantity: Number(ghostQuantity),
+              note: reason
+            };
 
     try {
       const response = await proxyClient<{ message: string }>(path, {
@@ -110,9 +125,10 @@ export function InventoryConsole({
   return (
     <SectionCard title="Inventory Actions" description="All stock movement is calculated and logged by the backend.">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <Select value={actionMode} onChange={(event) => setActionMode(event.target.value as "adjust" | "rebalance")}>
+        <Select value={actionMode} onChange={(event) => setActionMode(event.target.value as "adjust" | "rebalance" | "receive")}>
           <option value="adjust">Manual Adjust</option>
           <option value="rebalance">Real ↔ Ghost</option>
+          <option value="receive">Receive Stock</option>
         </Select>
         <Select value={branchId} onChange={(event) => setBranchId(event.target.value)}>
           <option value="">Select branch</option>
@@ -130,24 +146,41 @@ export function InventoryConsole({
             </option>
           ))}
         </Select>
-        <Select value={stockBucket} onChange={(event) => setStockBucket(event.target.value)}>
-          <option value="real">Real</option>
-          <option value="ghost">Ghost</option>
-        </Select>
+        {actionMode === "receive" ? (
+          <>
+            <Input
+              aria-label="Real Quantity"
+              value={realQuantity}
+              onChange={(event) => setRealQuantity(event.target.value)}
+              placeholder="Real quantity"
+              type="number"
+            />
+            <Input
+              aria-label="Ghost Quantity"
+              value={ghostQuantity}
+              onChange={(event) => setGhostQuantity(event.target.value)}
+              placeholder="Ghost quantity"
+              type="number"
+            />
+          </>
+        ) : (
+          <Select value={stockBucket} onChange={(event) => setStockBucket(event.target.value)}>
+            <option value="real">Real</option>
+            <option value="ghost">Ghost</option>
+          </Select>
+        )}
         {actionMode === "rebalance" ? (
           <Select value={toBucket} onChange={(event) => setToBucket(event.target.value)}>
             <option value="real">Real</option>
             <option value="ghost">Ghost</option>
           </Select>
-        ) : (
-          <Input value={quantity} onChange={(event) => setQuantity(event.target.value)} type="number" />
-        )}
-        {actionMode === "rebalance" ? (
+        ) : null}
+        {actionMode !== "receive" ? (
           <Input value={quantity} onChange={(event) => setQuantity(event.target.value)} type="number" />
         ) : null}
-        <Input className="xl:col-span-2" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason" />
+        <Input className="xl:col-span-2" value={reason} onChange={(event) => setReason(event.target.value)} placeholder={actionMode === "receive" ? "Note (e.g. supplier, shipment)" : "Reason"} />
         <Button onClick={submit} type="button">
-          {actionMode === "adjust" ? "Apply Adjustment" : "Rebalance Stock"}
+          {actionMode === "adjust" ? "Apply Adjustment" : actionMode === "rebalance" ? "Rebalance Stock" : "Receive Stock"}
         </Button>
       </div>
       {message ? <p className="mt-4 text-sm text-black/70">{message}</p> : null}

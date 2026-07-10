@@ -33,6 +33,8 @@ export function ProductConsole({
             description: formData.get("description"),
             cost_price: Number(formData.get("cost_price")),
             base_selling_price: Number(formData.get("base_selling_price")),
+            retail_price: Number(formData.get("retail_price")),
+            installment_price: Number(formData.get("installment_price")),
             unit_name: formData.get("unit_name"),
             tax_exempt: formData.get("tax_exempt") === "on",
             active: true
@@ -72,7 +74,9 @@ export function ProductConsole({
             <Input name="name" placeholder="Product name" />
             <Input name="description" placeholder="Description" />
             <Input name="cost_price" placeholder="Cost price" type="number" />
-            <Input name="base_selling_price" placeholder="Base selling price" type="number" />
+            <Input name="base_selling_price" placeholder="Cash price (base)" type="number" />
+            <Input name="retail_price" placeholder="Retail price (0 = use base)" type="number" />
+            <Input name="installment_price" placeholder="Installment price (0 = use base)" type="number" />
             <Input name="unit_name" placeholder="Unit" />
           </>
         ) : (

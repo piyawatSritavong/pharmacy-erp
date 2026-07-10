@@ -11,6 +11,7 @@ import (
 	"pharmacy-erp/backend/internal/modules/branches"
 	"pharmacy-erp/backend/internal/modules/dashboard"
 	"pharmacy-erp/backend/internal/modules/finance"
+	"pharmacy-erp/backend/internal/modules/installments"
 	"pharmacy-erp/backend/internal/modules/inventory"
 	"pharmacy-erp/backend/internal/modules/marketplace"
 	"pharmacy-erp/backend/internal/modules/products"
@@ -50,6 +51,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	salesHandler := sales.NewHandler(sales.NewService(db, auditService))
 	transferHandler := transfers.NewHandler(transfers.NewService(db, auditService))
 	financeHandler := finance.NewHandler(finance.NewService(db, auditService))
+	installmentHandler := installments.NewHandler(installments.NewService(db, auditService))
 	reportHandler := reports.NewHandler(reports.NewService(db))
 	marketplaceHandler := marketplace.NewHandler(marketplace.NewService(db, auditService))
 	auditHandler := audit.NewHandler(auditService)
@@ -93,6 +95,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.GET("/inventory", inventoryHandler.List, appMiddleware.RequireAnyPermission("inventory.view.branch", "inventory.manage.branch", "inventory.manage.global"))
 	protected.POST("/inventory/rebalance", inventoryHandler.Rebalance, appMiddleware.RequireAnyPermission("inventory.rebalance"))
 	protected.POST("/inventory/adjust", inventoryHandler.Adjust, appMiddleware.RequireAnyPermission("inventory.manage.global", "inventory.manage.branch"))
+	protected.POST("/inventory/receive", inventoryHandler.Receive, appMiddleware.RequireAnyPermission("inventory.receive"))
 
 	protected.POST("/quotations/preview", salesHandler.PreviewQuotation, appMiddleware.RequireAnyPermission("quotation.manage"))
 	protected.GET("/quotations", salesHandler.ListQuotations, appMiddleware.RequireAnyPermission("quotation.manage"))
@@ -111,6 +114,10 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.POST("/transfers/:transferID/dispatch", transferHandler.Dispatch, appMiddleware.RequireAnyPermission("transfer.dispatch", "transfer.approve"))
 	protected.POST("/transfers/:transferID/receive", transferHandler.Receive, appMiddleware.RequireAnyPermission("transfer.receive", "transfer.approve"))
 	protected.POST("/transfers/receive-by-code", transferHandler.ReceiveByCode, appMiddleware.RequireAnyPermission("transfer.receive", "transfer.approve"))
+
+	protected.GET("/installments", installmentHandler.List, appMiddleware.RequireAnyPermission("installment.view", "installment.manage", "installment.collect"))
+	protected.POST("/installments", installmentHandler.CreatePlan, appMiddleware.RequireAnyPermission("installment.manage"))
+	protected.POST("/installments/payments/:paymentID/pay", installmentHandler.RecordPayment, appMiddleware.RequireAnyPermission("installment.collect"))
 
 	protected.GET("/checks", financeHandler.ListChecks, appMiddleware.RequireAnyPermission("finance.manage.global", "finance.manage.branch"))
 	protected.GET("/checks/outstanding-invoices", financeHandler.ListOutstandingInvoices, appMiddleware.RequireAnyPermission("finance.manage.global", "finance.manage.branch"))

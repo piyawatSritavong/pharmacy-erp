@@ -177,17 +177,20 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	case "super_admin":
 		items = appendItem(items, "dashboard", "Dashboard", "/dashboard", "Global sales and stock overview")
 		items = appendItem(items, "inventory_management", "Inventory Management", "/inventory-management", "Master products, aliases, and enterprise inventory")
+		items = appendItem(items, "installments", "Installments", "/installments", "Installment plans, collections, and overdue tracking")
 		items = appendItem(items, "finance_central", "Finance Central", "/finance-central", "Central check clearing and outstanding invoices")
 		items = appendItem(items, "global_reports", "Global Reports", "/global-reports", "Tax and profit/loss across all branches")
 		items = appendItem(items, "settings", "Settings", "/settings", "Branches, users, roles, sequences, marketplace, and audit")
 	case "branch_admin":
 		items = appendItem(items, "branch_dashboard", "Branch Dashboard", "/branch-dashboard", "Branch-only sales and transfer overview")
-		items = appendItem(items, "branch_inventory", "Branch Inventory", "/branch-inventory", "Branch stock, rebalance, transfer request, and dispatch queue")
+		items = appendItem(items, "branch_inventory", "Branch Inventory", "/branch-inventory", "Branch stock, receiving, rebalance, transfer request, and dispatch queue")
 		items = appendItem(items, "sales_invoices", "Sales & Invoices", "/sales-invoices", "Quotations, invoice issue, history, and reprint")
+		items = appendItem(items, "installments", "Installments", "/installments", "Create plans from unpaid invoices and collect installments")
 		items = appendItem(items, "local_finance", "Local Finance", "/local-finance", "Match branch invoices with checks")
 	case "branch_pos":
 		items = appendItem(items, "pos_screen", "POS Screen", "/sales", "Retail and government-mode billing")
 		items = appendItem(items, "inventory_check", "Inventory Check", "/inventory-check", "Search branch stock without edit actions")
+		items = appendItem(items, "installments", "Installments", "/installments", "Collect installment payments by due date")
 		items = appendItem(items, "goods_transfer_receipt", "Goods Transfer Receipt", "/transfer-receipts", "Receive transfers by QR camera or manual code")
 		items = appendItem(items, "daily_sales_summary", "Daily Sales Summary", "/daily-sales", "Your daily sales and collections")
 	default:
