@@ -194,8 +194,8 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		Next     int
 		IsLocked bool
 	}{
-		{platform.MustUUID(), branchOneID, "invoice", "BL", 4, false},
-		{platform.MustUUID(), branchTwoID, "invoice", "BL", 1, false},
+		{platform.MustUUID(), branchOneID, "invoice", "BL", 6, false},
+		{platform.MustUUID(), branchTwoID, "invoice", "BL", 2, false},
 		{platform.MustUUID(), branchOneID, "quotation", "QT", 2, false},
 		{platform.MustUUID(), branchTwoID, "quotation", "QT", 1, false},
 	} {
@@ -234,20 +234,22 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		Description string
 		Cost        float64
 		Price       float64
+		Retail      float64
+		Installment float64
 		Unit        string
 		TaxExempt   bool
 	}{
-		{productIDs[0], "BED-001", "เตียงผู้ป่วยปรับระดับ", "เตียงผู้ป่วยแบบมือหมุน", 4200, 5500, "unit", false},
-		{productIDs[1], "DIAPER-001", "ผ้าอ้อมผู้ใหญ่", "ผ้าอ้อมผู้ใหญ่แบบกลางคืน", 180, 250, "pack", false},
-		{productIDs[2], "MASK-001", "หน้ากากอนามัย", "หน้ากาก 3 ชั้น", 55, 89, "box", false},
-		{productIDs[3], "MED-001", "ยาพาราเซตามอล", "500mg", 18, 35, "box", true},
+		{productIDs[0], "BED-001", "เตียงผู้ป่วยปรับระดับ", "เตียงผู้ป่วยแบบมือหมุน", 4200, 5500, 5800, 6200, "unit", false},
+		{productIDs[1], "DIAPER-001", "ผ้าอ้อมผู้ใหญ่", "ผ้าอ้อมผู้ใหญ่แบบกลางคืน", 180, 250, 269, 320, "pack", false},
+		{productIDs[2], "MASK-001", "หน้ากากอนามัย", "หน้ากาก 3 ชั้น", 55, 89, 99, 0, "box", false},
+		{productIDs[3], "MED-001", "ยาพาราเซตามอล", "500mg", 18, 35, 39, 0, "box", true},
 	}
 
 	for _, product := range products {
 		if _, err = tx.ExecContext(ctx, `
-			INSERT INTO products (id, sku, name, description, cost_price, base_selling_price, unit_name, tax_exempt, active, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, NOW(), NOW())
-		`, product.ID, product.SKU, product.Name, product.Description, product.Cost, product.Price, product.Unit, product.TaxExempt); err != nil {
+			INSERT INTO products (id, sku, name, description, cost_price, base_selling_price, retail_price, installment_price, unit_name, tax_exempt, active, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, NOW(), NOW())
+		`, product.ID, product.SKU, product.Name, product.Description, product.Cost, product.Price, product.Retail, product.Installment, product.Unit, product.TaxExempt); err != nil {
 			return err
 		}
 	}
@@ -543,6 +545,180 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 			($7, $2, $3, 'transfer', $8, 'seed.create', '{}'::jsonb, '{"transfer_code":"TRF-KNP-MNS-0002"}'::jsonb, 'seed-run', '127.0.0.1', 'seed', NOW()),
 			($9, $2, $3, 'transfer', $10, 'seed.create', '{}'::jsonb, '{"transfer_code":"TRF-MNS-KNP-0003"}'::jsonb, 'seed-run', '127.0.0.1', 'seed', NOW())
 	`, platform.MustUUID(), adminUserID, branchOneID, openInvoiceID, platform.MustUUID(), transferID, platform.MustUUID(), receiptTransferID, platform.MustUUID(), dispatchTransferID, platform.MustJSON(map[string]any{"invoice_number": openInvoiceNumber})); err != nil {
+		return err
+	}
+
+	// --- Installment billing demo (DockBill feature port) ---
+	// Invoice #4: active plan, one installment paid, one overdue.
+	// Invoice #5: completed plan (ghost-bucket sale), fully paid.
+	activePlanIssuedAt := now.AddDate(0, 0, -70)
+	completedPlanIssuedAt := now.AddDate(0, 0, -75)
+	activePlanInvoiceNumber := platform.FormatSalesDocNumber("BL", activePlanIssuedAt, 4)
+	completedPlanInvoiceNumber := platform.FormatSalesDocNumber("BL", completedPlanIssuedAt, 5)
+	activePlanInvoiceID := platform.MustUUID()
+	completedPlanInvoiceID := platform.MustUUID()
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO invoices (id, branch_id, invoice_number, customer_name, customer_tax_id, payment_status, invoice_status, is_government_mode, subtotal, tax_rate, tax_amount, total_amount, created_by, issued_at, created_at, updated_at)
+		VALUES
+			($1, $2, $3, 'คุณสมชาย ใจดี (ผ่อนชำระ)', NULL, 'installment', 'issued', FALSE, 6200.00, 7.00, 434.00, 6634.00, $4, $5, $5, $5),
+			($6, $2, $7, 'คุณวิภา รักสุขภาพ (ผ่อนครบแล้ว)', NULL, 'paid', 'issued', FALSE, 640.00, 7.00, 44.80, 684.80, $4, $8, $8, $8)
+	`, activePlanInvoiceID, branchOneID, activePlanInvoiceNumber, adminUserID, activePlanIssuedAt, completedPlanInvoiceID, completedPlanInvoiceNumber, completedPlanIssuedAt); err != nil {
+		return err
+	}
+
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO invoice_items (id, invoice_id, product_id, alias_id, actual_product_name, display_name, quantity, stock_bucket, unit_price, line_subtotal, tax_rate, tax_amount, line_total, price_source, override_reason, cost_snapshot, created_at)
+		VALUES
+			($1, $2, $3, NULL, 'เตียงผู้ป่วยปรับระดับ', 'เตียงผู้ป่วยปรับระดับ', 1, 'real', 6200.00, 6200.00, 7.00, 434.00, 6634.00, 'installment_tier', '', 4200.00, NOW()),
+			($4, $5, $6, NULL, 'ผ้าอ้อมผู้ใหญ่', 'ผ้าอ้อมผู้ใหญ่', 2, 'ghost', 320.00, 640.00, 7.00, 44.80, 684.80, 'installment_tier', '', 180.00, NOW())
+	`, platform.MustUUID(), activePlanInvoiceID, productIDs[0], platform.MustUUID(), completedPlanInvoiceID, productIDs[1]); err != nil {
+		return err
+	}
+
+	activePlanID := platform.MustUUID()
+	completedPlanID := platform.MustUUID()
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO installment_plans (id, invoice_id, branch_id, months, monthly_amount, total_amount, status, created_by, created_at, updated_at)
+		VALUES
+			($1, $2, $3, 6, 1105.67, 6634.00, 'active', $4, $5, $5),
+			($6, $7, $3, 2, 342.40, 684.80, 'completed', $4, $8, $8)
+	`, activePlanID, activePlanInvoiceID, branchOneID, adminUserID, activePlanIssuedAt, completedPlanID, completedPlanInvoiceID, completedPlanIssuedAt); err != nil {
+		return err
+	}
+
+	// Active plan: seq 1 paid, seq 2 due 10 days ago (shows as overdue), rest pending.
+	for seq := 1; seq <= 6; seq++ {
+		amount := 1105.67
+		if seq == 6 {
+			amount = 1105.65
+		}
+		paid := 0.0
+		status := "pending"
+		var paidAt any
+		var receivedBy any
+		if seq == 1 {
+			paid = amount
+			status = "paid"
+			paidAt = now.AddDate(0, 0, -39)
+			receivedBy = posUserID
+		}
+		dueDate := now.AddDate(0, 0, -40+(seq-1)*30)
+		if _, err = tx.ExecContext(ctx, `
+			INSERT INTO installment_payments (id, plan_id, seq_number, due_date, amount, paid_amount, paid_at, status, received_by, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+		`, platform.MustUUID(), activePlanID, seq, dueDate.Format("2006-01-02"), amount, paid, paidAt, status, receivedBy, activePlanIssuedAt); err != nil {
+			return err
+		}
+	}
+
+	for seq, paidDaysAgo := range map[int]int{1: 44, 2: 14} {
+		if _, err = tx.ExecContext(ctx, `
+			INSERT INTO installment_payments (id, plan_id, seq_number, due_date, amount, paid_amount, paid_at, status, received_by, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, 342.40, 342.40, $5, 'paid', $6, $7, $7)
+		`, platform.MustUUID(), completedPlanID, seq, now.AddDate(0, 0, -paidDaysAgo-1).Format("2006-01-02"), now.AddDate(0, 0, -paidDaysAgo), posUserID, completedPlanIssuedAt); err != nil {
+			return err
+		}
+	}
+
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO invoice_payments (id, invoice_id, payment_type, amount, reference_code, notes, created_by, created_at)
+		VALUES
+			($1, $2, 'cash', 1105.67, 'INST-0001-1', 'รับชำระงวดที่ 1', $3, $4),
+			($5, $6, 'cash', 342.40, 'INST-0002-1', 'รับชำระงวดที่ 1', $3, $7),
+			($8, $6, 'bank_transfer', 342.40, 'INST-0002-2', 'รับชำระงวดสุดท้าย ปิดแผนผ่อน', $3, $9)
+	`, platform.MustUUID(), activePlanInvoiceID, posUserID, now.AddDate(0, 0, -39), platform.MustUUID(), completedPlanInvoiceID, now.AddDate(0, 0, -45), platform.MustUUID(), now.AddDate(0, 0, -14)); err != nil {
+		return err
+	}
+
+	// --- Branch 2 invoice settled by an applied check (payment_invoice_map demo) ---
+	checkInvoiceIssuedAt := now.AddDate(0, 0, -3)
+	checkInvoiceNumber := platform.FormatSalesDocNumber("BL", checkInvoiceIssuedAt, 1)
+	checkInvoiceID := platform.MustUUID()
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO invoices (id, branch_id, invoice_number, customer_name, customer_tax_id, payment_status, invoice_status, is_government_mode, subtotal, tax_rate, tax_amount, total_amount, created_by, issued_at, created_at, updated_at)
+		VALUES ($1, $2, $3, 'รพ.สต.บางน้ำใส', '0994000158888', 'paid', 'issued', FALSE, 350.00, 7.00, 0.00, 350.00, $4, $5, $5, $5)
+	`, checkInvoiceID, branchTwoID, checkInvoiceNumber, superUserID, checkInvoiceIssuedAt); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO invoice_items (id, invoice_id, product_id, alias_id, actual_product_name, display_name, quantity, stock_bucket, unit_price, line_subtotal, tax_rate, tax_amount, line_total, price_source, override_reason, cost_snapshot, created_at)
+		VALUES ($1, $2, $3, NULL, 'ยาพาราเซตามอล', 'ยาพาราเซตามอล', 10, 'real', 35.00, 350.00, 0.00, 0.00, 350.00, 'branch_price', '', 18.00, NOW())
+	`, platform.MustUUID(), checkInvoiceID, productIDs[3]); err != nil {
+		return err
+	}
+	appliedCheckID := platform.MustUUID()
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO checks (id, branch_id, check_number, bank_name, payer_name, amount, status, received_date, created_by, created_at, updated_at)
+		VALUES ($1, $2, 'CHK-0002', 'Kasikorn', 'รพ.สต.บางน้ำใส', 350.00, 'applied', CURRENT_DATE - 2, $3, NOW(), NOW())
+	`, appliedCheckID, branchTwoID, superUserID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO payment_invoice_map (id, check_id, invoice_id, applied_amount, created_at)
+		VALUES ($1, $2, $3, 350.00, NOW() - INTERVAL '2 day')
+	`, platform.MustUUID(), appliedCheckID, checkInvoiceID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO invoice_payments (id, invoice_id, payment_type, amount, reference_code, notes, created_by, created_at)
+		VALUES ($1, $2, 'check', 350.00, 'CHK-0002', 'ตัดชำระด้วยเช็ค', $3, NOW() - INTERVAL '2 day')
+	`, platform.MustUUID(), checkInvoiceID, superUserID); err != nil {
+		return err
+	}
+
+	// --- Inventory movement history that reconciles to the stock levels above ---
+	receivedAt := now.AddDate(0, 0, -80)
+	type movement struct {
+		BranchID  string
+		ProductID string
+		Type      string
+		Bucket    string
+		Delta     int
+		RefType   string
+		RefID     any
+		Note      string
+		At        time.Time
+	}
+	movements := []movement{
+		{branchOneID, productIDs[0], "receive", "real", 7, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchOneID, productIDs[0], "receive", "ghost", 1, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchOneID, productIDs[1], "receive", "real", 53, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchOneID, productIDs[1], "receive", "ghost", 20, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchOneID, productIDs[2], "receive", "real", 82, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchOneID, productIDs[2], "receive", "ghost", 10, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchOneID, productIDs[3], "receive", "real", 110, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchOneID, productIDs[1], "rebalance", "real", -2, "inventory.rebalance", nil, "ปรับสัดส่วนขายเงินสด", now.AddDate(0, 0, -50)},
+		{branchOneID, productIDs[1], "rebalance", "ghost", 2, "inventory.rebalance", nil, "ปรับสัดส่วนขายเงินสด", now.AddDate(0, 0, -50)},
+		{branchOneID, productIDs[0], "sale", "real", -1, "invoice", openInvoiceID, "", openInvoiceIssuedAt},
+		{branchOneID, productIDs[0], "sale", "real", -1, "invoice", activePlanInvoiceID, "", activePlanIssuedAt},
+		{branchOneID, productIDs[1], "sale", "ghost", -2, "invoice", completedPlanInvoiceID, "", completedPlanIssuedAt},
+		{branchOneID, productIDs[1], "sale", "real", -1, "invoice", paidInvoiceID, "", paidInvoiceIssuedAt},
+		{branchOneID, productIDs[2], "sale", "real", -2, "invoice", posTodayInvoiceID, "", posTodayIssuedAt},
+		{branchOneID, productIDs[3], "sale", "real", -10, "invoice", posTodayInvoiceID, "", posTodayIssuedAt},
+		{branchTwoID, productIDs[0], "receive", "real", 2, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchTwoID, productIDs[1], "receive", "real", 40, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchTwoID, productIDs[1], "receive", "ghost", 15, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchTwoID, productIDs[2], "receive", "real", 60, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchTwoID, productIDs[2], "receive", "ghost", 5, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchTwoID, productIDs[3], "receive", "real", 130, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchTwoID, productIDs[3], "receive", "ghost", 4, "inventory.receive", nil, "รับสินค้าเข้าคลังรอบแรก", receivedAt},
+		{branchTwoID, productIDs[3], "sale", "real", -10, "invoice", checkInvoiceID, "", checkInvoiceIssuedAt},
+	}
+	for _, m := range movements {
+		if _, err = tx.ExecContext(ctx, `
+			INSERT INTO inventory_movements (id, branch_id, product_id, movement_type, stock_bucket, quantity_delta, reference_type, reference_id, note, performed_by, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		`, platform.MustUUID(), m.BranchID, m.ProductID, m.Type, m.Bucket, m.Delta, m.RefType, m.RefID, m.Note, adminUserID, m.At); err != nil {
+			return err
+		}
+	}
+
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO audit_logs (id, actor_id, branch_id, entity_type, entity_id, action, before_data, after_data, request_id, source_ip, user_agent, created_at)
+		VALUES
+			($1, $2, $3, 'installment_plan', $4, 'installment.plan_create', '{}'::jsonb, '{"months":6,"total_amount":6634.00}'::jsonb, 'seed-run', '127.0.0.1', 'seed', $5),
+			($6, $2, $3, 'installment_plan', $7, 'installment.plan_create', '{}'::jsonb, '{"months":2,"total_amount":684.80}'::jsonb, 'seed-run', '127.0.0.1', 'seed', $8)
+	`, platform.MustUUID(), adminUserID, branchOneID, activePlanID, activePlanIssuedAt, platform.MustUUID(), completedPlanID, completedPlanIssuedAt); err != nil {
 		return err
 	}
 
