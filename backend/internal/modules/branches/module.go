@@ -91,7 +91,7 @@ func (s *Service) Create(ctx context.Context, user platform.AuthUser, meta audit
 			INSERT INTO branches (id, code, name, address, active, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 		`, branchID, code, name, strings.TrimSpace(input.Address), active); err != nil {
-			return err
+			return platform.MapUniqueViolation(err, "branch code already exists")
 		}
 
 		for _, docType := range []string{"invoice", "quotation"} {
@@ -153,7 +153,7 @@ func (s *Service) Update(ctx context.Context, branchID string, user platform.Aut
 			SET code = $2, name = $3, address = $4, active = $5, updated_at = NOW()
 			WHERE id = $1
 		`, branchID, code, name, strings.TrimSpace(input.Address), active); err != nil {
-			return err
+			return platform.MapUniqueViolation(err, "branch code already exists")
 		}
 
 		meta.EntityType = "branch"

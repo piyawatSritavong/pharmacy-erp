@@ -294,7 +294,7 @@ func (s *Service) CreateUser(ctx context.Context, user platform.AuthUser, meta a
 			INSERT INTO users (id, role_id, branch_id, full_name, email, password_hash, active, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
 		`, userID, input.RoleID, platform.NullUUID(input.BranchID), fullName, email, string(hash), active); err != nil {
-			return err
+			return platform.MapUniqueViolation(err, "email already exists")
 		}
 		meta.EntityType = "user"
 		meta.EntityID = &userID
@@ -350,7 +350,7 @@ func (s *Service) UpdateUser(ctx context.Context, userID string, user platform.A
 			SET role_id = $2, branch_id = $3, full_name = $4, email = $5, active = $6, updated_at = NOW()
 			WHERE id = $1
 		`, userID, input.RoleID, platform.NullUUID(input.BranchID), fullName, email, active); err != nil {
-			return err
+			return platform.MapUniqueViolation(err, "email already exists")
 		}
 		meta.EntityType = "user"
 		meta.EntityID = &userID

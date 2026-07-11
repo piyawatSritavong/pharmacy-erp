@@ -202,6 +202,6 @@
 ### สิ่งที่พบและแก้ระหว่างทดสอบ
 
 1. 🐛 **บั๊กจริง (แก้แล้ว):** `PUT /branches/:id/sequences/:docType` ล้ม 500 ทุกครั้ง — `UpdateSequence` ส่ง `entityID = "branchID:docType"` เข้า `audit_logs.entity_id` ซึ่งเป็นคอลัมน์ UUID → cast fail ทั้ง transaction (บั๊กเดิมก่อน DockBill port, B6-04 จับได้) → แก้ให้ใช้ UUID ของ sequence จริง และย้าย doc_type ไปอยู่ใน after_data
-2. ⚠️ **ควรปรับปรุง (ยังไม่แก้):** สร้างสินค้า SKU ซ้ำ (F-07) ตอบ 500 "internal server error" แทน 409 พร้อมข้อความอ่านรู้เรื่อง — unique violation ยังไม่ถูก map เป็น AppError
+2. ✅ **แก้แล้ว:** สร้างข้อมูลซ้ำเคยตอบ 500 — เพิ่ม `platform.IsUniqueViolation`/`MapUniqueViolation` (pq 23505) แล้ว map เป็น 409 พร้อมข้อความ: SKU ซ้ำ ("SKU already exists"), alias code ซ้ำ, รหัสสาขาซ้ำ, email ซ้ำ, เลขเช็คซ้ำ — ยืนยันแล้วทั้ง 4 endpoint
 3. 🔧 **แก้ spec เดิม:** `tests/roles.spec.ts` assert ข้อความ `5,564.00` แบบ strict ล้มเมื่อมีบิลยอดเดียวกัน 2 ใบ (test ก่อนหน้าสร้างบิลราชการยอดเดียวกัน) → เปลี่ยนเป็น `.first()`
 4. ℹ️ Suite Playwright ต้องรันบน **DB seed สด** (test ใช้ transfer code / บิลค้างจาก seed และไม่ idempotent) — reset ด้วย `DROP DATABASE ... WITH (FORCE)` แล้ว migrate+seed ใหม่

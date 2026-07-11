@@ -164,7 +164,7 @@ func (s *Service) CreateProduct(ctx context.Context, user platform.AuthUser, met
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
 		`, id, strings.TrimSpace(input.SKU), strings.TrimSpace(input.Name), strings.TrimSpace(input.Description), platform.Round2(input.CostPrice), platform.Round2(input.BaseSellingPrice), platform.Round2(input.RetailPrice), platform.Round2(input.InstallmentPrice), strings.TrimSpace(input.UnitName), input.TaxExempt, active)
 		if err != nil {
-			return err
+			return platform.MapUniqueViolation(err, "SKU already exists")
 		}
 		entityID := id
 		meta.EntityType = "product"
@@ -191,7 +191,7 @@ func (s *Service) UpdateProduct(ctx context.Context, productID string, user plat
 			WHERE id = $1
 		`, productID, strings.TrimSpace(input.SKU), strings.TrimSpace(input.Name), strings.TrimSpace(input.Description), platform.Round2(input.CostPrice), platform.Round2(input.BaseSellingPrice), platform.Round2(input.RetailPrice), platform.Round2(input.InstallmentPrice), strings.TrimSpace(input.UnitName), input.TaxExempt, active)
 		if err != nil {
-			return err
+			return platform.MapUniqueViolation(err, "SKU already exists")
 		}
 		meta.EntityType = "product"
 		meta.EntityID = &productID
@@ -214,7 +214,7 @@ func (s *Service) CreateAlias(ctx context.Context, user platform.AuthUser, meta 
 			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
 		`, id, input.ProductID, platform.NullUUID(input.BranchID), strings.TrimSpace(input.AliasCode), strings.TrimSpace(input.AliasName), platform.NullFloat64(input.DefaultGovernmentPrice), active)
 		if err != nil {
-			return err
+			return platform.MapUniqueViolation(err, "alias code already exists")
 		}
 		entityID := id
 		meta.EntityType = "product_alias"
@@ -273,7 +273,7 @@ func (h *Handler) CreateProduct(c echo.Context) error {
 	}
 	meta := audit.MetaFromContext(c)
 	if err := h.service.CreateProduct(c.Request().Context(), platform.CurrentUser(c), meta, input); err != nil {
-		return platform.HandleHTTPError(c, platform.WrapError(http.StatusInternalServerError, "failed to create product", err))
+		return platform.HandleHTTPError(c, err)
 	}
 	return platform.JSONMessage(c, http.StatusCreated, "product created")
 }
@@ -285,7 +285,7 @@ func (h *Handler) UpdateProduct(c echo.Context) error {
 	}
 	meta := audit.MetaFromContext(c)
 	if err := h.service.UpdateProduct(c.Request().Context(), c.Param("productID"), platform.CurrentUser(c), meta, input); err != nil {
-		return platform.HandleHTTPError(c, platform.WrapError(http.StatusInternalServerError, "failed to update product", err))
+		return platform.HandleHTTPError(c, err)
 	}
 	return platform.JSONMessage(c, http.StatusOK, "product updated")
 }
@@ -297,7 +297,7 @@ func (h *Handler) CreateAlias(c echo.Context) error {
 	}
 	meta := audit.MetaFromContext(c)
 	if err := h.service.CreateAlias(c.Request().Context(), platform.CurrentUser(c), meta, input); err != nil {
-		return platform.HandleHTTPError(c, platform.WrapError(http.StatusInternalServerError, "failed to create alias", err))
+		return platform.HandleHTTPError(c, err)
 	}
 	return platform.JSONMessage(c, http.StatusCreated, "alias created")
 }

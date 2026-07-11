@@ -145,7 +145,7 @@ func (s *Service) CreateCheck(ctx context.Context, user platform.AuthUser, meta 
 			INSERT INTO checks (id, branch_id, check_number, bank_name, payer_name, amount, status, received_date, created_by, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_DATE, $8, NOW(), NOW())
 		`, checkID, input.BranchID, strings.TrimSpace(input.CheckNumber), strings.TrimSpace(input.BankName), strings.TrimSpace(input.PayerName), platform.Round2(input.Amount), status, user.ID); err != nil {
-			return err
+			return platform.MapUniqueViolation(err, "check number already exists")
 		}
 
 		for _, invoice := range invoices {
