@@ -151,7 +151,7 @@ export function SettingsConsole({
 
   return (
     <div className="space-y-4">
-      {message ? <p className="rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black/70">{message}</p> : null}
+      {message ? <p className="rounded-md border border-border bg-white px-4 py-3 text-sm text-muted-foreground">{message}</p> : null}
       <Tabs className="space-y-6" defaultValue={defaultTab}>
         <TabsList>
           <TabsTrigger value="branches">Branches</TabsTrigger>
@@ -168,7 +168,7 @@ export function SettingsConsole({
               <Input name="code" placeholder="Code" />
               <Input name="name" placeholder="Branch name" />
               <Input className="xl:col-span-2" name="address" placeholder="Address" />
-              <label className="flex items-center gap-3 rounded-md border border-black/10 px-4 py-3 text-sm">
+              <label className="flex items-center gap-3 rounded-md border border-border px-4 py-3 text-sm">
                 <Checkbox defaultChecked name="active" />
                 Active
               </label>
@@ -181,13 +181,13 @@ export function SettingsConsole({
               {branches.map((branch) => (
                 <form
                   key={String(branch.id)}
-                  className="grid gap-3 rounded-2xl border border-black/10 bg-[#f5f5f4] p-4 md:grid-cols-2 xl:grid-cols-5"
+                  className="grid gap-3 rounded-lg border border-border bg-muted/50 p-4 md:grid-cols-2 xl:grid-cols-5"
                   onSubmit={(event) => void updateBranch(String(branch.id), event)}
                 >
                   <Input defaultValue={String(branch.code)} name="code" />
                   <Input defaultValue={String(branch.name)} name="name" />
                   <Input defaultValue={String(branch.address || "")} name="address" />
-                  <label className="flex items-center gap-3 rounded-md border border-black/10 bg-white px-4 py-3 text-sm">
+                  <label className="flex items-center gap-3 rounded-md border border-border bg-white px-4 py-3 text-sm">
                     <Checkbox defaultChecked={Boolean(branch.active)} name="active" />
                     Active
                   </label>
@@ -220,7 +220,7 @@ export function SettingsConsole({
                   </option>
                 ))}
               </Select>
-              <label className="flex items-center gap-3 rounded-md border border-black/10 px-4 py-3 text-sm">
+              <label className="flex items-center gap-3 rounded-md border border-border px-4 py-3 text-sm">
                 <Checkbox defaultChecked name="active" />
                 Active
               </label>
@@ -231,7 +231,7 @@ export function SettingsConsole({
           <SectionCard title="User Directory" description="Update user assignment and reset passwords.">
             <div className="space-y-5">
               {users.map((user) => (
-                <div key={String(user.id)} className="rounded-2xl border border-black/10 bg-[#f5f5f4] p-4">
+                <div key={String(user.id)} className="rounded-lg border border-border bg-muted/50 p-4">
                   <form className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" onSubmit={(event) => void updateUser(String(user.id), event)}>
                     <Input defaultValue={String(user.name)} name="full_name" />
                     <Input defaultValue={String(user.email)} name="email" type="email" />
@@ -251,7 +251,7 @@ export function SettingsConsole({
                         </option>
                       ))}
                     </Select>
-                    <label className="flex items-center gap-3 rounded-md border border-black/10 bg-white px-4 py-3 text-sm">
+                    <label className="flex items-center gap-3 rounded-md border border-border bg-white px-4 py-3 text-sm">
                       <Checkbox defaultChecked={Boolean(user.active)} name="active" />
                       Active
                     </label>
@@ -277,7 +277,7 @@ export function SettingsConsole({
             <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={createRole}>
               <Input name="role_key" placeholder="role_key" />
               <Input name="name" placeholder="Role name" />
-              <label className="flex items-center gap-3 rounded-md border border-black/10 px-4 py-3 text-sm">
+              <label className="flex items-center gap-3 rounded-md border border-border px-4 py-3 text-sm">
                 <Checkbox defaultChecked name="active" />
                 Active
               </label>
@@ -296,7 +296,7 @@ export function SettingsConsole({
                 >
                   <form className="grid gap-3 md:grid-cols-3" onSubmit={(event) => void updateRole(String(role.id), event)}>
                     <Input defaultValue={String(role.name)} name="name" />
-                    <label className="flex items-center gap-3 rounded-md border border-black/10 px-4 py-3 text-sm">
+                    <label className="flex items-center gap-3 rounded-md border border-border px-4 py-3 text-sm">
                       <Checkbox defaultChecked={Boolean(role.active)} name="active" />
                       Active
                     </label>
@@ -308,7 +308,7 @@ export function SettingsConsole({
                       {permissions.map((permission) => (
                         <label
                           key={String(permission.permission_key)}
-                          className="flex items-start gap-3 rounded-md border border-black/10 bg-[#f5f5f4] px-4 py-3 text-sm"
+                          className="flex items-start gap-3 rounded-md border border-border bg-muted/50 px-4 py-3 text-sm"
                         >
                           <Checkbox
                             defaultChecked={selectedPermissions.has(String(permission.permission_key))}
@@ -317,7 +317,7 @@ export function SettingsConsole({
                           />
                           <span>
                             <strong className="block text-black">{String(permission.name)}</strong>
-                            <span className="text-black/55">{String(permission.permission_key)}</span>
+                            <span className="text-muted-foreground">{String(permission.permission_key)}</span>
                           </span>
                         </label>
                       ))}
@@ -338,7 +338,7 @@ export function SettingsConsole({
               {sequences.map((sequence) => (
                 <form
                   key={String(sequence.id)}
-                  className="grid gap-3 rounded-2xl border border-black/10 bg-[#f5f5f4] p-4 md:grid-cols-[1fr_1fr_1fr_auto]"
+                  className="grid gap-3 rounded-lg border border-border bg-muted/50 p-4 md:grid-cols-[1fr_1fr_1fr_auto]"
                   onSubmit={(event) => void updateSequence(sequence, event)}
                 >
                   <Input
@@ -352,7 +352,7 @@ export function SettingsConsole({
                     name="next_number"
                     type="number"
                   />
-                  <label className="flex items-center gap-3 rounded-md border border-black/10 bg-white px-4 py-3 text-sm">
+                  <label className="flex items-center gap-3 rounded-md border border-border bg-white px-4 py-3 text-sm">
                     <Checkbox
                       aria-label={`Sequence Locked ${String(sequence.doc_type)} ${String(sequence.branch_code || "")}`.trim()}
                       defaultChecked={Boolean(sequence.is_locked)}
@@ -361,7 +361,7 @@ export function SettingsConsole({
                     Locked
                   </label>
                   <Button type="submit">Save</Button>
-                  <p className="text-sm text-black/55 md:col-span-4">
+                  <p className="text-sm text-muted-foreground md:col-span-4">
                     Next example: <span className="font-medium text-black">{String(sequence.example_number || "-")}</span>
                   </p>
                 </form>

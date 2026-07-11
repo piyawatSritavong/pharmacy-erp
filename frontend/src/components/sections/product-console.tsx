@@ -104,7 +104,7 @@ export function ProductConsole({
         )}
         <div className="md:col-span-2 xl:col-span-3 flex items-center gap-3">
           <Button type="submit">Save</Button>
-          {message ? <p className="text-sm text-black/70">{message}</p> : null}
+          {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
         </div>
       </form>
     </SectionCard>

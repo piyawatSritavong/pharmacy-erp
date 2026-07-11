@@ -57,7 +57,7 @@ export function InvoiceConsole({ invoices }: { invoices: Option[] }) {
         <Button onClick={submit} type="button">
           Collect Payment
         </Button>
-        {message ? <p className="text-sm text-black/70">{message}</p> : null}
+        {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
       </div>
     </SectionCard>
   );

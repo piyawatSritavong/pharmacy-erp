@@ -122,7 +122,7 @@ export function InstallmentConsole({
         </SectionCard>
       ) : null}
 
-      {message ? <p className="text-sm text-black/70">{message}</p> : null}
+      {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
 
       {plans.map((plan) => {
         const payments = (plan.payments as Option[]) || [];
@@ -134,7 +134,7 @@ export function InstallmentConsole({
             actions={
               <div className="flex items-center gap-2">
                 <Badge>{String(plan.status)}</Badge>
-                <Badge className="bg-surface-50">
+                <Badge className="bg-muted/50">
                   Outstanding {currency(Number(plan.outstanding || 0))}
                 </Badge>
               </div>
@@ -154,7 +154,7 @@ export function InstallmentConsole({
                 canCollect
                   ? (row) => {
                       if (String(row.status) === "paid") {
-                        return <span className="text-xs text-black/40">Settled</span>;
+                        return <span className="text-xs text-muted-foreground">Settled</span>;
                       }
                       const paymentId = String(row.id);
                       const remaining = Number(row.remaining || 0);
@@ -195,7 +195,7 @@ export function InstallmentConsole({
 
       {plans.length === 0 ? (
         <SectionCard title="No Installment Plans" description="Create a plan from an unpaid invoice to get started.">
-          <p className="text-sm text-black/55">Installment plans and overdue tracking will appear here.</p>
+          <p className="text-sm text-muted-foreground">Installment plans and overdue tracking will appear here.</p>
         </SectionCard>
       ) : null}
     </div>

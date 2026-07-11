@@ -88,7 +88,7 @@ export function FinanceConsole({
         {outstandingInvoices.map((invoice) => {
           const checked = invoiceIds.includes(String(invoice.id));
           return (
-            <label key={String(invoice.id)} className="flex items-center gap-3 rounded-[22px] border border-black/10 bg-surface-50 px-4 py-3 text-sm">
+            <label key={String(invoice.id)} className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm">
               <input
                 aria-label={`Invoice ${String(invoice.invoice_number)}`}
                 checked={checked}
@@ -130,7 +130,7 @@ export function FinanceConsole({
           />
         </div>
       ) : null}
-      {message ? <p className="mt-4 text-sm text-black/70">{message}</p> : null}
+      {message ? <p className="mt-4 text-sm text-muted-foreground">{message}</p> : null}
     </SectionCard>
   );
 }

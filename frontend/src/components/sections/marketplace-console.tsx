@@ -67,7 +67,7 @@ export function MarketplaceConsole({
         <Input placeholder="Connection name" value={connectionName} onChange={(event) => setConnectionName(event.target.value)} />
         <Input placeholder="API key" value={apiKey} onChange={(event) => setApiKey(event.target.value)} />
       </div>
-      <label className="mt-4 flex items-center gap-3 rounded-md border border-black/10 bg-[#f5f5f4] px-4 py-3 text-sm">
+      <label className="mt-4 flex items-center gap-3 rounded-md border border-border bg-muted/50 px-4 py-3 text-sm">
         <Checkbox checked={webhookEnabled} onChange={(event) => setWebhookEnabled(event.target.checked)} />
         Enable webhook inbox
       </label>
@@ -75,7 +75,7 @@ export function MarketplaceConsole({
         <Button onClick={save} type="button">
           Save Connection
         </Button>
-        {message ? <p className="text-sm text-black/70">{message}</p> : null}
+        {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
       </div>
     </SectionCard>
   );

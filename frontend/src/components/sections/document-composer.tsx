@@ -217,7 +217,7 @@ export function DocumentComposer({
       <div className="space-y-4">
         <div className="grid gap-4 md:grid-cols-4">
           <label className="space-y-2">
-            <span className="text-sm font-medium text-black/70">Branch</span>
+            <span className="text-sm font-medium text-muted-foreground">Branch</span>
             <Select
               aria-label="Branch"
               value={branchId}
@@ -232,7 +232,7 @@ export function DocumentComposer({
             </Select>
           </label>
           <label className="space-y-2 md:col-span-2">
-            <span className="text-sm font-medium text-black/70">Customer Name</span>
+            <span className="text-sm font-medium text-muted-foreground">Customer Name</span>
             <Input
               aria-label="Customer Name"
               value={customerName}
@@ -240,7 +240,7 @@ export function DocumentComposer({
             />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium text-black/70">Tax ID</span>
+            <span className="text-sm font-medium text-muted-foreground">Tax ID</span>
             <Input
               aria-label="Tax ID"
               value={customerTaxID}
@@ -250,7 +250,7 @@ export function DocumentComposer({
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="flex items-center gap-3 rounded-[22px] border border-black/10 bg-surface-50 px-4 py-3 text-sm">
+          <label className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm">
             <input
               aria-label="Government mode"
               checked={isGovernmentMode}
@@ -260,7 +260,7 @@ export function DocumentComposer({
             Government mode
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium text-black/70">Price Tier</span>
+            <span className="text-sm font-medium text-muted-foreground">Price Tier</span>
             <Select
               aria-label="Price Tier"
               value={priceTier}
@@ -279,7 +279,7 @@ export function DocumentComposer({
               aliasOptions[`${branchId}:${line.product_id}`] || [];
 
             return (
-              <div key={index} className="grid gap-3 rounded-[24px] border border-black/10 bg-surface-50 p-4 md:grid-cols-6">
+              <div key={index} className="grid gap-3 rounded-lg border border-border bg-muted/50 p-4 md:grid-cols-6">
                 <Select
                   aria-label={`Product ${index + 1}`}
                   value={line.product_id}
@@ -352,7 +352,7 @@ export function DocumentComposer({
           Add Line
         </Button>
 
-        {message ? <p className="text-sm text-black/70">{message}</p> : null}
+        {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
         <InvoiceSummary summary={(preview?.summary as Record<string, unknown>) || undefined} />
       </div>
     </SectionCard>

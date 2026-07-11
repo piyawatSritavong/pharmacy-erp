@@ -183,7 +183,7 @@ export function InventoryConsole({
           {actionMode === "adjust" ? "Apply Adjustment" : actionMode === "rebalance" ? "Rebalance Stock" : "Receive Stock"}
         </Button>
       </div>
-      {message ? <p className="mt-4 text-sm text-black/70">{message}</p> : null}
+      {message ? <p className="mt-4 text-sm text-muted-foreground">{message}</p> : null}
     </SectionCard>
   );
 }

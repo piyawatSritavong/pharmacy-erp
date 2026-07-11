@@ -69,7 +69,7 @@ export default async function SalesInvoicesPage() {
           ]}
           rowActions={(row) => (
             <a
-              className="inline-flex rounded-md border border-black/10 px-3 py-2 text-sm hover:bg-black/[0.03]"
+              className="inline-flex rounded-md border border-border px-3 py-2 text-sm hover:bg-black/[0.03]"
               href={`/print/invoices/${String(row.id)}`}
               rel="noreferrer"
               target="_blank"

@@ -51,7 +51,7 @@ test.describe("manual test cases via real UI", () => {
     const buttonBackground = await page
       .getByRole("button", { name: "Sign In" })
       .evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(buttonBackground, "Tailwind styles must be applied to the Sign In button").toBe("rgb(0, 0, 0)");
+    expect(buttonBackground, "Tailwind styles must be applied to the Sign In button").toBe("rgb(24, 24, 27)");
 
     await signIn(page, "superadmin@erp.local", "/dashboard");
     const sidebarCount = await page.locator("aside").count();

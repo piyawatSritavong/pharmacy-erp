@@ -98,7 +98,7 @@ function QRScanner({
   }
 
   return (
-    <div className="space-y-3 rounded-[24px] border border-black/10 bg-[#f5f5f4] p-4">
+    <div className="space-y-3 rounded-lg border border-border bg-muted/50 p-4">
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={start} type="button">
           {active ? "Scanning..." : "Start Camera Scan"}
@@ -111,11 +111,11 @@ function QRScanner({
       </div>
       <video
         ref={videoRef}
-        className="h-56 w-full rounded-2xl border border-black/10 bg-black object-cover"
+        className="h-56 w-full rounded-lg border border-border bg-black object-cover"
         muted
         playsInline
       />
-      {error ? <p className="text-sm text-black/60">{error}</p> : null}
+      {error ? <p className="text-sm text-muted-foreground">{error}</p> : null}
     </div>
   );
 }
@@ -239,7 +239,7 @@ export function TransferConsole({
                   Receive by Code
                 </Button>
               </div>
-              {message ? <p className="text-sm text-black/70">{message}</p> : null}
+              {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
             </div>
           </div>
         </SectionCard>
@@ -309,7 +309,7 @@ export function TransferConsole({
             Dispatch
           </Button>
         </div>
-        {message ? <p className="mt-4 text-sm text-black/70">{message}</p> : null}
+        {message ? <p className="mt-4 text-sm text-muted-foreground">{message}</p> : null}
       </SectionCard>
     </div>
   );

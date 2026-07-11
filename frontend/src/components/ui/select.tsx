@@ -113,19 +113,19 @@ export function Select({
       >
         <SelectPrimitive.Trigger
           className={cn(
-            "flex h-11 w-full items-center justify-between rounded-md border border-black/10 bg-white px-3 py-2 text-left text-sm outline-none transition placeholder:text-black/35 focus-visible:ring-2 focus-visible:ring-black/10 disabled:cursor-not-allowed disabled:opacity-50",
+            "flex h-10 w-full items-center justify-between rounded-md border border-input bg-card px-3 py-2 text-left text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
             className
           )}
           {...(props as React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>)}
         >
           <SelectPrimitive.Value aria-label={displayLabel} placeholder={displayLabel} />
           <SelectPrimitive.Icon asChild>
-            <ChevronDown className="h-4 w-4 text-black/45" />
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
           </SelectPrimitive.Icon>
         </SelectPrimitive.Trigger>
         <SelectPrimitive.Portal>
           <SelectPrimitive.Content
-            className="z-50 min-w-[8rem] overflow-hidden rounded-xl border border-black/10 bg-white shadow-2xl"
+            className="z-50 min-w-[8rem] overflow-hidden rounded-md border bg-card text-card-foreground shadow-md"
             position="popper"
             sideOffset={6}
           >
@@ -134,7 +134,7 @@ export function Select({
                 <SelectPrimitive.Item
                   key={item.key}
                   value={item.radixValue}
-                  className="relative flex cursor-default select-none items-center rounded-lg py-2 pl-8 pr-3 text-sm text-black outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-40 data-[highlighted]:bg-black data-[highlighted]:text-white"
+                  className="relative flex cursor-default select-none items-center rounded-sm py-2 pl-8 pr-3 text-sm text-black outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-40 data-[highlighted]:bg-muted data-[highlighted]:text-foreground"
                   disabled={item.disabled}
                 >
                   <span className="absolute left-2 flex h-4 w-4 items-center justify-center">
