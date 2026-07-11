@@ -121,7 +121,7 @@ test.describe("role and workflow coverage", () => {
     await financeCard.getByLabel("Check Amount").fill("5564");
     await financeCard.locator('input[type="checkbox"]').first().check();
     await financeCard.getByRole("button", { name: "Preview Apply" }).click();
-    await expect(financeCard.getByText(/5,564\.00/)).toBeVisible();
+    await expect(financeCard.getByText(/5,564\.00/).first()).toBeVisible();
     await financeCard.getByRole("button", { name: "Save Check" }).click();
     await expect(financeCard.getByText("Check saved")).toBeVisible();
 

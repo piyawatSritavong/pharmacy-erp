@@ -196,17 +196,18 @@ func (s *Service) UpdateSequence(ctx context.Context, user platform.AuthUser, me
 
 	return platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
 		var beforeJSON string
+		var sequenceID string
 		var currentPrefix string
 		var currentNextNumber int64
 		var currentLocked bool
 		if err := tx.QueryRowContext(ctx, `
-			SELECT row_to_json(ds)::text, ds.prefix, ds.next_number, ds.is_locked
+			SELECT row_to_json(ds)::text, ds.id::text, ds.prefix, ds.next_number, ds.is_locked
 			FROM (
-				SELECT prefix, next_number, is_locked
+				SELECT id, prefix, next_number, is_locked
 				FROM document_sequences
 				WHERE branch_id = $1 AND doc_type = $2
 			) ds
-		`, branchID, docType).Scan(&beforeJSON, &currentPrefix, &currentNextNumber, &currentLocked); err != nil {
+		`, branchID, docType).Scan(&beforeJSON, &sequenceID, &currentPrefix, &currentNextNumber, &currentLocked); err != nil {
 			if err == sql.ErrNoRows {
 				return platform.NewError(http.StatusNotFound, "sequence not found")
 			}
@@ -226,12 +227,13 @@ func (s *Service) UpdateSequence(ctx context.Context, user platform.AuthUser, me
 			return err
 		}
 
-		entityID := branchID + ":" + docType
 		meta.EntityType = "document_sequence"
-		meta.EntityID = &entityID
+		meta.EntityID = &sequenceID
 		meta.Action = "sequence.update"
 		meta.Before = beforeJSON
 		meta.After = map[string]any{
+			"branch_id":      branchID,
+			"doc_type":       docType,
 			"prefix":         prefix,
 			"next_number":    input.NextNumber,
 			"is_locked":      input.IsLocked,
