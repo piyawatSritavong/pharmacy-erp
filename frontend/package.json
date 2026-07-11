@@ -8,7 +8,8 @@
     "start": "next start --hostname 0.0.0.0 --port 3000",
     "lint": "next lint",
     "e2e": "playwright test",
-    "e2e:brave": "playwright test --config=playwright.brave.config.ts --workers=1"
+    "e2e:brave": "playwright test --config=playwright.brave.config.ts --workers=1",
+    "build:check": "NEXT_DIST_DIR=.next-build next build"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "1.1.2",

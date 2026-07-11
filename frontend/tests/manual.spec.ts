@@ -42,6 +42,23 @@ test.describe("manual test cases via real UI", () => {
   test.describe.configure({ mode: "serial" });
   test.skip(!process.env.E2E_RUN, "Enable E2E_RUN=1 when services are up");
 
+  test("styles: pages render with the compiled stylesheet applied", async ({ browser }) => {
+    // Guards against serving unstyled HTML (e.g. a corrupted .next dir):
+    // behavioural tests still pass on a bare page, so assert real CSS here.
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto("/login");
+    const buttonBackground = await page
+      .getByRole("button", { name: "Sign In" })
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(buttonBackground, "Tailwind styles must be applied to the Sign In button").toBe("rgb(0, 0, 0)");
+
+    await signIn(page, "superadmin@erp.local", "/dashboard");
+    const sidebarCount = await page.locator("aside").count();
+    expect(sidebarCount, "app shell sidebar should render").toBeGreaterThan(0);
+    await context.close();
+  });
+
   test("B2: super admin manages catalog and dual inventory end to end", async ({ browser }) => {
     const session = await openSession(browser, "superadmin@erp.local", "/dashboard");
     const page = session.page;

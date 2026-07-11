@@ -3,6 +3,7 @@
 DockBill/
 node_modules
 .next
+.next-build
 dist
 coverage
 backend/pharmacy-erp
