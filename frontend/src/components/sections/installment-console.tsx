@@ -93,7 +93,7 @@ export function InstallmentConsole({
           description="Split an unpaid invoice into monthly installments. Amounts and statuses are managed by the backend."
         >
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Select value={invoiceId} onChange={(event) => setInvoiceId(event.target.value)}>
+            <Select aria-label="Unpaid Invoice" value={invoiceId} onChange={(event) => setInvoiceId(event.target.value)}>
               <option value="">Select unpaid invoice</option>
               {eligibleInvoices.map((invoice) => (
                 <option key={String(invoice.id)} value={String(invoice.id)}>

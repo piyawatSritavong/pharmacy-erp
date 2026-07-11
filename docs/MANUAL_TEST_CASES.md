@@ -199,9 +199,17 @@
 
 > หมายเหตุ: dropdown แบบ Radix เปิดไม่ได้ใน browser pane อัตโนมัติของเครื่องมือทดสอบภายใน — Playwright (เบราว์เซอร์จริง) ใช้ dropdown เดียวกันนี้ผ่านทุกจุด จึงยืนยันได้ว่าเป็นข้อจำกัดของ pane ไม่ใช่บั๊กแอป
 
+### รอบทดสอบ UI อัตโนมัติเต็มรูปแบบ (2026-07-11 รอบสอง — `tests/manual.spec.ts`)
+
+Manual test cases ถูกแปลงเป็น Playwright spec ที่**คลิก/กรอก/submit จริงทุกฟอร์ม** (`frontend/tests/manual.spec.ts` 7 tests + `roles.spec.ts` 8 tests = **15/15 ผ่าน** ยืนยัน 2 รอบติดบน DB seed สด): สร้างสินค้า+ราคา 3 ระดับ, SKU ซ้ำเห็นข้อความ 409 บนจอ, สร้าง alias, receive/rebalance/adjust พร้อมตรวจตัวเลขในตาราง, adjust ติดลบถูกปฏิเสธ, สร้างแผนผ่อน 4 งวดจากบิลค้าง + เก็บงวด, เก็บงวด overdue ด้วย bank transfer, จ่ายบางส่วน, จ่ายเกินถูกปฏิเสธ, quotation → convert, บิล retail tier, override ราคา, ขายเกิน stock ถูกปฏิเสธ, POS ขาย ghost bucket + เก็บเงินเต็มใบ, สร้างสาขา/ผู้ใช้ใหม่แล้ว login ด้วยบัญชีใหม่ได้จริง, ล็อก sequence ผ่าน UI, POS ไม่เห็นฟอร์มสร้างแผน
+
+วิธีรัน: reset DB เป็น seed สด → รัน backend :8080 + `npm run dev` → `E2E_RUN=1 E2E_SKIP_WEBSERVER=1 npm run e2e:brave`
+
 ### สิ่งที่พบและแก้ระหว่างทดสอบ
 
 1. 🐛 **บั๊กจริง (แก้แล้ว):** `PUT /branches/:id/sequences/:docType` ล้ม 500 ทุกครั้ง — `UpdateSequence` ส่ง `entityID = "branchID:docType"` เข้า `audit_logs.entity_id` ซึ่งเป็นคอลัมน์ UUID → cast fail ทั้ง transaction (บั๊กเดิมก่อน DockBill port, B6-04 จับได้) → แก้ให้ใช้ UUID ของ sequence จริง และย้าย doc_type ไปอยู่ใน after_data
 2. ✅ **แก้แล้ว:** สร้างข้อมูลซ้ำเคยตอบ 500 — เพิ่ม `platform.IsUniqueViolation`/`MapUniqueViolation` (pq 23505) แล้ว map เป็น 409 พร้อมข้อความ: SKU ซ้ำ ("SKU already exists"), alias code ซ้ำ, รหัสสาขาซ้ำ, email ซ้ำ, เลขเช็คซ้ำ — ยืนยันแล้วทั้ง 4 endpoint
 3. 🔧 **แก้ spec เดิม:** `tests/roles.spec.ts` assert ข้อความ `5,564.00` แบบ strict ล้มเมื่อมีบิลยอดเดียวกัน 2 ใบ (test ก่อนหน้าสร้างบิลราชการยอดเดียวกัน) → เปลี่ยนเป็น `.first()`
 4. ℹ️ Suite Playwright ต้องรันบน **DB seed สด** (test ใช้ transfer code / บิลค้างจาก seed และไม่ idempotent) — reset ด้วย `DROP DATABASE ... WITH (FORCE)` แล้ว migrate+seed ใหม่
+5. 🐛 **บั๊กจริง (แก้แล้ว, รอบ UI อัตโนมัติจับได้):** ฟอร์ม Settings (สร้างสาขา/ผู้ใช้/role/reset password) crash หลังบันทึกสำเร็จ — "Cannot read properties of null (reading 'reset')" เพราะเรียก `event.currentTarget.reset()` หลัง `await` (React คืน null แล้ว) ข้อมูลเข้า DB แต่ UI แสดง error แทนข้อความสำเร็จ → แก้โดย capture form ก่อน await ทั้ง 4 จุด
+6. 🔧 เพิ่ม `aria-label` ให้ dropdown ทุกตัวใน console components (inventory/product/installment/invoice/settings) — จำเป็นต่อ accessibility และ automation

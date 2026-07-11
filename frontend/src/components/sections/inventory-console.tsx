@@ -125,12 +125,12 @@ export function InventoryConsole({
   return (
     <SectionCard title="Inventory Actions" description="All stock movement is calculated and logged by the backend.">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <Select value={actionMode} onChange={(event) => setActionMode(event.target.value as "adjust" | "rebalance" | "receive")}>
+        <Select aria-label="Inventory Action" value={actionMode} onChange={(event) => setActionMode(event.target.value as "adjust" | "rebalance" | "receive")}>
           <option value="adjust">Manual Adjust</option>
           <option value="rebalance">Real ↔ Ghost</option>
           <option value="receive">Receive Stock</option>
         </Select>
-        <Select value={branchId} onChange={(event) => setBranchId(event.target.value)}>
+        <Select aria-label="Inventory Branch" value={branchId} onChange={(event) => setBranchId(event.target.value)}>
           <option value="">Select branch</option>
           {branches.map((branch) => (
             <option key={String(branch.id)} value={String(branch.id)}>
@@ -138,7 +138,7 @@ export function InventoryConsole({
             </option>
           ))}
         </Select>
-        <Select value={productId} onChange={(event) => setProductId(event.target.value)}>
+        <Select aria-label="Inventory Product" value={productId} onChange={(event) => setProductId(event.target.value)}>
           <option value="">Select product</option>
           {products.map((product) => (
             <option key={String(product.id)} value={String(product.id)}>
@@ -164,21 +164,21 @@ export function InventoryConsole({
             />
           </>
         ) : (
-          <Select value={stockBucket} onChange={(event) => setStockBucket(event.target.value)}>
+          <Select aria-label="Stock Bucket" value={stockBucket} onChange={(event) => setStockBucket(event.target.value)}>
             <option value="real">Real</option>
             <option value="ghost">Ghost</option>
           </Select>
         )}
         {actionMode === "rebalance" ? (
-          <Select value={toBucket} onChange={(event) => setToBucket(event.target.value)}>
+          <Select aria-label="To Bucket" value={toBucket} onChange={(event) => setToBucket(event.target.value)}>
             <option value="real">Real</option>
             <option value="ghost">Ghost</option>
           </Select>
         ) : null}
         {actionMode !== "receive" ? (
-          <Input value={quantity} onChange={(event) => setQuantity(event.target.value)} type="number" />
+          <Input aria-label="Inventory Quantity" value={quantity} onChange={(event) => setQuantity(event.target.value)} type="number" />
         ) : null}
-        <Input className="xl:col-span-2" value={reason} onChange={(event) => setReason(event.target.value)} placeholder={actionMode === "receive" ? "Note (e.g. supplier, shipment)" : "Reason"} />
+        <Input aria-label="Inventory Reason" className="xl:col-span-2" value={reason} onChange={(event) => setReason(event.target.value)} placeholder={actionMode === "receive" ? "Note (e.g. supplier, shipment)" : "Reason"} />
         <Button onClick={submit} type="button">
           {actionMode === "adjust" ? "Apply Adjustment" : actionMode === "rebalance" ? "Rebalance Stock" : "Receive Stock"}
         </Button>

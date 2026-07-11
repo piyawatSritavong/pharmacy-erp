@@ -51,14 +51,15 @@ export function SettingsConsole({
 
   async function createBranch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     await submitJSON("/branches", "POST", {
       code: formData.get("code"),
       name: formData.get("name"),
       address: formData.get("address"),
       active: formData.get("active") === "on"
     });
-    event.currentTarget.reset();
+    form.reset();
   }
 
   async function updateBranch(branchID: string, event: FormEvent<HTMLFormElement>) {
@@ -74,7 +75,8 @@ export function SettingsConsole({
 
   async function createUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     await submitJSON("/users", "POST", {
       full_name: formData.get("full_name"),
       email: formData.get("email"),
@@ -83,7 +85,7 @@ export function SettingsConsole({
       branch_id: formData.get("branch_id") || undefined,
       active: formData.get("active") === "on"
     });
-    event.currentTarget.reset();
+    form.reset();
   }
 
   async function updateUser(userID: string, event: FormEvent<HTMLFormElement>) {
@@ -100,22 +102,24 @@ export function SettingsConsole({
 
   async function resetPassword(userID: string, event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     await submitJSON(`/users/${userID}/reset-password`, "POST", {
       password: formData.get("password")
     });
-    event.currentTarget.reset();
+    form.reset();
   }
 
   async function createRole(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
     await submitJSON("/roles", "POST", {
       role_key: formData.get("role_key"),
       name: formData.get("name"),
       active: formData.get("active") === "on"
     });
-    event.currentTarget.reset();
+    form.reset();
   }
 
   async function updateRole(roleID: string, event: FormEvent<HTMLFormElement>) {
@@ -200,7 +204,7 @@ export function SettingsConsole({
               <Input name="full_name" placeholder="Full name" />
               <Input name="email" placeholder="Email" type="email" />
               <Input name="password" placeholder="Password" type="password" />
-              <Select name="role_id">
+              <Select aria-label="User Role" name="role_id">
                 <option value="">Role</option>
                 {roles.map((role) => (
                   <option key={String(role.id)} value={String(role.id)}>
@@ -208,7 +212,7 @@ export function SettingsConsole({
                   </option>
                 ))}
               </Select>
-              <Select name="branch_id">
+              <Select aria-label="User Branch" name="branch_id">
                 <option value="">Enterprise / no branch</option>
                 {branches.map((branch) => (
                   <option key={String(branch.id)} value={String(branch.id)}>

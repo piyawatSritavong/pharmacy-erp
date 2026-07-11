@@ -62,7 +62,7 @@ export function ProductConsole({
   return (
     <SectionCard title="Catalog Actions" description="Products and alias mapping are stored centrally in PostgreSQL.">
       <div className="mb-4">
-        <Select value={mode} onChange={(event) => setMode(event.target.value as "product" | "alias")}>
+        <Select aria-label="Catalog Mode" value={mode} onChange={(event) => setMode(event.target.value as "product" | "alias")}>
           <option value="product">Create Product</option>
           <option value="alias">Create Alias</option>
         </Select>
@@ -81,7 +81,7 @@ export function ProductConsole({
           </>
         ) : (
           <>
-            <Select name="product_id">
+            <Select aria-label="Alias Product" name="product_id">
               <option value="">Select product</option>
               {products.map((product) => (
                 <option key={String(product.id)} value={String(product.id)}>
@@ -89,7 +89,7 @@ export function ProductConsole({
                 </option>
               ))}
             </Select>
-            <Select name="branch_id">
+            <Select aria-label="Alias Branch" name="branch_id">
               <option value="">Global alias</option>
               {branches.map((branch) => (
                 <option key={String(branch.id)} value={String(branch.id)}>

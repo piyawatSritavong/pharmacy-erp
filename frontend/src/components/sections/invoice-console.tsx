@@ -38,7 +38,7 @@ export function InvoiceConsole({ invoices }: { invoices: Option[] }) {
   return (
     <SectionCard title="Collect Full Payment" description="Cash and bank transfer settle the invoice in full at the backend.">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Select value={invoiceId} onChange={(event) => setInvoiceId(event.target.value)}>
+        <Select aria-label="Payment Invoice" value={invoiceId} onChange={(event) => setInvoiceId(event.target.value)}>
           <option value="">Select invoice</option>
           {payableInvoices.map((invoice) => (
             <option key={String(invoice.id)} value={String(invoice.id)}>
@@ -46,7 +46,7 @@ export function InvoiceConsole({ invoices }: { invoices: Option[] }) {
             </option>
           ))}
         </Select>
-        <Select value={paymentType} onChange={(event) => setPaymentType(event.target.value)}>
+        <Select aria-label="Payment Type" value={paymentType} onChange={(event) => setPaymentType(event.target.value)}>
           <option value="cash">Cash</option>
           <option value="bank_transfer">Bank Transfer</option>
         </Select>
