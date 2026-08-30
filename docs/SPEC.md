@@ -1,278 +1,194 @@
-# สเปคโปรแกรม Pharmacy ERP (ฉบับเต็มทั้งระบบ)
+# สเปค Pharmacy ERP
 
-> จัดทำ: 2026-07-11 · อ้างอิงจากโค้ดจริงทั้งหมด (backend Go + frontend Next.js) · flowchart เป็น Mermaid (GitHub render ได้)
-> เอกสารคู่กัน: [MANUAL_TEST_CASES.md](MANUAL_TEST_CASES.md)
+อัปเดตล่าสุด: 2026-07-14
 
----
+## 1. เป้าหมาย
 
-## 1. Problem Statement
+ระบบรองรับร้านขายยาและอุปกรณ์การแพทย์หลายสาขา โดยมีหลักการสำคัญดังนี้
 
-ร้านขายยา/อุปกรณ์การแพทย์ที่มีหลายสาขาต้องบริหาร stock 2 ประเภท (stock จริงที่ตรวจสอบได้ กับ stock ผีสำหรับขายเงินสด) ออกบิลหลายรูปแบบ (เงินสด, ขายปลีก, ผ่อนงวด, โหมดหน่วยงานราชการ รพสต.) และต้องมี audit trail ครบทุกธุรกรรมเพื่อการตรวจสอบ ระบบเดิม (Google Sheets / DockBill) ไม่มี transaction safety, ไม่เช็ค stock ติดลบ, ไม่มี VAT และเลขที่เอกสารไม่ต่อเนื่อง — เสี่ยงทั้งด้านบัญชีและกฎหมาย
+1. ราคา ภาษี สต๊อก เลขที่เอกสาร และการชำระเงินคำนวณที่ backend เท่านั้น
+2. แยกสต๊อกจริงต่อสาขาและสต๊อกผีเป็น bucket ภายใน WH
+3. ยอด inventory ต้องเท่ากับผลรวม inventory movements เสมอ
+4. POS ต้องขายและรับชำระใน transaction เดียว
+5. ระบบมีเพียงผู้ดูแลระบบและพนักงานขายหน้าร้าน
+6. ทุกหน้าจอและข้อความสำหรับผู้ใช้เป็นภาษาไทย
+7. ข้อมูลที่เลือก “ลบถาวร” ต้องลบข้อมูลเกี่ยวข้องตามผลกระทบที่แสดงก่อนยืนยัน
 
-## 2. Goals / Non-Goals
+## 2. บทบาท
 
-**Goals**
-1. ทุกธุรกรรมการเงิน/สต๊อกคำนวณและบันทึกที่ backend เท่านั้น พร้อม audit log 100%
-2. บริหาร stock จริง/ผี แยกกันได้ต่อสาขา โดย movement log reconcile ตรงกับยอดคงเหลือเสมอ
-3. ออกบิลได้ 4 แบบราคา (cash/retail/installment/government) เลขที่เอกสารรันต่อเนื่องต่อสาขาและล็อกได้
-4. รองรับขายผ่อน: แตกงวดอัตโนมัติ ผลรวมงวด = ยอดบิลเสมอ ติดตามงวดค้าง/เลยกำหนด
-5. แยกสิทธิ์ 3 บทบาทเด็ดขาด (super_admin / branch_admin / branch_pos) ทั้ง UI และ API
+| บทบาท | ขอบเขต | เมนู |
+|---|---|---|
+| `super_admin` | ทุกสาขา | แดชบอร์ด, สินค้าและการโอน, สต๊อกจริง, สต๊อกผี, สรุปสิ้นเดือน, การขายและเอกสาร, ผ่อนชำระ, การเงิน, บัญชีภายนอก, รายงาน, ตั้งค่า |
+| `branch_pos` | สาขาที่ผูกกับบัญชี | ขายหน้าร้าน, ประวัติ, เช็กสต๊อก, รับโอนสินค้า, ผ่อนชำระ, สรุปยอดขาย |
 
-**Non-Goals**
-- ไม่ทำ e-commerce/หน้าร้านออนไลน์ (marketplace เป็นแค่ inbox รับออเดอร์)
-- ไม่ทำระบบบัญชีแยกประเภท (GL) — ส่งออกรายงานภาษี/กำไรขาดทุนพอ
-- ไม่ import ข้อมูลลูกค้าเก่าจาก Google Sheets (ตัดสินใจ 2026-07-11; mapping เก็บไว้ใน DOCKBILL_MERGE_ANALYSIS.md)
-- ไม่มี mobile app — ใช้ responsive web
-- ไม่เชื่อม API จริงของ marketplace ภายนอก (โครงสร้าง connection รองรับไว้แล้ว = P2)
+Backend เป็นผู้ส่ง navigation ตาม role และ frontend ตรวจ role ซ้ำก่อน render หน้า
 
-## 3. ผู้ใช้และบทบาท
-
-| Role | ผู้ใช้ seed | ขอบเขต | หน้าที่ใช้ได้ |
-|---|---|---|---|
-| `super_admin` | superadmin@erp.local | ทุกสาขา | /dashboard, /inventory-management, /installments, /finance-central, /global-reports, /settings |
-| `branch_admin` | branchadmin@erp.local | สาขาตัวเอง (มนัสการแพทย์) | /branch-dashboard, /branch-inventory, /sales-invoices, /installments, /local-finance |
-| `branch_pos` | pos@erp.local | สาขาตัวเอง ขาย+เก็บเงิน | /sales, /inventory-check, /installments, /transfer-receipts, /daily-sales |
-
-รหัสผ่านทุกบัญชี (dev): `DevPassword123!` · เมนู sidebar สร้างจาก backend (`navigationFor`) ตาม role — ไม่ hardcode ที่ frontend
-
-## 4. สถาปัตยกรรม
+## 3. สถาปัตยกรรม
 
 ```mermaid
 flowchart LR
-    B[Browser] -->|cookie JWT| FE[Next.js App Router\nSSR pages + thin client consoles]
-    FE -->|"apiServer (SSR) / proxyClient (/api/backend/*)"| BE[Go + Echo API\n/api/v1/*]
-    BE --> DB[(PostgreSQL 16)]
-    BE --> AU[audit_logs\nทุก mutation ใน tx เดียวกัน]
+    Browser[เว็บเบราว์เซอร์] -->|HttpOnly JWT| Next[Next.js 15]
+    Next -->|/api/backend/*| Go[Go Echo API]
+    Go --> DB[(PostgreSQL 16)]
+    Go --> Files[(Upload volume)]
+    Go --> Audit[audit_logs]
 ```
 
-**กติกา Backend-Centric:** frontend ห้ามคำนวณราคา/VAT/stock — ส่งข้อมูลดิบและ render ผลจาก backend เท่านั้น; ทุก mutation ใช้ `WithTx` + `SELECT ... FOR UPDATE` + audit log ใน transaction เดียวกัน; migrations embed ใน binary รันอัตโนมัติก่อน serve
+- Frontend เป็น thin client ไม่เก็บข้อมูลธุรกิจใน Local Storage
+- API mutation ใช้ database transaction
+- งานตัดสต๊อกใช้ `SELECT ... FOR UPDATE`
+- Migration ถูก embed ใน backend binary และรันก่อนเปิด API
+- รูปสินค้าเก็บใน upload volume ส่วน metadata เก็บใน products
 
-## 5. Data Model (ตารางหลัก 29 ตาราง)
+## 4. UX/UI
+
+### ผู้ดูแลระบบ
+
+- พื้นหลังสีครีมอ่อน การ์ดสีขาว มุมโค้ง
+- สีหลักแดง เหลือง และดำ
+- sidebar ซ้ายบน desktop ย่อเหลือเฉพาะไอคอนได้ และเมนูแนวนอนบนมือถือ
+- หน้า dashboard และหน้าจัดการใช้ metric cards, tabs, table และ dialog ยืนยัน
+- หน้าสินค้า สต๊อกจริง และสต๊อกผีใช้ master-detail: รายการแบบหนาแน่นด้านซ้าย รายละเอียดที่เลือกด้านขวา ค้นหา/กรอง/แบ่งหน้าฝั่ง server ครั้งละ 50 รายการ
+
+### พนักงานขายหน้าร้าน
+
+- ใช้ top navigation แบบโปรแกรมแคชเชียร์
+- หน้า POS สูงเต็ม viewport โดยเลื่อนเฉพาะ grid รายการสินค้า ตะกร้าคงที่บน desktop และเปิดเป็น panel บน mobile
+- ฝั่งซ้ายเป็นค้นหา หมวด และ grid สินค้า 3 คอลัมน์ที่มีรูป ราคา และยอดสต๊อกจริง
+- ฝั่งขวาเป็นตะกร้าปัจจุบัน ลูกค้า ยอดรวม และปุ่มรับชำระ
+- รายการขายย้อนหลังแยกเป็นเมนู **ประวัติ**
+- รองรับเงินสดพร้อมคำนวณเงินทอน เงินโอนพร้อมเลขอ้างอิง และเงินสดผสมเงินโอน โดยบันทึกยอดรับแยกช่องทาง
+- รองรับ desktop, tablet และ mobile
+
+## 5. สินค้าและรูป
+
+ข้อมูลสินค้า:
+
+- SKU และบาร์โค้ดไม่ซ้ำ โดย SKU สร้างอัตโนมัติและผู้ใช้แก้ไขได้
+- ชื่อ รายละเอียด หน่วยนับ หมวดสินค้า
+- ราคาทุน ราคาสด ราคาปลีก ราคาผ่อน
+- ยกเว้น VAT และสถานะใช้งาน
+- รูป JPEG, PNG หรือ WebP ขนาดไม่เกิน 5 MB
+
+ผู้ดูแลสามารถสร้าง แก้ไข อัปโหลด/เปลี่ยน/ลบรูป และลบสินค้าแบบถาวรได้
+
+รหัสที่ผู้ใช้ต้องอ้างอิง เช่น SKU, รหัสสาขา, รหัสชื่อราชการ, เลขที่เช็ค และเลขใบโอน สร้างให้อัตโนมัติ รหัสที่อยู่ในฟอร์มสามารถแก้ไขก่อนบันทึกได้ ส่วน backend จะสร้างสำรองเมื่อ client ส่งค่าว่าง
+
+## 6. สต๊อกจริงและสต๊อกผี
 
 ```mermaid
 flowchart TD
-    subgraph RBAC
-        roles --> role_permissions --> permissions
-        users --> roles
-    end
-    subgraph Catalog
-        products --> branch_product_prices
-        products --> product_aliases
-    end
-    subgraph Stock
-        inventory["inventory (qty_real / qty_ghost)"] --> branches
-        inventory --> products
-        inventory_movements --> inventory
-    end
-    subgraph Sales
-        quotations --> quotation_items
-        invoices --> invoice_items
-        invoices --> invoice_payments
-        quotations -->|convert| invoices
-    end
-    subgraph Installments
-        installment_plans -->|1:1| invoices
-        installment_plans --> installment_payments
-    end
-    subgraph Finance
-        checks --> payment_invoice_map --> invoices
-    end
-    subgraph Transfer
-        transfers --> transfer_items
-        transfers --> transfer_events
-    end
-    document_sequences --> branches
-    audit_logs -.->|บันทึกทุก entity| invoices
+    A[สต๊อกจริง] --> B[รับเข้าและปรับยอดตามสิทธิ์]
+    C[ใบสั่งซื้อเข้า] --> D[เพิ่ม Ghost ที่ WH]
+    E[สรุปสิ้นเดือน] --> F[ตัด Ghost ที่ WH หรือบันทึก deficit]
+    D & F --> G[inventory movements และ Lot ledger]
+    H[หน้า Ghost ของ Superadmin] --> I[ค้นหา ดูยอด ประวัติ และ Lot]
 ```
 
-จุดสำคัญ: `invoices.payment_status ∈ {unpaid, paid, installment}` · `inventory_movements.stock_bucket ∈ {real, ghost}` · `products` มีราคา 3 ระดับ: `base_selling_price` (cash), `retail_price`, `installment_price` (0 = ไม่ตั้ง ใช้ราคา base/สาขาแทน)
+- สต๊อกจริงห้ามติดลบ ส่วน Ghost ติดลบได้เฉพาะ deficit จากสรุปสิ้นเดือน
+- Superadmin ใช้เมนู **สต๊อกจริง** และ **สต๊อกผี** แยกจากกัน หน้าสต๊อกผีไม่มี dropdown สาขา ราคา ส่วนลด จุดเตือน ปุ่มตั้งค่า ปรับยอด หรือลบสินค้า
+- ปริมาณ Ghost เปลี่ยนได้เฉพาะใบสั่งซื้อเข้า (รวม correction/cancel) และ Month-End reconciliation; endpoint adjust, receive, rebalance และ receipt approval ปฏิเสธ Ghost
+- เอกสารขาย ใบเสนอราคา ใบโอน และคืนสินค้าใช้ Real เท่านั้น
+- POS รับเฉพาะข้อมูลสต๊อกจริง API จะไม่ส่ง field สต๊อกผี และ backend ปฏิเสธการขายสต๊อกผีแม้แก้ request เอง
+- POS แจ้งรับสินค้าได้ในรูปคำขอ โดยเก็บ snapshot ยอดขณะส่ง ผู้ดูแลเห็น conflict เทียบยอดปัจจุบัน และอนุมัติเข้าสต๊อกจริงหรือปฏิเสธ
+- migration 006 เติม opening balance ให้ฐาน legacy เพื่อให้ movement ledger ตรงกับยอดเดิม
+- migration 007 แปลชื่อสิทธิ์ การตั้งค่า และข้อมูลตัวอย่างเดิมให้เป็นภาษาไทย
+- การลบใบขายคืนสต๊อกตาม product, quantity และ bucket ของ invoice item
 
-## 6. ฟีเจอร์และ Flowchart
+## 7. ราคาและเอกสาร
 
-### F1 — Authentication & RBAC
+ลำดับการเลือกราคา:
 
-ผู้ใช้ login ด้วย email/password → backend ตรวจ bcrypt → คืน JWT + navigation ตาม role → frontend เก็บใน HttpOnly cookie ทุก request ต่อไปแนบ Bearer token; ทุก route มี `RequireAnyPermission`
+1. ราคาที่ override โดยผู้มีสิทธิ์
+2. ราคาชื่อสินค้าสำหรับราชการ
+3. ราคาตามระดับ cash/retail/installment
+4. ราคาสาขาหรือราคาฐาน
+
+ใบเสนอราคาไม่ตัดสต๊อก เมื่อแปลงเป็นใบขายจึงตรวจและตัดสต๊อกจริง ใบขายทุกใบเก็บ cost snapshot, price source, VAT และเลขที่เอกสารจาก sequence ของสาขา
+
+## 8. POS Checkout
 
 ```mermaid
 flowchart TD
-    A[กรอก email + password] --> B{bcrypt ตรวจผ่าน?}
-    B -- ไม่ --> E[401 ชื่อผู้ใช้/รหัสผ่านไม่ถูกต้อง]
-    B -- ใช่ --> C[สร้าง JWT + permissions + navigation]
-    C --> D[redirect ไป home ตาม role\nsuper: /dashboard · admin: /branch-dashboard · pos: /sales]
-    D --> F{เรียก API ใด ๆ}
-    F --> G{มี permission key?}
-    G -- ไม่ --> H[403 Forbidden]
-    G -- ใช่ --> I{branch scope ตรง?}
-    I -- ไม่ --> H
-    I -- ใช่ --> J[ประมวลผล + audit]
+    A[เพิ่มสินค้าลงตะกร้า] --> B[เลือกระดับราคา]
+    B --> C[Backend preview ราคาและ VAT]
+    C --> D[เลือกเงินสดหรือเงินโอน]
+    D --> E[Backend ตรวจยอดเงินสด ยอดโอน และเงินทอน]
+    E --> F[ล็อกและตัดสต๊อก]
+    F --> G[สร้าง invoice + items + payment + movement + audit]
+    G --> H[commit และแสดงลิงก์ใบเสร็จ]
 ```
 
-**Acceptance:** login ผิด → error ไทย; ทุก role เข้าหน้าที่ไม่ใช่ของตัวเองไม่ได้ (redirect/refuse); ปุ่ม/เมนูแสดงตาม permission จริง
+หากขั้นตอนใดล้ม ทั้ง invoice, payment และ stock ต้อง rollback พร้อมกัน
 
-### F2 — Dual Inventory (Stock จริง + Stock ผี)
+POS และเอกสาร operational ทุกชนิดตัดได้เฉพาะสต๊อกจริง ส่วนสต๊อกผีเปลี่ยนผ่านใบสั่งซื้อเข้าและสรุปสิ้นเดือนเท่านั้น
 
-การกระทำ 3 แบบบนคู่ (สาขา, สินค้า): **Adjust** (บวก/ลบทีละ bucket), **Rebalance** (ย้ายระหว่าง real↔ghost), **Receive** (รับเข้าครั้งเดียวแยก 2 bucket)
+การชำระแบบผสมบันทึก `invoice_payments` สองรายการ โดยยอดเงินสดสุทธิกับยอดเงินโอนรวมกันต้องเท่ากับยอดใบขาย และบังคับเลขอ้างอิงเมื่อมีเงินโอน
 
-```mermaid
-flowchart TD
-    A[เลือกโหมด] --> B{Adjust / Rebalance / Receive}
-    B -- Adjust --> C["FOR UPDATE แถว inventory\nqty ± delta (ห้ามติดลบ)"]
-    B -- Rebalance --> D[FOR UPDATE\nหัก from_bucket เพิ่ม to_bucket\nตรวจ stock พอ]
-    B -- Receive --> R["UPSERT inventory\n+real_quantity +ghost_quantity\n(อย่างน้อย 1 ช่อง > 0)"]
-    C --> E[INSERT inventory_movements\ntype: manual_adjust]
-    D --> F[INSERT movements 2 แถว\ntype: rebalance ±qty]
-    R --> G[INSERT movements ต่อ bucket\ntype: receive]
-    E & F & G --> H[audit_logs ใน tx เดียวกัน]
-    H --> I[commit — ยอดใหม่แสดงทันที]
-```
+## 9. Hard Delete
 
-**กติกา:** stock ติดลบ = 409; branch_admin ทำได้เฉพาะสาขาตัวเอง; `SUM(movements) = ยอดคงเหลือ` เสมอ
-**Permissions:** adjust: `inventory.manage.*` · rebalance: `inventory.rebalance` · receive: `inventory.receive` (POS ไม่มีทั้งสาม — ดูได้อย่างเดียว)
+ก่อนลบ ระบบเรียก deletion-impact และแสดงจำนวนข้อมูลเกี่ยวข้อง ผู้ใช้ต้องพิมพ์ข้อความ `ลบ ...` ให้ตรงก่อนปุ่มลบทำงาน
 
-### F3 — Product Catalog & Government Alias
+- สินค้า: ลบรูป, alias, ราคา, inventory, movements และรายการธุรกรรมที่เกี่ยวข้อง
+- ใบขาย: คืนสต๊อก แล้วลบ items, payments, check mapping และ installment plan ที่เกี่ยวข้อง
+- ใบขายที่ถูก snapshot ในกระดาษทำการปิดเดือนจะถูกล็อกไม่ให้ hard delete เพื่อรักษาหลักฐานและ source hash
+- ใบเสนอราคา: หากแปลงแล้ว จะลบใบขายที่เชื่อมโยงพร้อมคืนสต๊อกก่อนลบใบเสนอราคา
+- ผู้ใช้: ห้ามลบบัญชีตนเองและผู้ดูแลระบบคนสุดท้าย ข้อมูลผู้สร้างที่ผูกไว้ถูกลบตาม FK cascade และ inventory ถูก rebuild จาก ledger
+- สาขา: ลบผู้ใช้ สต๊อก เอกสาร sequence และการโอนที่เกี่ยวข้อง
 
-สินค้ามีราคา 3 ระดับ + ราคา override ต่อสาขา (`branch_product_prices`) + alias สำหรับโหมดราชการ (ชื่อที่แสดงบนบิล + ราคาราชการ)
+## 10. ผ่อนชำระ การเงิน และการโอน
 
-**Acceptance:** สร้าง/แก้สินค้าได้เฉพาะ `products.manage` (super admin); alias สร้างได้เฉพาะ `government.manage_alias`; SKU ซ้ำ → error
+- ผ่อนชำระ: POS ส่งคำขอ 1-60 เดือนจากใบขายค้างชำระ ผู้ดูแลอนุมัติหรือปฏิเสธ และระบบสร้างแผน/งวดจริงเฉพาะตอนอนุมัติ
+- การเงิน: บันทึกเช็คและจับคู่กับใบขายค้างชำระ ยอดรวมต้องตรงกัน
+- การโอน: Superadmin สร้างรายการหลายสินค้าและยืนยันส่งเพื่อตัดสต๊อกต้นทาง จากนั้น POS ปลายทางเทียบจำนวนที่ส่งกับจำนวนรับจริง แก้จำนวนและใส่เหตุผลเมื่อไม่ตรง ก่อนกด **รับสินค้าแล้ว** ระบบเพิ่มปลายทางตามจำนวนจริงและบันทึกส่วนต่าง ไม่มี QR หรือการรับด้วยรหัส
+- สรุปยอดขาย: เลือกวันที่เริ่มต้น/สิ้นสุด ดูรายการทั้งช่วง และดาวน์โหลด PDF ภาษาไทยหรือ Excel `.xlsx` ได้
 
-### F4 — Sales & Pricing Engine (Quotation / Invoice)
+สาขามีประเภท **คลังหลัก** หรือ **สาขาหน้าร้าน** และสาขาหน้าร้านเลือกคลังหลักต้นสังกัดได้ การโอนยังเลือกจำนวนสินค้าเฉพาะส่วนที่ต้องการ ไม่บังคับโอนสต๊อกทั้งหมด
 
-ราคาแต่ละบรรทัดตัดสินที่ backend ตามลำดับความสำคัญ:
+## 11. รายได้อื่นและสมุดงานบัญชีภายนอก
 
-```mermaid
-flowchart TD
-    A[รับบรรทัดขาย: product, qty, bucket,\nprice_tier, alias?, override?] --> B{override_unit_price?}
-    B -- มี + มีสิทธิ์ price.override.* --> O[ใช้ราคา override\nprice_source=override]
-    B -- มีแต่ไม่มีสิทธิ์ --> X[403]
-    B -- ไม่มี --> C{government mode + alias?}
-    C -- ใช่ --> G[ใช้ชื่อ alias + ราคาราชการ\nsource=government_alias_default]
-    C -- ไม่ --> D{price_tier?}
-    D -- "retail (ตั้งราคาไว้)" --> T1[retail_price\nsource=retail_tier]
-    D -- "installment (ตั้งราคาไว้)" --> T2[installment_price\nsource=installment_tier]
-    D -- "cash / ว่าง / tier=0" --> T3[ราคาสาขา หรือ base\nsource=branch_price]
-    O & G & T1 & T2 & T3 --> E["คำนวณ VAT ต่อบรรทัด\n(tax_exempt → 0%)"]
-    E --> F[หัก stock ตาม bucket FOR UPDATE\nไม่พอ → 409]
-    F --> H[ออกเลขที่จาก document_sequences\nPREFIXYYYYMMDDNNNNN]
-    H --> I[INSERT invoice + items + movements + audit]
-```
+- Superadmin บันทึกและแก้ไขรายได้ที่ไม่มาจากใบขาย โดยระบุสาขา วันที่ หมวด รายละเอียด ช่องทางรับเงิน ยอด และเลขอ้างอิง
+- การยกเลิกรายได้ใช้สถานะ `void` พร้อมเหตุผล ไม่ลบรายการ และรายงานไม่นำรายการยกเลิกมารวม
+- สมุดงานเลือกช่วงวันที่และสาขา หรือรวมทุกสาขา แล้ว snapshot ยอดใบขาย รายได้อื่น และยอดรับเงินสด/โอน/เช็ค/อื่นๆ
+- ผู้จัดทำปรับยอดรายได้และช่องทางรับเงินได้เฉพาะในสมุดงาน ต้องระบุเหตุผลเมื่อยอดปรับไม่เป็นศูนย์ การปรับไม่แก้ invoice, payment หรือ inventory ต้นฉบับ
+- สัดส่วนเริ่มต้นคือออกเอกสาร 80% และอื่นๆ 20% แก้ได้ต่อสมุดงาน แต่ผลรวมต้องเท่ากับ 100%
+- สมุดงานฉบับร่างเปิดกลับมาแก้และคำนวณ snapshot ใหม่ได้ เมื่อยืนยันแล้วจะล็อก หากผิดต้องยกเลิกพร้อมเหตุผลและสร้างฉบับใหม่
+- หน้าพิมพ์แสดงยอดต้นฉบับ ยอดปรับ ยอดลงบัญชี ช่องทางรับเงิน สัดส่วน เหตุผล หมายเหตุ ผู้จัดทำ และช่องลงนาม
+- Dashboard รวมรายได้อื่นกับยอดขายใน metric รายได้รวม และแจ้งจำนวนสมุดงานฉบับร่าง
+- รายงานกำไรขาดทุนแยกยอดขาย รายได้อื่น รายได้รวม ต้นทุน และกำไรต่อสาขา
+- ไม่รวมการดึงยอดขายจาก Ocha ในขอบเขตนี้
 
-Quotation flow เหมือนกันแต่ไม่หัก stock ไม่ออกเลขบิล — เมื่อ **Convert** จึงหัก stock และออกเลขบิลจริง (quotation → `converted`)
+## 12. Acceptance Criteria
 
-**Acceptance:** Preview แสดงราคาตรงกับที่บันทึกจริงเสมอ; ขายเกิน stock → 409 พร้อมข้อความ; ทุกบรรทัดบันทึก `price_source` + `cost_snapshot`
+1. Login ได้เฉพาะสอง role และไม่สามารถเปิดหน้าข้าม role
+2. ทุก navigation link เปิดหน้าได้โดยไม่มี server exception
+3. logout ลบ cookie และกลับหน้า login
+4. CRUD หลัก submit แล้วข้อมูลเปลี่ยนจริง
+5. รูปสินค้ายังอยู่หลัง restart container
+6. POS เห็นและขายได้เฉพาะสต๊อกจริง โดย API ปฏิเสธสต๊อกผี
+7. เงินทอนมาจาก backend preview
+8. hard delete invoice/quotation คืนสต๊อกครบ
+9. inventory เท่ากับผลรวม movements ทุก bucket
+10. `go test`, lint, build, audit และ Playwright ผ่านทั้งหมด
+11. คำขอสต๊อกและผ่อนชำระไม่เปลี่ยนข้อมูลจริงก่อนผู้ดูแลอนุมัติ
+12. รายงานช่วงวันที่ export เป็น PDF และ XLSX ที่เปิดใช้งานได้จริง
+13. บันทึก แก้ไข และยกเลิกรายได้อื่นได้ โดยรายการยกเลิกไม่รวมใน Dashboard/รายงาน
+14. สมุดงานคำนวณยอดต้นฉบับ ยอดปรับ และสัดส่วน 80/20 ถูกต้อง ผลรวมสัดส่วนเท่ากับยอดลงบัญชี
+15. ยืนยันสมุดงานแล้วแก้ไขไม่ได้ และการยกเลิกต้องมีเหตุผล
+16. หน้าพิมพ์สมุดงานเปิดได้และแยกยอดจริงออกจากยอดปรับชัดเจน
+17. สาขาหน้าร้านเลือกคลังหลักต้นสังกัดได้ และการโอนบางส่วนยังทำงานครบวงจร
+18. เมนูสต๊อกจริงและสต๊อกผีแยกหน้าจอ โดยหน้า Ghost เป็น read-only และเปลี่ยนยอดได้เฉพาะ PO/Month-End
+19. สรุปสิ้นเดือนเลือกช่วงวันที่และสาขาขาย โดยซ่อนบิล `issued + paid + cash only + ไม่ขอใบกำกับเต็มรูป + ยังไม่ถูกซ่อน` ทั้งหมด
+20. รอบใหม่ไม่ใช้ยอดเป้าหมายหรือเปอร์เซ็นต์ปรับราคา ช่องเดิมเป็น Legacy disabled; รายงานยังอ่าน price log ของรอบเดิมได้
+21. การยืนยันรอบย้อน Real เดิม, ส่ง Real จากสาขาคืน WH, รับ WH Real และตัด WH Ghost จำนวนเท่ากัน; หาก Ghost ไม่พอให้ติดลบผ่าน immutable deficit ledger
 
-### F5 — Invoice Management
+## 13. สรุปสิ้นเดือนและการควบคุมข้อมูล
 
-รายการบิล / รายละเอียด / พิมพ์ (หน้า `/print/invoices/:id`) / เก็บเงินเต็มใบ (`POST /invoices/:id/pay` — เฉพาะ role `branch_pos` ตาม business rule `validatePaymentCollector`) · เลขที่บิลออกจาก `document_sequences` ล็อกด้วย `is_locked` ได้จาก Settings
-
-### F6 — Installment Billing (บิลผ่อน/งวด)
-
-```mermaid
-flowchart TD
-    A[บิลสถานะ unpaid] -->|เลือกบิล + จำนวนเดือน + วันเริ่ม| B[สร้างแผน FOR UPDATE บิล]
-    B --> C{ตรวจ: issued? unpaid?\nยังไม่มีแผน? เดือน 1-60?}
-    C -- ไม่ผ่าน --> X[400/409]
-    C -- ผ่าน --> D["แตกงวด: monthly = round2(total/เดือน)\nงวดสุดท้าย = total - monthly×(n-1)"]
-    D --> E[บิล → payment_status=installment]
-    E --> F[งวดทั้งหมด status=pending]
-    F --> G{เก็บเงินงวด}
-    G -->|amount ≤ ยอดคงเหลืองวด| H[INSERT invoice_payments\nอัปเดต paid_amount]
-    G -->|amount เกิน| X2[400 amount exceeds]
-    H --> I{งวดนี้ครบ?}
-    I -- ใช่ --> J[งวด → paid + paid_at + received_by]
-    I -- ไม่ --> F
-    J --> K{ทุกงวด paid?}
-    K -- ใช่ --> L[แผน → completed\nบิล → paid]
-    K -- ไม่ --> F
-    F -.->|เลยกำหนด + ยัง pending| M[แสดงเป็น overdue\nคำนวณตอน query ไม่ต้องมี cron]
-```
-
-**Permissions:** ดู: ทุก role · สร้างแผน: `installment.manage` (super/admin) · เก็บเงิน: `installment.collect` (ทุก role)
-**Acceptance:** ผลรวมงวด = ยอดบิลเสมอ (ทศนิยม 2 ตำแหน่ง); แผนซ้ำต่อบิล → 409; จ่ายบางส่วนได้; dashboard สรุป plan_count / outstanding_total / overdue_count
-
-### F7 — Stock Transfers (โอนของระหว่างสาขา)
-
-```mermaid
-stateDiagram-v2
-    [*] --> requested: สาขาขอโอน (transfer.request)
-    requested --> in_transit: ต้นทาง dispatch (transfer.dispatch)\nกรอกผู้รับ + courier + สร้าง QR
-    in_transit --> completed: ปลายทาง receive (transfer.receive)\nสแกน QR กล้อง หรือกรอกโค้ด
-    completed --> [*]: stock เข้าสาขาปลายทาง\n+ transfer_events ทุกขั้น
-```
-
-**Acceptance:** ทุกการเปลี่ยนสถานะเพิ่ม `transfer_events`; รับด้วยโค้ดผิด → error; POS รับของได้อย่างเดียว (`transfer.receive`)
-
-### F8 — Finance: เช็คและการตัดชำระ
-
-สร้างเช็ครับจากลูกค้า (pending) → ดูบิลค้างชำระ → Preview การตัด → Apply: สร้าง `payment_invoice_map` + `invoice_payments (check)` + บิลเป็น paid + เช็คเป็น applied · Local Finance = ขอบเขตสาขา, Finance Central = ทุกสาขา
-
-### F9 — Dashboards & Reports
-
-- Super admin `/dashboard`: ยอดขาย/stock รวมทุกสาขา · Branch admin `/branch-dashboard`: เฉพาะสาขา · POS `/daily-sales`: ยอดขายตัวเองรายวัน
-- `/global-reports`: รายงานภาษี (จาก invoice_items จริง) + กำไร/ขาดทุน (ใช้ cost_snapshot)
-
-### F10 — Settings (super admin)
-
-จัดการ: สาขา / ผู้ใช้ (+reset password) / roles + permission mapping / document sequences (แก้ prefix, เลขถัดไป, ล็อก) / marketplace connection / ดู audit logs
-
-### F11 — Marketplace Inbox
-
-โครงสร้างรับออเดอร์จาก provider ภายนอก (seed: Health Mart) — ดู provider/orders ได้, upsert connection ได้ (`marketplace.manage.global`) · การเชื่อม API จริง = P2
-
-## 7. Permission Matrix (สรุป)
-
-| Permission | super | admin | pos |
-|---|---|---|---|
-| products.manage / government.manage_alias | ✅ | — | — |
-| products.view | ✅ | ✅ | ✅ |
-| inventory.manage.global | ✅ | — | — |
-| inventory.manage.branch / view.branch | — | ✅ | view เท่านั้น |
-| inventory.rebalance / inventory.receive | ✅ | ✅ | — |
-| quotation.manage | ✅ | ✅ | — |
-| invoice.create.branch | — | ✅ | — |
-| invoice.create.pos / payment.collect | — | — | ✅ |
-| invoice.view / reprint | ✅ | ✅ | view ✅ |
-| installment.view | ✅ | ✅ | ✅ |
-| installment.manage | ✅ | ✅ | — |
-| installment.collect | ✅ | ✅ | ✅ |
-| transfer.request / dispatch | ✅approve | ✅ | — |
-| transfer.receive | ✅ | — | ✅ |
-| finance.manage.global | ✅ | — | — |
-| finance.manage.branch | — | ✅ | — |
-| reports.view.global / settings.manage / users.manage / audit.view.global | ✅ | — | — |
-| government.use | ✅ | ✅ | ✅ |
-| price.override.global/branch/pos | ✅g | ✅b | ✅pos |
-
-## 8. API Summary
-
-| Method+Path | ฟีเจอร์ |
-|---|---|
-| POST /auth/login, /auth/logout · GET /me | F1 |
-| GET /dashboard, /dashboard/daily-sales | F9 |
-| GET/POST /products, PUT /products/:id · GET/POST /aliases | F3 |
-| GET /inventory · POST /inventory/adjust, /rebalance, /receive | F2 |
-| POST /quotations(/preview), /:id/convert · GET /quotations | F4 |
-| POST /invoices(/preview) · GET /invoices(/:id)(/print) · POST /:id/pay | F4, F5 |
-| GET/POST /installments · POST /installments/payments/:id/pay | F6 |
-| GET/POST /transfers · POST /:id/dispatch, /:id/receive, /receive-by-code | F7 |
-| GET/POST /checks · GET /checks/outstanding-invoices · POST /checks/preview-apply | F8 |
-| GET /reports/tax, /reports/profit-loss | F9 |
-| /branches, /users, /roles, /permissions, /branches/sequences | F10 |
-| GET /marketplace/providers, /orders · POST /connections | F11 |
-| GET /audit-logs | F10 |
-
-## 9. Success Metrics
-
-**Leading:** ออกบิลสำเร็จโดยไม่มี error ≥ 99%; เวลาสร้างบิล ≤ 60 วิ; movement log reconcile ตรงยอด 100% (ตรวจด้วย SQL ทุกคืนได้)
-**Lagging:** งวดค้างชำระถูกติดตาม (overdue ปรากฏบน dashboard ภายใน 1 วัน); audit ครอบคลุมทุก mutation (สุ่มตรวจรายเดือน); ปิดการใช้ Google Sheets ได้ถาวร
-
-## 10. Open Questions
-
-- (บัญชี) บิลผ่อนต้องออกใบกำกับภาษีต่องวดหรือใบเดียวตอนออกบิล? — ปัจจุบันออกใบเดียว VAT เต็มตอนออกบิล
-- (ธุรกิจ) นโยบายยกเลิกแผนผ่อน (`cancelled` มีใน schema แต่ยังไม่มี endpoint) — P1
-- (Infra) การ backup PostgreSQL production — ต้องกำหนดก่อน go-live
-
-## 11. Phasing
-
-- **P0 (เสร็จแล้วทั้งหมด):** ทุกฟีเจอร์ในข้อ 6
-- **P1:** ยกเลิกแผนผ่อน, รายงานงวดค้างรายลูกค้า, แจ้งเตือนงวดใกล้ครบกำหนด
-- **P2:** เชื่อม marketplace API จริง, import ลูกค้าเก่า (ถ้าเปลี่ยนใจ), แอปมือถือ
+1. เฉพาะ `super_admin` เลือกวันเริ่มต้น–สิ้นสุดและหนึ่งหรือหลายสาขาขาย; เลือก WH เป็นสาขาต้นทางไม่ได้
+2. Preview แสดงบิลทุกใบที่จะซ่อนและ projection ของ Branch Real returned, WH Real received, WH Ghost deducted และ deficit
+3. ใบกำกับภาษีเต็มรูป, เงินโอน, ชำระผสม, unpaid, cancelled และบิลที่ซ่อนแล้วไม่เข้า candidate
+4. ขั้นยืนยันทำงานใน transaction พร้อม advisory lock และปฏิเสธช่วงวันที่ทับซ้อนต่อสาขา
+5. บิล candidate ถูก soft-delete, snapshot Before ถูกเก็บ, และเลขบิล Active ที่เหลือเรียงใหม่ตาม `created_at, id` โดย timestamp ไม่เปลี่ยนจากการ renumber
+6. แหล่งตัด effective ของบิลที่ซ่อนเป็น Ghost ค่าเดียว ส่วน Real reversal/return/receive เป็น adjustment แยก
+7. รายงานใช้ `reconciliation_id` เป็นตัวกรองหลัก แสดง Before/After, movement detail และผลรวม Real/Ghost/deficit
+8. Ghost Lots และ PO มีได้เฉพาะ WH; Ghost movement ใหม่ต้องอ้างอิง PO หรือ Month-End ส่วน adjustment, receive, rebalance, receipt approval และเอกสารขาย/เสนอราคา/โอน/คืนทั่วไปใช้ Real เท่านั้น

@@ -11,3 +11,9 @@ frontend/test-results
 frontend/playwright-report
 *.tsbuildinfo
 .claude/
+
+# Reference material and local artifacts — not part of the product build.
+Ocha/
+Analytics dashboard redesign/
+backups/
+frontend/.scratch-*.mjs

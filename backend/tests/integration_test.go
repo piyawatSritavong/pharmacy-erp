@@ -36,40 +36,71 @@ func TestIntegrationHarness(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	assertSeededDocPattern(t, application.DB, "invoices", "invoice_number", `^BL[0-9]{8}[0-9]{5}$`)
-	assertSeededDocPattern(t, application.DB, "quotations", "quote_number", `^QT[0-9]{8}[0-9]{5}$`)
-	assertRolePermissionAbsent(t, application.DB, "branch_admin", "payment.collect")
+	assertCatalogCount(t, application.DB, "branches", 6)
+	assertCatalogCount(t, application.DB, "product_categories", 12)
+	assertCatalogAtLeast(t, application.DB, "products", 694)
+	assertCatalogAtLeast(t, application.DB, "inventory", 1374)
+	assertRoleAbsent(t, application.DB, "branch_admin")
+	assertInventoryLedgerBalanced(t, application.DB)
 }
 
-func assertSeededDocPattern(t *testing.T, db *sql.DB, table string, column string, pattern string) {
+func assertCatalogAtLeast(t *testing.T, db *sql.DB, table string, expected int) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
+		t.Fatalf("count %s: %v", table, err)
+	}
+	if count < expected {
+		t.Fatalf("expected %s to contain at least %d Ocha rows, got %d", table, expected, count)
+	}
+}
+
+func assertCatalogCount(t *testing.T, db *sql.DB, table string, expected int) {
 	t.Helper()
 
-	var matches int
-	query := `SELECT COUNT(*) FROM ` + table + ` WHERE ` + column + ` ~ $1`
-	if err := db.QueryRow(query, pattern).Scan(&matches); err != nil {
-		t.Fatalf("query seeded %s pattern: %v", table, err)
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
+		t.Fatalf("count %s: %v", table, err)
 	}
-	if matches == 0 {
-		t.Fatalf("expected seeded %s rows matching pattern %s", table, pattern)
+	if count != expected {
+		t.Fatalf("expected %s to contain %d Ocha rows, got %d", table, expected, count)
 	}
 }
 
-func assertRolePermissionAbsent(t *testing.T, db *sql.DB, roleKey string, permissionKey string) {
+func assertRoleAbsent(t *testing.T, db *sql.DB, roleKey string) {
 	t.Helper()
 
 	var exists bool
 	if err := db.QueryRow(`
 		SELECT EXISTS (
-			SELECT 1
-			FROM role_permissions rp
-			INNER JOIN roles r ON r.id = rp.role_id
-			INNER JOIN permissions p ON p.id = rp.permission_id
-			WHERE r.role_key = $1 AND p.permission_key = $2
+			SELECT 1 FROM roles WHERE role_key = $1
 		)
-	`, roleKey, permissionKey).Scan(&exists); err != nil {
-		t.Fatalf("query role permission: %v", err)
+	`, roleKey).Scan(&exists); err != nil {
+		t.Fatalf("query role: %v", err)
 	}
 	if exists {
-		t.Fatalf("expected %s to exclude %s", roleKey, permissionKey)
+		t.Fatalf("expected role %s to be absent", roleKey)
+	}
+}
+
+func assertInventoryLedgerBalanced(t *testing.T, db *sql.DB) {
+	t.Helper()
+	var mismatches int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM inventory i
+		WHERE i.qty_real <> COALESCE((
+			SELECT SUM(m.quantity_delta) FROM inventory_movements m
+			WHERE m.branch_id = i.branch_id AND m.product_id = i.product_id AND m.stock_bucket = 'real'
+		), 0)
+		OR i.qty_ghost <> COALESCE((
+			SELECT SUM(m.quantity_delta) FROM inventory_movements m
+			WHERE m.branch_id = i.branch_id AND m.product_id = i.product_id AND m.stock_bucket = 'ghost'
+		), 0)
+	`).Scan(&mismatches); err != nil {
+		t.Fatalf("query inventory ledger balance: %v", err)
+	}
+	if mismatches != 0 {
+		t.Fatalf("expected inventory ledger to be balanced, found %d mismatches", mismatches)
 	}
 }

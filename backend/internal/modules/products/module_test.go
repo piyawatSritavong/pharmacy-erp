@@ -16,7 +16,7 @@ func TestListRejectsCrossBranchQuery(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	context := engine.NewContext(request, recorder)
 	context.Set(platform.ContextUserKey, platform.AuthUser{
-		RoleKey:  "branch_admin",
+		RoleKey:  "branch_pos",
 		BranchID: ptr("branch-a"),
 	})
 

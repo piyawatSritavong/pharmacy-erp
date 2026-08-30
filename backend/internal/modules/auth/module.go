@@ -46,6 +46,8 @@ func (s *Service) Login(ctx context.Context, input LoginRequest) (SessionRespons
 		RoleKey      string
 		RoleName     string
 		RoleActive   bool
+		Portal       string
+		Scope        string
 		BranchID     sql.NullString
 		BranchCode   sql.NullString
 		BranchName   sql.NullString
@@ -54,14 +56,14 @@ func (s *Service) Login(ctx context.Context, input LoginRequest) (SessionRespons
 
 	var row userRow
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.full_name, u.email, u.password_hash, r.role_key, r.name, r.active,
+		SELECT u.id, u.full_name, u.email, u.password_hash, r.role_key, r.name, r.active, r.portal, r.scope,
 		       u.branch_id::text, b.code, b.name, u.active
 		FROM users u
 		INNER JOIN roles r ON r.id = u.role_id
 		LEFT JOIN branches b ON b.id = u.branch_id
 		WHERE LOWER(u.email) = LOWER($1)
 	`, strings.TrimSpace(input.Email)).Scan(
-		&row.ID, &row.Name, &row.Email, &row.PasswordHash, &row.RoleKey, &row.RoleName, &row.RoleActive,
+		&row.ID, &row.Name, &row.Email, &row.PasswordHash, &row.RoleKey, &row.RoleName, &row.RoleActive, &row.Portal, &row.Scope,
 		&row.BranchID, &row.BranchCode, &row.BranchName, &row.Active,
 	); err != nil {
 		if err == sql.ErrNoRows {
@@ -91,6 +93,8 @@ func (s *Service) Login(ctx context.Context, input LoginRequest) (SessionRespons
 		Email:       row.Email,
 		RoleKey:     row.RoleKey,
 		RoleName:    row.RoleName,
+		Portal:      row.Portal,
+		Scope:       row.Scope,
 		BranchID:    platform.StringPointer(row.BranchID),
 		BranchCode:  platform.StringPointer(row.BranchCode),
 		BranchName:  platform.StringPointer(row.BranchName),
@@ -146,6 +150,8 @@ func (s *Service) signToken(user platform.AuthUser) (string, error) {
 		Email:       user.Email,
 		RoleKey:     user.RoleKey,
 		RoleName:    user.RoleName,
+		Portal:      user.Portal,
+		Scope:       user.Scope,
 		BranchID:    user.BranchID,
 		BranchCode:  user.BranchCode,
 		BranchName:  user.BranchName,
@@ -162,6 +168,13 @@ func (s *Service) signToken(user platform.AuthUser) (string, error) {
 	return token.SignedString([]byte(s.config.JWTSecret))
 }
 
+// navigationFor is permission-driven (D11): a role's nav is derived from its
+// actual permission set rather than a hardcoded role_key switch, so any
+// number of back-office role presets (super_admin, admin, office,
+// branch_head, ...) each see exactly the subset their permissions unlock.
+// The *shape* of the nav (POS flat bar vs back-office grouped sidebar) still
+// follows Portal, since that also decides which app shell renders it
+// (AppShell branches the same way).
 func navigationFor(user platform.AuthUser) []map[string]any {
 	appendItem := func(items []map[string]any, key string, title string, href string, description string) []map[string]any {
 		return append(items, map[string]any{
@@ -171,42 +184,129 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 			"description": description,
 		})
 	}
+	// appendItemIf only adds the item when the user holds the permission(s)
+	// that gate its page, so nav membership always matches what the user can
+	// actually open (including via direct URL — see requirePermission()).
+	appendItemIf := func(items []map[string]any, allowed bool, key string, title string, href string, description string) []map[string]any {
+		if !allowed {
+			return items
+		}
+		return appendItem(items, key, title, href, description)
+	}
+	// appendGroup adds a parent/group menu item (C1) whose href is its first
+	// child's href, so clicking the parent itself auto-activates that child.
+	// Omitted entirely when it would have no visible children.
+	appendGroup := func(items []map[string]any, key string, title string, description string, children []map[string]any) []map[string]any {
+		if len(children) == 0 {
+			return items
+		}
+		href, _ := children[0]["href"].(string)
+		return append(items, map[string]any{
+			"key":         key,
+			"title":       title,
+			"href":        href,
+			"description": description,
+			"children":    children,
+		})
+	}
+	has := func(keys ...string) bool {
+		for _, key := range keys {
+			if platform.HasPermission(user, key) {
+				return true
+			}
+		}
+		return false
+	}
 
 	items := []map[string]any{}
-	switch user.RoleKey {
-	case "super_admin":
-		items = appendItem(items, "dashboard", "Dashboard", "/dashboard", "Global sales and stock overview")
-		items = appendItem(items, "inventory_management", "Inventory Management", "/inventory-management", "Master products, aliases, and enterprise inventory")
-		items = appendItem(items, "installments", "Installments", "/installments", "Installment plans, collections, and overdue tracking")
-		items = appendItem(items, "finance_central", "Finance Central", "/finance-central", "Central check clearing and outstanding invoices")
-		items = appendItem(items, "global_reports", "Global Reports", "/global-reports", "Tax and profit/loss across all branches")
-		items = appendItem(items, "settings", "Settings", "/settings", "Branches, users, roles, sequences, marketplace, and audit")
-	case "branch_admin":
-		items = appendItem(items, "branch_dashboard", "Branch Dashboard", "/branch-dashboard", "Branch-only sales and transfer overview")
-		items = appendItem(items, "branch_inventory", "Branch Inventory", "/branch-inventory", "Branch stock, receiving, rebalance, transfer request, and dispatch queue")
-		items = appendItem(items, "sales_invoices", "Sales & Invoices", "/sales-invoices", "Quotations, invoice issue, history, and reprint")
-		items = appendItem(items, "installments", "Installments", "/installments", "Create plans from unpaid invoices and collect installments")
-		items = appendItem(items, "local_finance", "Local Finance", "/local-finance", "Match branch invoices with checks")
-	case "branch_pos":
-		items = appendItem(items, "pos_screen", "POS Screen", "/sales", "Retail and government-mode billing")
-		items = appendItem(items, "inventory_check", "Inventory Check", "/inventory-check", "Search branch stock without edit actions")
-		items = appendItem(items, "installments", "Installments", "/installments", "Collect installment payments by due date")
-		items = appendItem(items, "goods_transfer_receipt", "Goods Transfer Receipt", "/transfer-receipts", "Receive transfers by QR camera or manual code")
-		items = appendItem(items, "daily_sales_summary", "Daily Sales Summary", "/daily-sales", "Your daily sales and collections")
-	default:
-		items = appendItem(items, "dashboard", "Dashboard", "/dashboard", "Application overview")
+
+	if user.Portal == "pos" {
+		items = appendItemIf(items, has("invoice.create.pos"), "pos_screen", "ขายหน้าร้าน", "/sales", "ขายสินค้าและออกใบเสร็จ")
+		// พักบิล needs no permission — parking a cart is ordinary counter
+		// behaviour, and branch_pos deliberately holds no document rights.
+		items = appendItem(items, "parked_bills", "พักบิล", "/parked-bills", "บิลที่พักไว้ รอกลับมาชำระเงิน")
+		items = appendItemIf(items, has("invoice.view"), "sales_history", "ประวัติ", "/sales-history", "ดูและพิมพ์ใบขายย้อนหลัง")
+		items = appendItemIf(items, has("inventory.view.branch"), "inventory_check", "เช็กสต๊อก", "/inventory-check", "ค้นหาสต๊อกของสาขา")
+		items = appendItemIf(items, has("transfer.receive"), "goods_transfer_receipt", "รับโอนสินค้า", "/transfer-receipts", "ตรวจจำนวนที่ส่งและยืนยันจำนวนสินค้าที่ได้รับจริง")
+		items = appendItemIf(items, has("dashboard.view.self"), "daily_sales_summary", "สรุปยอดขาย", "/daily-sales", "ยอดขายและยอดรับชำระประจำวัน")
+		return items
 	}
+
+	var reportsChildren []map[string]any
+	reportsChildren = appendItemIf(reportsChildren, has("dashboard.view.global"), "dashboard", "Dashboard", "/dashboard", "ภาพรวมยอดขายและสต๊อกทุกสาขา")
+	reportsChildren = appendItemIf(reportsChildren, has("reports.generate.global"), "generate_report", "Generate Report", "/generate-report", "สร้างและปักหมุดรายงานแบบกำหนดเองจากข้อมูลทุกสาขา")
+	reportsChildren = appendItemIf(reportsChildren, user.RoleKey == "super_admin" && has("month_end.view", "month_end.manage"), "month_end", "สรุปสิ้นเดือน", "/month-end", "ซ่อนบิลที่เข้าเงื่อนไข ส่ง Real คืน WH และตัด Ghost แบบตรวจสอบย้อนหลังได้")
+	// This comparison exposes hidden invoices and Ghost Stock deductions, so the
+	// literal superadmin role is required in addition to the report permission.
+	reportsChildren = appendItemIf(reportsChildren, user.RoleKey == "super_admin" && has("reports.view.global", "reports.generate.global"), "month_end_report", "รายงานสรุปสิ้นเดือน", "/month-end-report", "เปรียบเทียบบิล ราคา และการตัดสต๊อกก่อนกับหลังปิดรอบ")
+
+	var inventoryChildren []map[string]any
+	inventoryChildren = appendItemIf(inventoryChildren, has("products.view", "products.manage"), "product_catalog", "รายการสินค้า", "/product-catalog", "แหล่งข้อมูลสินค้าเดียวที่ทุกสาขาดึงไปใช้")
+	inventoryChildren = appendItemIf(inventoryChildren, has("inventory.manage.global"), "real_inventory", "สต๊อกจริง", "/real-inventory", "ดู รับเข้า และปรับยอดสต๊อกจริง")
+	inventoryChildren = appendItemIf(inventoryChildren, user.RoleKey == "super_admin" && has("inventory.ghost.manage"), "ghost_inventory", "สต๊อกผี", "/ghost-inventory", "ดู รับเข้า และปรับยอดสต๊อกผี")
+	inventoryChildren = appendItemIf(inventoryChildren, has("products.manage"), "product_categories", "หมวดสินค้า", "/product-categories", "จัดกลุ่มสินค้าและกำหนดสีสำหรับการค้นหา")
+	inventoryChildren = appendItemIf(inventoryChildren, has("transfer.approve"), "stock_transfers", "โอนสินค้า", "/transfers", "สร้างใบโอนและตรวจสอบคำขอสินค้าจากสาขา")
+
+	var documentsChildren []map[string]any
+	documentsChildren = appendItemIf(documentsChildren, has("purchase_orders.view.global", "purchase_orders.manage.global"), "purchase_orders", "ใบสั่งซื้อเข้า", "/purchase-orders", "ประวัติและสร้างใบสั่งซื้อพร้อมรับสินค้าเข้าคลัง")
+	documentsChildren = appendItemIf(documentsChildren, has("suppliers.view.global", "suppliers.manage.global"), "suppliers", "บริษัทคู่ค้า", "/suppliers", "จัดการบริษัทคู่ค้าส่วนกลาง")
+	documentsChildren = appendItemIf(documentsChildren, has("quotation.manage"), "government_sales", "รพ.สต.", "/government-sales", "ใบเสนอราคาและใบขายสำหรับงานราชการ")
+	documentsChildren = appendItemIf(documentsChildren, has("quotation.manage"), "sales_management", "ใบขาย", "/sales-management", "ใบเสนอราคา ใบขาย และประวัติเอกสาร")
+	documentsChildren = appendItemIf(documentsChildren, has("returns.manage"), "claims", "เคลม/คืนสินค้า", "/claims", "ส่งเคลมให้คู่ค้าและปิดเคลมรับรุ่นเดิมหรือรุ่นทดแทน")
+	documentsChildren = appendItemIf(documentsChildren, has("fda.manage"), "fda_reports", "อย.", "/fda-reports", "เลือกสินค้าและสร้างเอกสารนำส่ง อย.")
+
+	items = appendGroup(items, "reports_group", "รายงาน", "รายงานสรุปและแดชบอร์ด", reportsChildren)
+	items = appendGroup(items, "inventory_group", "คลังสินค้า", "สต๊อกจริง สต๊อกผี หมวดสินค้า และการโอนสินค้า", inventoryChildren)
+	items = appendGroup(items, "documents_group", "ใบเอกสาร", "ใบสั่งซื้อ บริษัทคู่ค้า รพ.สต. ใบขาย และเอกสาร อย.", documentsChildren)
+
+	// branch_ops_group: a branch-scoped back-office role (e.g. หัวหน้าสาขา)
+	// doesn't hold any of the *.global permissions the groups above gate on,
+	// but does need somewhere to reach their own branch's operations —
+	// reusing the same pages the POS portal links to, under requirePermission()
+	// gates a branch_head plausibly holds. Never shown for scope=="global"
+	// roles, so super_admin/admin/office's nav is unchanged by this.
+	if user.Scope == "branch" {
+		var branchOpsChildren []map[string]any
+		branchOpsChildren = appendItemIf(branchOpsChildren, has("dashboard.view.self"), "daily_sales_summary", "สรุปยอดขาย", "/daily-sales", "ยอดขายและยอดรับชำระประจำวันของสาขา")
+		// ประวัติการขาย lives in the ระบบ group now — not repeated here.
+		branchOpsChildren = appendItemIf(branchOpsChildren, has("inventory.view.branch"), "inventory_check", "เช็กสต๊อก", "/inventory-check", "ค้นหาสต๊อกของสาขา")
+		branchOpsChildren = appendItemIf(branchOpsChildren, has("transfer.receive"), "goods_transfer_receipt", "รับโอนสินค้า", "/transfer-receipts", "ตรวจจำนวนที่ส่งและยืนยันจำนวนสินค้าที่ได้รับจริง")
+		items = appendGroup(items, "branch_ops_group", "สาขาของฉัน", "ยอดขาย สต๊อก และการโอนสินค้าของสาขาที่ดูแล", branchOpsChildren)
+	}
+
+	// global_reports ("รายงาน" ภาษีและกำไรขาดทุนทุกสาขา) is removed from
+	// the menu per C1 — /global-reports itself still works, just unlinked.
+
+	// เมนู: ระบบ — ตั้งค่า, ประวัติระบบ, ประวัติการขาย as siblings
+	// (business-flow.md). ประวัติระบบ used to be a Settings tab and
+	// ประวัติการขาย only existed on the POS portal; both are now top-level
+	// here for back-office roles.
+	var systemChildren []map[string]any
+	systemChildren = appendItemIf(systemChildren, has("settings.manage", "users.manage"), "settings", "ตั้งค่า", "/settings", "สาขา ผู้ใช้ บทบาทและสิทธิ์ เลขที่เอกสาร และตลาดออนไลน์")
+	systemChildren = appendItemIf(systemChildren, has("audit.view.global"), "audit", "ประวัติระบบ", "/audit", "ประวัติการทำงานทุกอย่างของระบบ")
+	systemChildren = appendItemIf(systemChildren, has("invoice.view"), "sales_history", "ประวัติการขาย", "/sales-history", "บิลใบเสร็จและบิลคืนสินค้าย้อนหลัง")
+	items = appendGroup(items, "system_group", "ระบบ", "ตั้งค่าระบบ ประวัติการทำงาน และประวัติการขาย", systemChildren)
 
 	return items
 }
 
 func homePathFor(user platform.AuthUser) string {
-	switch user.RoleKey {
-	case "branch_admin":
-		return "/branch-dashboard"
-	case "branch_pos":
+	switch {
+	case user.Portal == "pos":
 		return "/sales"
+	case platform.HasPermission(user, "dashboard.view.global"):
+		return "/dashboard"
+	case platform.HasPermission(user, "dashboard.view.self"):
+		return "/daily-sales"
+	case platform.HasPermission(user, "reports.generate.global"):
+		return "/generate-report"
+	case platform.HasPermission(user, "invoice.view"):
+		return "/sales-history"
+	case platform.HasPermission(user, "inventory.view.branch"):
+		return "/inventory-check"
 	default:
+		// No permission-appropriate landing page found (misconfigured role) —
+		// fall back to the previous default rather than leaving this unset.
 		return "/dashboard"
 	}
 }
@@ -232,7 +332,7 @@ func (h *Handler) Login(c echo.Context) error {
 }
 
 func (h *Handler) Logout(c echo.Context) error {
-	return platform.JSONMessage(c, http.StatusOK, "logged out")
+	return platform.JSONMessage(c, http.StatusOK, "ออกจากระบบแล้ว")
 }
 
 func (h *Handler) Me(c echo.Context) error {

@@ -4,24 +4,25 @@
 
 :root {
   color-scheme: light;
-  --background: 240 5% 98%;
-  --foreground: 240 10% 3.9%;
+  --background: 42 33% 97%;
+  --foreground: 0 0% 7%;
   --card: 0 0% 100%;
-  --card-foreground: 240 10% 3.9%;
-  --muted: 240 4.8% 95.9%;
-  --muted-foreground: 240 3.8% 46.1%;
-  --border: 240 5.9% 90%;
-  --input: 240 5.9% 90%;
-  --primary: 240 5.9% 10%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 240 4.8% 95.9%;
-  --secondary-foreground: 240 5.9% 10%;
-  --accent: 173 80% 26%;
+  --card-foreground: 0 0% 7%;
+  --muted: 38 30% 94%;
+  --muted-foreground: 0 0% 42%;
+  --border: 36 16% 87%;
+  --input: 36 16% 87%;
+  /* Brand primary #344ABF — see tailwind.config.ts `primary` scale for tints/shades. */
+  --primary: 231 57% 48%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 39 100% 61%;
+  --secondary-foreground: 0 0% 8%;
+  --accent: 231 57% 48%;
   --accent-foreground: 0 0% 100%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 98%;
-  --ring: 173 58% 39%;
-  --radius: 0.5rem;
+  --ring: 231 57% 48%;
+  --radius: 1rem;
 }
 
 * {
@@ -33,10 +34,51 @@ html,
 body {
   margin: 0;
   padding: 0;
-  font-family: var(--font-sans), "IBM Plex Sans Thai", ui-sans-serif, system-ui, sans-serif;
-  background: hsl(var(--background));
+  font-family: var(--font-sans), "Noto Sans Thai", ui-sans-serif, system-ui, sans-serif;
+  background:
+    radial-gradient(circle at 85% 5%, rgba(52, 74, 191, 0.1), transparent 28rem),
+    hsl(var(--background));
   color: hsl(var(--foreground));
   -webkit-font-smoothing: antialiased;
+}
+
+.bg-surface-warm {
+  background-color: #fff5e8;
+}
+
+.bg-pos-canvas {
+  background-color: #fff3ef;
+  background-image: radial-gradient(circle at 20% -20%, rgba(255, 200, 61, 0.28), transparent 32rem);
+}
+
+.shadow-brand {
+  box-shadow: 0 12px 28px rgba(52, 74, 191, 0.22);
+}
+
+.shadow-card {
+  box-shadow: 0 12px 36px rgba(35, 24, 12, 0.07);
+}
+
+.pos-pill,
+.pos-pill-active {
+  flex: none;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9999px;
+  padding: 0.55rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: 160ms ease;
+}
+
+.pos-pill {
+  background: white;
+}
+
+.pos-pill:hover,
+.pos-pill-active {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary));
+  color: white;
 }
 
 a {
@@ -49,4 +91,32 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/*
+ * Ready-to-use brand button styles built on the centralized theme tokens
+ * (see tailwind.config.ts). Prefer these utility combos directly in JSX
+ * where a plain `<button>` element doesn't route through the .btn-* classes:
+ *   bg-primary hover:bg-primary-600 active:bg-primary-700 disabled:opacity-40
+ */
+.btn-primary {
+  @apply bg-primary text-white transition-colors hover:bg-primary-600 active:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+.btn-neutral {
+  @apply bg-neutral-100 text-neutral-dark transition-colors hover:bg-neutral-200 active:bg-neutral-300 disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+@media (min-width: 1024px) {
+  .report-builder-workspace {
+    grid-template-columns: var(--field-sidebar-width, 288px) minmax(0, 1fr);
+  }
 }

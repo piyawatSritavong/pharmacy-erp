@@ -8,7 +8,7 @@ const backendURL =
   "http://localhost:8080";
 
 export async function apiServer<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = cookies().get(AUTH_COOKIE)?.value;
+  const token = (await cookies()).get(AUTH_COOKIE)?.value;
   const response = await fetch(`${backendURL}/api/v1${path}`, {
     ...init,
     cache: "no-store",
@@ -29,8 +29,8 @@ export async function apiServer<T>(path: string, init?: RequestInit): Promise<T>
 async function extractMessage(response: Response) {
   try {
     const body = (await response.json()) as { message?: string };
-    return body.message || "Request failed";
+    return body.message || "ดำเนินการไม่สำเร็จ";
   } catch {
-    return "Request failed";
+    return "ดำเนินการไม่สำเร็จ";
   }
 }

@@ -7,7 +7,7 @@ WORKDIR /src/backend
 RUN go mod download
 
 COPY backend /src/backend
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/pharmacy-erp ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/pharmacy-erp ./cmd/api
 
 FROM alpine:3.20
 

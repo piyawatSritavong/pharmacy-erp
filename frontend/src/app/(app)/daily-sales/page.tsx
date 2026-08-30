@@ -1,41 +1,65 @@
 import { DataTable, MetricGrid, PageIntro, SectionCard } from "@/components/sections/common";
+import { Download, FileSpreadsheet } from "lucide-react";
 import { Button, Input } from "@/components/ui/primitives";
-import { requireRole } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac";
 import { getDailySales, requireSession } from "@/services/erp";
 
 export default async function DailySalesPage({
   searchParams
 }: {
-  searchParams?: { date?: string | string[] };
+  searchParams?: Promise<{ start_date?: string | string[]; end_date?: string | string[] }>;
 }) {
-  requireRole(await requireSession(), ["branch_pos"]);
-  const date = typeof searchParams?.date === "string" ? searchParams.date : undefined;
-  const summary = await getDailySales(date);
+  requirePermission(await requireSession(), ["dashboard.view.self"]);
+  const resolvedSearchParams = await searchParams;
+  const startDate = typeof resolvedSearchParams?.start_date === "string" ? resolvedSearchParams.start_date : undefined;
+  const endDate = typeof resolvedSearchParams?.end_date === "string" ? resolvedSearchParams.end_date : undefined;
+  const summary = await getDailySales(startDate, endDate);
   const metrics = (summary.metrics as Array<{ key: string; label: string; value: string | number }>) || [];
   const recentInvoices = (summary.recent_invoices as Array<Record<string, unknown>>) || [];
+  const selectedStart = String(summary.start_date || summary.date || "");
+  const selectedEnd = String(summary.end_date || summary.date || "");
+  const exportQuery = new URLSearchParams({ start_date: selectedStart, end_date: selectedEnd });
 
   return (
     <div className="space-y-6">
       <PageIntro
-        eyebrow="Daily Summary"
-        title={`Daily Sales Summary · ${String(summary.date || "")}`}
-        description="สรุปยอดขายรายวันของพนักงานคนปัจจุบันโดยอิงจาก invoices.created_by และ invoice_payments.created_by"
+        title="สรุปยอดขาย"
+        description={`ยอดขายและยอดรับชำระของพนักงานคนปัจจุบัน ช่วง ${String(summary.range_label || selectedStart)}`}
       />
-      <SectionCard title="Select Date" description="เลือกวันที่ตาม Bangkok timezone เพื่อดูยอดขายของพนักงานคนปัจจุบัน">
-        <form action="/daily-sales" className="grid gap-3 sm:grid-cols-[220px_auto]">
-          <Input defaultValue={typeof summary.date === "string" ? summary.date : ""} name="date" type="date" />
-          <Button type="submit">Load Summary</Button>
+      <SectionCard title="เลือกช่วงวันที่" description="รองรับการสรุปรายวัน รายสัปดาห์ รายเดือน หรือช่วงวันที่ที่กำหนดเอง">
+        <form action="/daily-sales" className="grid gap-3 lg:grid-cols-[220px_220px_auto_auto_auto]">
+          <label className="space-y-1 text-xs font-semibold text-muted-foreground">
+            วันที่เริ่มต้น
+            <Input aria-label="วันที่เริ่มต้น" defaultValue={selectedStart} name="start_date" required type="date" />
+          </label>
+          <label className="space-y-1 text-xs font-semibold text-muted-foreground">
+            วันที่สิ้นสุด
+            <Input aria-label="วันที่สิ้นสุด" defaultValue={selectedEnd} name="end_date" required type="date" />
+          </label>
+          <Button className="self-end" type="submit">แสดงสรุปยอด</Button>
+          <a
+            className="inline-flex h-10 items-center justify-center gap-2 self-end rounded-lg border bg-white px-4 text-sm font-semibold hover:bg-muted"
+            href={`/api/backend/dashboard/sales-export?${exportQuery.toString()}&format=pdf`}
+          >
+            <Download className="h-4 w-4" />Export PDF
+          </a>
+          <a
+            className="inline-flex h-10 items-center justify-center gap-2 self-end rounded-lg border bg-white px-4 text-sm font-semibold hover:bg-muted"
+            href={`/api/backend/dashboard/sales-export?${exportQuery.toString()}&format=xlsx`}
+          >
+            <FileSpreadsheet className="h-4 w-4" />Export Excel
+          </a>
         </form>
       </SectionCard>
       <MetricGrid items={metrics} />
-      <SectionCard title="Your Recent Invoices" description="Only invoices created by the current POS user for the selected day">
+      <SectionCard title="ใบขายของคุณ" description="แสดงเฉพาะใบขายที่พนักงานคนปัจจุบันสร้างในช่วงวันที่เลือก">
         <DataTable
           columns={[
-            { key: "invoice_number", label: "Invoice" },
-            { key: "customer_name", label: "Customer" },
-            { key: "payment_status", label: "Status" },
-            { key: "total_amount", label: "Total", type: "currency" },
-            { key: "issued_at", label: "Issued At", type: "datetime" }
+            { key: "invoice_number", label: "เลขที่ใบขาย" },
+            { key: "customer_name", label: "ลูกค้า" },
+            { key: "payment_status", label: "สถานะ" },
+            { key: "total_amount", label: "ยอดรวม", type: "currency" },
+            { key: "issued_at", label: "วันที่ออก", type: "datetime" }
           ]}
           rows={recentInvoices}
         />

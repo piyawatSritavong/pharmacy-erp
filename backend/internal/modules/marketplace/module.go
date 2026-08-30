@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -64,7 +65,7 @@ func (s *Service) ListOrders(ctx context.Context, user platform.AuthUser) ([]map
 		INNER JOIN branches b ON b.id = mo.branch_id
 	`
 	args := []any{}
-	if user.BranchID != nil && user.RoleKey != "super_admin" {
+	if user.BranchID != nil && user.Scope != "global" {
 		args = append(args, *user.BranchID)
 		query += " WHERE mo.branch_id = $1"
 	}
@@ -96,9 +97,73 @@ func (s *Service) ListOrders(ctx context.Context, user platform.AuthUser) ([]map
 	return items, rows.Err()
 }
 
+// TestConnection checks whatever is currently in the connection form (not
+// necessarily saved yet) — D13's "test connection" action. There is no real
+// external marketplace API to call from this system, so this is honestly a
+// structural completeness check (required fields present) rather than a
+// live network call, and says so in its own message.
+func (s *Service) TestConnection(ctx context.Context, input ConnectionInput) (map[string]any, error) {
+	var providerName string
+	if err := s.db.QueryRowContext(ctx, `SELECT name FROM marketplace_providers WHERE id = $1`, input.ProviderID).Scan(&providerName); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, platform.NewError(http.StatusBadRequest, "ไม่พบผู้ให้บริการตลาดออนไลน์ที่เลือก")
+		}
+		return nil, err
+	}
+	var branchName string
+	var onlineSalesEnabled bool
+	if err := s.db.QueryRowContext(ctx, `SELECT name, online_sales_enabled FROM branches WHERE id = $1`, input.BranchID).Scan(&branchName, &onlineSalesEnabled); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, platform.NewError(http.StatusBadRequest, "ไม่พบสาขาที่เลือก")
+		}
+		return nil, err
+	}
+	// Part B, Rule 3: only branches with online_sales_enabled may sell
+	// online — in-store POS is unaffected and open to every branch.
+	if !onlineSalesEnabled {
+		return map[string]any{
+			"success": false,
+			"message": fmt.Sprintf("สาขา%sไม่สามารถขายออนไลน์ได้", branchName),
+		}, nil
+	}
+	missing := []string{}
+	if strings.TrimSpace(input.ConnectionName) == "" {
+		missing = append(missing, "ชื่อการเชื่อมต่อ")
+	}
+	apiKey, _ := input.Credentials["api_key"].(string)
+	if strings.TrimSpace(apiKey) == "" {
+		missing = append(missing, "คีย์ API")
+	}
+	if len(missing) > 0 {
+		return map[string]any{
+			"success": false,
+			"message": fmt.Sprintf("ข้อมูลไม่ครบถ้วน: %s", strings.Join(missing, ", ")),
+		}, nil
+	}
+	return map[string]any{
+		"success": true,
+		"message": fmt.Sprintf("ข้อมูลการเชื่อมต่อ %s สาขา%s ครบถ้วนพร้อมบันทึก (ระบบตรวจสอบเฉพาะความครบถ้วนของข้อมูล ไม่ได้เชื่อมต่อ API จริงของผู้ให้บริการ)", providerName, branchName),
+	}, nil
+}
+
 func (s *Service) UpsertConnection(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, input ConnectionInput) error {
-	if user.BranchID != nil && user.RoleKey != "super_admin" && *user.BranchID != input.BranchID {
+	if user.BranchID != nil && user.Scope != "global" && *user.BranchID != input.BranchID {
 		return platform.NewError(http.StatusForbidden, "branch scope mismatch")
+	}
+	// Part B, Rule 3: only branches with online_sales_enabled may sell
+	// online — enforced server-side, not just filtered out of the picker,
+	// since a direct request should be rejected the same way any other
+	// direct-URL/API bypass attempt is throughout this app. In-store POS
+	// checkout does not go through this check at all.
+	var onlineSalesEnabled bool
+	if err := s.db.QueryRowContext(ctx, `SELECT online_sales_enabled FROM branches WHERE id = $1`, input.BranchID).Scan(&onlineSalesEnabled); err != nil {
+		if err == sql.ErrNoRows {
+			return platform.NewError(http.StatusBadRequest, "ไม่พบสาขาที่เลือก")
+		}
+		return err
+	}
+	if !onlineSalesEnabled {
+		return platform.NewError(http.StatusBadRequest, "สาขานี้ไม่สามารถขายออนไลน์ได้")
 	}
 	credentials, _ := json.Marshal(input.Credentials)
 	settings, _ := json.Marshal(input.Settings)
@@ -170,5 +235,17 @@ func (h *Handler) UpsertConnection(c echo.Context) error {
 	if err := h.service.UpsertConnection(c.Request().Context(), platform.CurrentUser(c), meta, input); err != nil {
 		return platform.HandleHTTPError(c, err)
 	}
-	return platform.JSONMessage(c, http.StatusOK, "marketplace connection saved")
+	return platform.JSONMessage(c, http.StatusOK, "บันทึกการเชื่อมต่อตลาดออนไลน์แล้ว")
+}
+
+func (h *Handler) TestConnection(c echo.Context) error {
+	var input ConnectionInput
+	if err := c.Bind(&input); err != nil {
+		return platform.HandleHTTPError(c, platform.NewError(http.StatusBadRequest, "invalid request body"))
+	}
+	result, err := h.service.TestConnection(c.Request().Context(), input)
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
+	return platform.JSON(c, http.StatusOK, result)
 }

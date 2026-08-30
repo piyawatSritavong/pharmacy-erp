@@ -4,6 +4,7 @@ import { startTransition, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { SectionCard, InvoiceSummary } from "@/components/sections/common";
+import { ProductSearchPicker } from "@/components/sections/product-search-picker";
 import { Button, Input, Select } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
 
@@ -16,10 +17,14 @@ type ComposerProps = {
   defaultBranchId?: string;
   branches: Option[];
   products: Option[];
+  governmentMode?: boolean;
+  canUseGhost?: boolean;
+  onCreated?: () => void;
 };
 
 type LineState = {
   product_id: string;
+  inventory_lot_id: string;
   alias_id: string;
   quantity: string;
   stock_bucket: "real" | "ghost";
@@ -29,6 +34,7 @@ type LineState = {
 
 const emptyLine: LineState = {
   product_id: "",
+  inventory_lot_id: "",
   alias_id: "",
   quantity: "1",
   stock_bucket: "real",
@@ -42,32 +48,68 @@ export function DocumentComposer({
   description,
   defaultBranchId,
   branches,
-  products
+  products,
+  governmentMode,
+  canUseGhost = false,
+  onCreated
 }: ComposerProps) {
   const router = useRouter();
   const [branchId, setBranchId] = useState(defaultBranchId || "");
   const [customerName, setCustomerName] = useState("");
   const [customerTaxID, setCustomerTaxID] = useState("");
-  const [isGovernmentMode, setGovernmentMode] = useState(false);
-  const [priceTier, setPriceTier] = useState<"cash" | "retail" | "installment">("cash");
+  const [isGovernmentMode, setGovernmentMode] = useState(governmentMode ?? false);
+  const [fullTaxInvoice, setFullTaxInvoice] = useState(false);
   const [lines, setLines] = useState<LineState[]>([{ ...emptyLine }]);
   const [aliasOptions, setAliasOptions] = useState<Record<string, Option[]>>({});
+  const [lotOptions, setLotOptions] = useState<Record<string, Option[]>>({});
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Brief inline notice when a duplicate product+stock-type line was merged
+  // into an existing row instead of being kept as a second line.
+  const [mergeNotice, setMergeNotice] = useState("");
+  useEffect(() => {
+    if (!mergeNotice) return;
+    const timer = window.setTimeout(() => setMergeNotice(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [mergeNotice]);
 
   function updateLine(index: number, key: keyof LineState, value: string) {
-    setLines((current) =>
-      current.map((line, currentIndex) =>
+    setLines((current) => {
+      const next = current.map((line, currentIndex) =>
         currentIndex === index
           ? {
               ...line,
               [key]: value,
-              ...(key === "product_id" ? { alias_id: "" } : {})
+              ...((key === "product_id" || key === "stock_bucket")
+                ? { alias_id: key === "product_id" ? "" : line.alias_id, inventory_lot_id: "" }
+                : {})
             }
           : line
-      )
-    );
+      );
+      // Same product + same stock type = one line: merge the quantity into
+      // the earlier row instead of keeping a duplicate
+      // (business-flow.md, duplicate line-item rule).
+      if (key !== "product_id" && key !== "stock_bucket") return next;
+      const edited = next[index];
+      if (!edited.product_id) return next;
+      const targetIndex = next.findIndex(
+        (line, currentIndex) =>
+          currentIndex !== index &&
+          line.product_id === edited.product_id &&
+          line.stock_bucket === edited.stock_bucket
+      );
+      if (targetIndex === -1) return next;
+      const productName = String(products.find((item) => String(item.id) === edited.product_id)?.name || "สินค้านี้");
+      setMergeNotice(`รวมจำนวน “${productName}” เข้ากับรายการเดิมแล้ว (สินค้าและประเภทสต๊อกเดียวกัน)`);
+      return next
+        .filter((_, currentIndex) => currentIndex !== index)
+        .map((line, currentIndex) =>
+          currentIndex === (targetIndex > index ? targetIndex - 1 : targetIndex)
+            ? { ...line, quantity: String((Number(line.quantity) || 0) + (Number(edited.quantity) || 0)) }
+            : line
+        );
+    });
   }
 
   const requestedAliasKeys = useMemo(() => {
@@ -95,7 +137,7 @@ export function DocumentComposer({
 
   useEffect(() => {
     setLines((current) =>
-      current.map((line) => (line.alias_id ? { ...line, alias_id: "" } : line))
+      current.map((line) => ({ ...line, alias_id: "", inventory_lot_id: "" }))
     );
     setPreview(null);
   }, [branchId]);
@@ -140,6 +182,33 @@ export function DocumentComposer({
     };
   }, [aliasOptions, branchId, requestedAliasKeys]);
 
+  const requestedLotKeys = useMemo(() => {
+    if (kind !== "invoice" || !branchId) return [];
+    return Array.from(new Set(lines
+      .filter((line) => line.product_id)
+      .map((line) => `${branchId}:${line.product_id}:${line.stock_bucket}`)));
+  }, [branchId, kind, lines]);
+
+  useEffect(() => {
+    const missingKeys = requestedLotKeys.filter((key) => lotOptions[key] === undefined);
+    if (!missingKeys.length) return;
+    let active = true;
+    void Promise.all(missingKeys.map(async (key) => {
+      const [requestedBranchID, productID, bucket] = key.split(":");
+      const query = new URLSearchParams({ branch_id: requestedBranchID, product_id: productID, stock_bucket: bucket });
+      const result = await proxyClient<{ items: Option[] }>(`/sales/lot-options?${query.toString()}`);
+      return { key, items: result.items };
+    })).then((results) => {
+      if (!active) return;
+      setLotOptions((current) => {
+        const next = { ...current };
+        results.forEach((result) => { next[result.key] = result.items; });
+        return next;
+      });
+    }).catch((caught) => setMessage(caught instanceof Error ? caught.message : "โหลด Lot ไม่สำเร็จ"));
+    return () => { active = false; };
+  }, [lotOptions, requestedLotKeys]);
+
   async function handlePreview() {
     setMessage(null);
     const result = await proxyClient<Record<string, unknown>>(
@@ -164,10 +233,11 @@ export function DocumentComposer({
           body: JSON.stringify(buildPayload())
         }
       );
-      setMessage(response.message || `${kind} created`);
+      setMessage(response.message || (kind === "invoice" ? "สร้างใบขายแล้ว" : "สร้างใบเสนอราคาแล้ว"));
+      onCreated?.();
       startTransition(() => router.refresh());
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : `Failed to create ${kind}`);
+      setMessage(caught instanceof Error ? caught.message : "สร้างเอกสารไม่สำเร็จ");
     } finally {
       setSubmitting(false);
     }
@@ -179,14 +249,15 @@ export function DocumentComposer({
       customer_name: customerName,
       customer_tax_id: customerTaxID,
       is_government_mode: isGovernmentMode,
+      full_tax_invoice: kind === "invoice" && fullTaxInvoice,
       items: lines
         .filter((line) => line.product_id)
         .map((line) => ({
           product_id: line.product_id,
+          inventory_lot_id: kind === "invoice" ? line.inventory_lot_id : undefined,
           alias_id: isGovernmentMode && line.alias_id ? line.alias_id : undefined,
           quantity: Number(line.quantity),
           stock_bucket: line.stock_bucket,
-          price_tier: priceTier,
           override_unit_price: line.override_unit_price
             ? Number(line.override_unit_price)
             : undefined,
@@ -202,14 +273,14 @@ export function DocumentComposer({
       actions={
         <div className="flex gap-2">
           <Button variant="secondary" onClick={handlePreview} type="button">
-            Preview
+            ตรวจสอบยอด
           </Button>
           <Button disabled={submitting} onClick={handleSubmit} type="button">
             {submitting
-              ? "Submitting..."
+              ? "กำลังบันทึก..."
               : kind === "invoice"
-                ? "Create Invoice"
-                : "Create Quotation"}
+                ? "สร้างใบขาย"
+                : "สร้างใบเสนอราคา"}
           </Button>
         </div>
       }
@@ -217,14 +288,14 @@ export function DocumentComposer({
       <div className="space-y-4">
         <div className="grid gap-4 md:grid-cols-4">
           <label className="space-y-2">
-            <span className="text-sm font-medium text-muted-foreground">Branch</span>
+            <span className="text-sm font-medium text-muted-foreground">สาขา</span>
             <Select
-              aria-label="Branch"
+              aria-label="สาขา"
               value={branchId}
               onChange={(event) => setBranchId(event.target.value)}
             >
-              <option value="">Select branch</option>
-              {branches.map((branch) => (
+              <option value="">เลือกสาขา</option>
+              {branches.filter((branch) => Boolean(branch.sales_enabled ?? true)).map((branch) => (
                 <option key={String(branch.id)} value={String(branch.id)}>
                   {String(branch.name)}
                 </option>
@@ -232,17 +303,17 @@ export function DocumentComposer({
             </Select>
           </label>
           <label className="space-y-2 md:col-span-2">
-            <span className="text-sm font-medium text-muted-foreground">Customer Name</span>
+            <span className="text-sm font-medium text-muted-foreground">ชื่อลูกค้า</span>
             <Input
-              aria-label="Customer Name"
+              aria-label="ชื่อลูกค้า"
               value={customerName}
               onChange={(event) => setCustomerName(event.target.value)}
             />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-medium text-muted-foreground">Tax ID</span>
+            <span className="text-sm font-medium text-muted-foreground">เลขประจำตัวผู้เสียภาษี</span>
             <Input
-              aria-label="Tax ID"
+              aria-label="เลขประจำตัวผู้เสียภาษี"
               value={customerTaxID}
               onChange={(event) => setCustomerTaxID(event.target.value)}
             />
@@ -250,60 +321,80 @@ export function DocumentComposer({
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm">
-            <input
-              aria-label="Government mode"
-              checked={isGovernmentMode}
-              onChange={(event) => setGovernmentMode(event.target.checked)}
-              type="checkbox"
-            />
-            Government mode
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-muted-foreground">Price Tier</span>
-            <Select
-              aria-label="Price Tier"
-              value={priceTier}
-              onChange={(event) => setPriceTier(event.target.value as "cash" | "retail" | "installment")}
-            >
-              <option value="cash">Cash price</option>
-              <option value="retail">Retail price</option>
-              <option value="installment">Installment price</option>
-            </Select>
-          </label>
+          {governmentMode === undefined ? (
+            <label className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm">
+              <input
+                aria-label="โหมดราชการ"
+                checked={isGovernmentMode}
+                onChange={(event) => setGovernmentMode(event.target.checked)}
+                type="checkbox"
+              />
+              โหมดราชการ
+            </label>
+          ) : null}
+          {kind === "invoice" ? (
+            <label className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm">
+              <input
+                aria-label="ใบกำกับภาษีเต็มรูป"
+                checked={fullTaxInvoice}
+                onChange={(event) => setFullTaxInvoice(event.target.checked)}
+                type="checkbox"
+              />
+              ออกใบกำกับภาษีเต็มรูป
+            </label>
+          ) : null}
         </div>
+
+        {mergeNotice ? (
+          <p className="rounded-lg bg-info-50 px-4 py-2 text-sm text-info-800" role="status">
+            {mergeNotice}
+          </p>
+        ) : null}
 
         <div className="space-y-3">
           {lines.map((line, index) => {
             const lineAliasOptions =
               aliasOptions[`${branchId}:${line.product_id}`] || [];
+            const lineLotOptions = lotOptions[`${branchId}:${line.product_id}:${line.stock_bucket}`] || [];
 
             return (
-              <div key={index} className="grid gap-3 rounded-lg border border-border bg-muted/50 p-4 md:grid-cols-6">
-                <Select
-                  aria-label={`Product ${index + 1}`}
+              <div
+                key={index}
+                className="grid gap-3 rounded-lg border border-border bg-muted/50 p-4 md:grid-cols-7"
+              >
+                <ProductSearchPicker
+                  ariaLabel={`สินค้า ${index + 1}`}
+                  initialOptions={products}
+                  onChange={(value) => updateLine(index, "product_id", value)}
                   value={line.product_id}
-                  onChange={(event) => updateLine(index, "product_id", event.target.value)}
-                >
-                  <option value="">Select product</option>
-                  {products.map((product) => (
-                    <option key={String(product.id)} value={String(product.id)}>
-                      {String(product.name)}
-                    </option>
-                  ))}
-                </Select>
+                />
+                {kind === "invoice" ? (
+                  <Select
+                    aria-label={`Lot ${index + 1}`}
+                    disabled={!branchId || !line.product_id}
+                    value={line.inventory_lot_id}
+                    onChange={(event) => updateLine(index, "inventory_lot_id", event.target.value)}
+                  >
+                    <option value="">เลือก Lot</option>
+                    {lineLotOptions.map((lot) => (
+                      <option key={String(lot.id)} value={String(lot.id)}>
+                        {`${String(lot.lot_number)} · คงเหลือ ${Number(lot.remaining_quantity || 0).toLocaleString("th-TH")} · ต้นทุน ${Number(lot.unit_cost || 0).toLocaleString("th-TH")} บาท`}
+                      </option>
+                    ))}
+                  </Select>
+                ) : null}
                 <Select
-                  aria-label={`Alias ${index + 1}`}
+                  aria-label={`ชื่อบนเอกสาร ${index + 1}`}
                   disabled={!isGovernmentMode || !branchId || !line.product_id}
                   value={line.alias_id}
                   onChange={(event) => updateLine(index, "alias_id", event.target.value)}
                 >
                   <option value="">
                     {!line.product_id
-                      ? "Select product first"
+                      ? "เลือกสินค้าก่อน"
                       : isGovernmentMode
-                        ? "Alias display"
-                        : "Enable government mode"}
+                        ? "เลือกชื่อที่แสดง"
+                        : "เปิดโหมดราชการ"}
                   </option>
                   {lineAliasOptions.map((alias) => (
                     <option key={String(alias.id)} value={String(alias.id)}>
@@ -312,31 +403,31 @@ export function DocumentComposer({
                   ))}
                 </Select>
                 <Input
-                  aria-label={`Quantity ${index + 1}`}
+                  aria-label={`จำนวน ${index + 1}`}
                   min="1"
                   onChange={(event) => updateLine(index, "quantity", event.target.value)}
                   type="number"
                   value={line.quantity}
                 />
                 <Select
-                  aria-label={`Stock Bucket ${index + 1}`}
+                  aria-label={`ประเภทสต๊อก ${index + 1}`}
                   value={line.stock_bucket}
                   onChange={(event) => updateLine(index, "stock_bucket", event.target.value)}
                 >
-                  <option value="real">Real</option>
-                  <option value="ghost">Ghost</option>
+                  <option value="real">สต๊อกจริง</option>
+                  {canUseGhost ? <option value="ghost">สต๊อกผี</option> : null}
                 </Select>
                 <Input
-                  aria-label={`Override Price ${index + 1}`}
+                  aria-label={`ราคาพิเศษ ${index + 1}`}
                   onChange={(event) => updateLine(index, "override_unit_price", event.target.value)}
-                  placeholder="Override price"
+                  placeholder="ราคาพิเศษ"
                   type="number"
                   value={line.override_unit_price}
                 />
                 <Input
-                  aria-label={`Override Reason ${index + 1}`}
+                  aria-label={`เหตุผลราคาพิเศษ ${index + 1}`}
                   onChange={(event) => updateLine(index, "override_reason", event.target.value)}
-                  placeholder="Reason"
+                  placeholder="เหตุผล"
                   value={line.override_reason}
                 />
               </div>
@@ -349,7 +440,7 @@ export function DocumentComposer({
           type="button"
           variant="secondary"
         >
-          Add Line
+          เพิ่มรายการ
         </Button>
 
         {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}

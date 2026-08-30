@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, ChevronUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -88,7 +88,7 @@ export function Select({
   const resolvedValue = controlled ? value ?? "" : internalValue;
   const items = React.useMemo(() => parseOptions(children), [children]);
   const selected = items.find((item) => item.nativeValue === resolvedValue);
-  const displayLabel = selected?.label || placeholder || "Select option";
+  const displayLabel = selected?.label || placeholder || "เลือกตัวเลือก";
 
   function emitChange(nextValue: string) {
     if (!controlled) {
@@ -113,7 +113,9 @@ export function Select({
       >
         <SelectPrimitive.Trigger
           className={cn(
-            "flex h-10 w-full items-center justify-between rounded-md border border-input bg-card px-3 py-2 text-left text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
+            // text-foreground explicit for the same reason as Input — see
+            // its comment (D4's dark-card "invisible text" bug).
+            "flex h-10 w-full items-center justify-between rounded-md border border-input bg-card px-3 py-2 text-left text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
             className
           )}
           {...(props as React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>)}
@@ -124,12 +126,19 @@ export function Select({
           </SelectPrimitive.Icon>
         </SelectPrimitive.Trigger>
         <SelectPrimitive.Portal>
+          {/* Long option lists (page pickers, branch/category lists) get a
+              fixed cap and scroll instead of growing off-screen. The Radix
+              var keeps it inside the viewport on short screens; 18rem caps it
+              on tall ones. */}
           <SelectPrimitive.Content
-            className="z-50 min-w-[8rem] overflow-hidden rounded-md border bg-card text-card-foreground shadow-md"
+            className="z-50 max-h-[min(18rem,var(--radix-select-content-available-height))] min-w-[8rem] overflow-hidden rounded-md border bg-card text-card-foreground shadow-md"
             position="popper"
             sideOffset={6}
           >
-            <SelectPrimitive.Viewport className="p-1">
+            <SelectPrimitive.ScrollUpButton className="flex h-6 cursor-default items-center justify-center bg-card text-muted-foreground">
+              <ChevronUp className="h-4 w-4" />
+            </SelectPrimitive.ScrollUpButton>
+            <SelectPrimitive.Viewport className="max-h-[inherit] overflow-y-auto overscroll-contain p-1">
               {items.map((item) => (
                 <SelectPrimitive.Item
                   key={item.key}
@@ -146,6 +155,9 @@ export function Select({
                 </SelectPrimitive.Item>
               ))}
             </SelectPrimitive.Viewport>
+            <SelectPrimitive.ScrollDownButton className="flex h-6 cursor-default items-center justify-center bg-card text-muted-foreground">
+              <ChevronDown className="h-4 w-4" />
+            </SelectPrimitive.ScrollDownButton>
           </SelectPrimitive.Content>
         </SelectPrimitive.Portal>
       </SelectPrimitive.Root>

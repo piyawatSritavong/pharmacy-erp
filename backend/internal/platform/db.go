@@ -88,3 +88,12 @@ func InBangkok(value time.Time) time.Time {
 func FormatSalesDocNumber(prefix string, issuedAt time.Time, next int64) string {
 	return fmt.Sprintf("%s%s%05d", strings.ToUpper(strings.TrimSpace(prefix)), InBangkok(issuedAt).Format("20060102"), next)
 }
+
+func FormatBranchDocumentNumber(branchCode, prefix string, issuedAt time.Time, next int64) string {
+	code := strings.ToUpper(strings.TrimSpace(branchCode))
+	number := FormatSalesDocNumber(prefix, issuedAt, next)
+	if code == "" {
+		return number
+	}
+	return code + "-" + number
+}

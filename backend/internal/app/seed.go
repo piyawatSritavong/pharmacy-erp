@@ -14,9 +14,11 @@ import (
 )
 
 type seedRole struct {
-	ID   string
-	Key  string
-	Name string
+	ID     string
+	Key    string
+	Name   string
+	Portal string
+	Scope  string
 }
 
 func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
@@ -39,9 +41,8 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 	}
 
 	roles := []seedRole{
-		{ID: platform.MustUUID(), Key: "super_admin", Name: "Super Admin"},
-		{ID: platform.MustUUID(), Key: "branch_admin", Name: "Branch Admin"},
-		{ID: platform.MustUUID(), Key: "branch_pos", Name: "Branch POS"},
+		{ID: platform.MustUUID(), Key: "super_admin", Name: "ผู้ดูแลระบบ", Portal: "backoffice", Scope: "global"},
+		{ID: platform.MustUUID(), Key: "branch_pos", Name: "พนักงานขายหน้าร้าน", Portal: "pos", Scope: "branch"},
 	}
 
 	permissions := []struct {
@@ -50,50 +51,57 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		Name        string
 		Description string
 	}{
-		{platform.MustUUID(), "dashboard.view.global", "Global Dashboard", "View organization dashboard"},
-		{platform.MustUUID(), "dashboard.view.branch", "Branch Dashboard", "View branch dashboard"},
-		{platform.MustUUID(), "dashboard.view.self", "Daily Sales Dashboard", "View personal sales dashboard"},
-		{platform.MustUUID(), "products.manage", "Manage Products", "Create and update product catalog"},
-		{platform.MustUUID(), "products.view", "View Products", "View product catalog"},
-		{platform.MustUUID(), "inventory.manage.global", "Manage Global Inventory", "Manage inventory across branches"},
-		{platform.MustUUID(), "inventory.manage.branch", "Manage Branch Inventory", "Adjust branch inventory"},
-		{platform.MustUUID(), "inventory.view.branch", "View Branch Inventory", "View inventory in assigned branch"},
-		{platform.MustUUID(), "inventory.rebalance", "Rebalance Inventory", "Move stock between real and ghost"},
-		{platform.MustUUID(), "inventory.receive", "Receive Inventory", "Receive incoming stock into real and ghost buckets"},
-		{platform.MustUUID(), "installment.view", "View Installments", "View installment plans and payments"},
-		{platform.MustUUID(), "installment.manage", "Manage Installments", "Create installment plans for invoices"},
-		{platform.MustUUID(), "installment.collect", "Collect Installment", "Record installment payments"},
-		{platform.MustUUID(), "price.override.global", "Global Price Override", "Override price centrally"},
-		{platform.MustUUID(), "price.override.branch", "Branch Price Override", "Override branch prices"},
-		{platform.MustUUID(), "price.override.pos", "POS Price Override", "Override prices from POS"},
-		{platform.MustUUID(), "government.manage_alias", "Manage Government Alias", "Manage alias mapping"},
-		{platform.MustUUID(), "government.use", "Use Government Mode", "Sell with alias invoice display"},
-		{platform.MustUUID(), "invoice.sequence.manage", "Manage Invoice Sequence", "Manage fixed invoice sequence"},
-		{platform.MustUUID(), "invoice.create.branch", "Create Branch Invoice", "Create invoice from branch admin"},
-		{platform.MustUUID(), "invoice.create.pos", "Create POS Invoice", "Create invoice from POS"},
-		{platform.MustUUID(), "invoice.view", "View Invoices", "View branch invoices"},
-		{platform.MustUUID(), "invoice.reprint", "Reprint Invoice", "Reprint invoice"},
-		{platform.MustUUID(), "quotation.manage", "Manage Quotation", "Create and convert quotations"},
-		{platform.MustUUID(), "transfer.approve", "Approve Transfer", "See all transfer requests"},
-		{platform.MustUUID(), "transfer.request", "Request Transfer", "Create transfer request"},
-		{platform.MustUUID(), "transfer.dispatch", "Dispatch Transfer", "Dispatch branch transfer"},
-		{platform.MustUUID(), "transfer.receive", "Receive Transfer", "Receive branch transfer"},
-		{platform.MustUUID(), "finance.manage.global", "Global Finance", "Manage checks globally"},
-		{platform.MustUUID(), "finance.manage.branch", "Branch Finance", "Manage branch checks"},
-		{platform.MustUUID(), "payment.collect", "Collect Payment", "Collect cash and bank transfers"},
-		{platform.MustUUID(), "reports.view.global", "Global Reports", "View global finance reports"},
-		{platform.MustUUID(), "settings.manage", "Manage Settings", "Manage org settings"},
-		{platform.MustUUID(), "users.manage", "Manage Users", "Manage users and roles"},
-		{platform.MustUUID(), "audit.view.global", "View Audit Logs", "View audit logs"},
-		{platform.MustUUID(), "marketplace.manage.global", "Manage Marketplace", "Manage marketplace providers and connections"},
-		{platform.MustUUID(), "marketplace.view.branch", "View Marketplace", "View marketplace orders"},
+		{platform.MustUUID(), "dashboard.view.global", "ดูแดชบอร์ดส่วนกลาง", "ดูภาพรวมทุกสาขา"},
+		{platform.MustUUID(), "dashboard.view.self", "ดูสรุปยอดขายของตนเอง", "ดูยอดขายรายวันของผู้ใช้ปัจจุบัน"},
+		{platform.MustUUID(), "products.manage", "จัดการสินค้า", "เพิ่ม แก้ไข และลบสินค้า"},
+		{platform.MustUUID(), "products.view", "ดูสินค้า", "ดูรายการสินค้า"},
+		{platform.MustUUID(), "inventory.manage.global", "จัดการสต๊อกทุกสาขา", "ปรับสต๊อกของทุกสาขา"},
+		{platform.MustUUID(), "inventory.view.branch", "ดูสต๊อกสาขา", "ดูสต๊อกของสาขาที่กำหนด"},
+		{platform.MustUUID(), "inventory.rebalance", "ย้ายประเภทสต๊อก", "ย้ายระหว่างสต๊อกจริงและสต๊อกผี"},
+		{platform.MustUUID(), "inventory.receive", "รับสินค้าเข้า", "รับสินค้าเข้าสต๊อกจริงและสต๊อกผี"},
+		{platform.MustUUID(), "inventory.ghost.manage", "จัดการสต๊อกผี", "ดูและจัดการสต๊อกผีภายใน"},
+		{platform.MustUUID(), "transfer.request.branch", "ส่งคำขอโอนสินค้า", "ส่งคำขอสินค้าเพื่อให้ผู้ดูแลเลือกสาขาต้นทาง"},
+		{platform.MustUUID(), "price.override.global", "กำหนดราคาพิเศษส่วนกลาง", "กำหนดราคาพิเศษสำหรับทุกสาขา"},
+		{platform.MustUUID(), "price.override.pos", "กำหนดราคาพิเศษหน้าร้าน", "กำหนดราคาพิเศษจากจุดขาย"},
+		{platform.MustUUID(), "government.manage_alias", "จัดการชื่อสินค้าสำหรับราชการ", "กำหนดชื่อสินค้าที่ใช้ในเอกสารราชการ"},
+		{platform.MustUUID(), "government.use", "ใช้โหมดราชการ", "ขายสินค้าโดยใช้ชื่อสำหรับเอกสารราชการ"},
+		{platform.MustUUID(), "invoice.sequence.manage", "จัดการเลขที่เอกสาร", "กำหนดคำนำหน้าและเลขถัดไป"},
+		{platform.MustUUID(), "invoice.create.pos", "สร้างใบขายหน้าร้าน", "สร้างใบขายจากจุดขาย"},
+		{platform.MustUUID(), "invoice.view", "ดูใบขาย", "ดูใบขายที่มีสิทธิ์เข้าถึง"},
+		{platform.MustUUID(), "invoice.reprint", "พิมพ์ใบขายซ้ำ", "เปิดและพิมพ์ใบขายย้อนหลัง"},
+		{platform.MustUUID(), "quotation.manage", "จัดการใบเสนอราคา", "สร้าง แปลง และลบใบเสนอราคา"},
+		{platform.MustUUID(), "transfer.approve", "ดูแลการโอนสินค้า", "ดูรายการโอนสินค้าทุกสาขา"},
+		{platform.MustUUID(), "transfer.request", "ขอโอนสินค้า", "สร้างรายการโอนสินค้า"},
+		{platform.MustUUID(), "transfer.dispatch", "ส่งสินค้าโอน", "ยืนยันส่งสินค้าจากต้นทาง"},
+		{platform.MustUUID(), "transfer.receive", "รับสินค้าโอน", "ยืนยันรับสินค้าที่ปลายทาง"},
+		{platform.MustUUID(), "payment.collect", "รับชำระเงิน", "รับเงินสดและเงินโอน"},
+		{platform.MustUUID(), "reports.view.global", "ดูรายงานส่วนกลาง", "ดูรายงานภาษีและกำไรขาดทุน"},
+		{platform.MustUUID(), "reports.generate.global", "สร้างรายงานแบบกำหนดเอง", "สร้าง บันทึก และปักหมุดรายงานแบบกำหนดเองจากข้อมูลทุกสาขา"},
+		{platform.MustUUID(), "suppliers.view.global", "ดูบริษัทคู่ค้า", "ดูบริษัทคู่ค้าส่วนกลาง"},
+		{platform.MustUUID(), "suppliers.manage.global", "จัดการบริษัทคู่ค้า", "สร้าง แก้ไข และเก็บบริษัทคู่ค้า"},
+		{platform.MustUUID(), "purchase_orders.view.global", "ดูใบสั่งซื้อเข้า", "ดูประวัติใบสั่งซื้อเข้าทุกสาขา"},
+		{platform.MustUUID(), "purchase_orders.manage.global", "จัดการใบสั่งซื้อเข้า", "สร้าง แก้ไข และยกเลิกใบสั่งซื้อเข้า"},
+		{platform.MustUUID(), "month_end.manage", "จัดการสรุปสิ้นเดือน", "คำนวณ ตรวจสอบ และยืนยันกระดาษทำการปิดเดือน"},
+		{platform.MustUUID(), "month_end.view", "ดูสรุปสิ้นเดือน", "ดูรอบบัญชีและผลคำนวณสิ้นเดือน"},
+		{platform.MustUUID(), "month_end.create", "สร้างรอบสิ้นเดือน", "สร้างและบันทึกร่างรอบบัญชี"},
+		{platform.MustUUID(), "month_end.calculate", "คำนวณสิ้นเดือน", "ตรวจสอบและคำนวณข้อเสนอปรับปรุง"},
+		{platform.MustUUID(), "month_end.adjust", "ปรับปรุงสิ้นเดือน", "เลือกและแก้ไขข้อเสนอปรับปรุง"},
+		{platform.MustUUID(), "month_end.approve", "อนุมัติสิ้นเดือน", "อนุมัติรายการปรับปรุงรอบบัญชี"},
+		{platform.MustUUID(), "month_end.close", "ปิดรอบสิ้นเดือน", "ยืนยันและล็อกรอบบัญชี"},
+		{platform.MustUUID(), "month_end.reopen", "เปิดรอบสิ้นเดือนใหม่", "ย้อนรายการและสร้าง revision ใหม่"},
+		{platform.MustUUID(), "month_end.export", "ส่งออกสรุปสิ้นเดือน", "ส่งออกข้อมูลจำลองและประวัติการคำนวณ"},
+		{platform.MustUUID(), "settings.manage", "จัดการตั้งค่า", "จัดการการตั้งค่าของระบบ"},
+		{platform.MustUUID(), "users.manage", "จัดการผู้ใช้", "เพิ่ม แก้ไข และลบผู้ใช้"},
+		{platform.MustUUID(), "audit.view.global", "ดูประวัติการทำงาน", "ดูประวัติการเปลี่ยนแปลงของระบบ"},
+		{platform.MustUUID(), "marketplace.manage.global", "จัดการตลาดออนไลน์", "จัดการผู้ให้บริการและการเชื่อมต่อตลาดออนไลน์"},
+		{platform.MustUUID(), "marketplace.view.branch", "ดูคำสั่งซื้อตลาดออนไลน์", "ดูคำสั่งซื้อจากตลาดออนไลน์"},
 	}
 
 	for _, role := range roles {
 		if _, err = tx.ExecContext(ctx, `
-			INSERT INTO roles (id, role_key, name, active, is_system, created_at, updated_at)
-			VALUES ($1, $2, $3, TRUE, TRUE, NOW(), NOW())
-		`, role.ID, role.Key, role.Name); err != nil {
+			INSERT INTO roles (id, role_key, name, active, is_system, portal, scope, created_at, updated_at)
+			VALUES ($1, $2, $3, TRUE, TRUE, $4, $5, NOW(), NOW())
+		`, role.ID, role.Key, role.Name, role.Portal, role.Scope); err != nil {
 			return err
 		}
 	}
@@ -132,21 +140,17 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 	rolePermissionKeys := map[string][]string{
 		"super_admin": {
 			"dashboard.view.global", "products.manage", "products.view", "inventory.manage.global", "inventory.rebalance",
-			"inventory.receive", "price.override.global", "government.manage_alias", "government.use", "invoice.sequence.manage", "invoice.view",
-			"invoice.reprint", "quotation.manage", "installment.view", "installment.manage", "installment.collect",
+			"inventory.receive", "inventory.ghost.manage", "price.override.global", "government.manage_alias", "government.use", "invoice.sequence.manage", "invoice.view",
+			"invoice.reprint", "quotation.manage",
 			"transfer.approve", "transfer.request", "transfer.dispatch", "transfer.receive",
-			"finance.manage.global", "payment.collect", "reports.view.global", "settings.manage", "users.manage",
+			"payment.collect", "reports.view.global", "reports.generate.global", "month_end.manage", "month_end.view", "month_end.create",
+			"month_end.calculate", "month_end.adjust", "month_end.approve", "month_end.close", "month_end.reopen", "month_end.export", "settings.manage", "users.manage",
 			"audit.view.global", "marketplace.manage.global", "marketplace.view.branch",
-		},
-		"branch_admin": {
-			"dashboard.view.branch", "products.view", "inventory.manage.branch", "inventory.view.branch", "inventory.rebalance",
-			"inventory.receive", "price.override.branch", "government.use", "invoice.create.branch", "invoice.view", "invoice.reprint",
-			"quotation.manage", "installment.view", "installment.manage", "installment.collect",
-			"transfer.request", "transfer.dispatch", "finance.manage.branch", "marketplace.view.branch",
+			"suppliers.view.global", "suppliers.manage.global", "purchase_orders.view.global", "purchase_orders.manage.global",
 		},
 		"branch_pos": {
 			"dashboard.view.self", "products.view", "inventory.view.branch", "price.override.pos", "government.use",
-			"invoice.create.pos", "invoice.view", "installment.view", "installment.collect", "transfer.receive", "payment.collect",
+			"transfer.request.branch", "invoice.create.pos", "invoice.view", "transfer.receive", "payment.collect",
 		},
 	}
 
@@ -167,21 +171,52 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		}
 	}
 
+	// On a pristine database the admin presets are created by migrations before
+	// the application permission catalog is seeded. Re-apply their non-sensitive
+	// defaults here so fresh installations do not end up with an incomplete
+	// navigation. Month-End and Ghost remain literal superadmin boundaries.
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO role_permissions (role_id,permission_id,created_at)
+		SELECT role.id,permission.id,NOW()
+		FROM roles role CROSS JOIN permissions permission
+		WHERE role.role_key IN ('admin','central_admin')
+		  AND permission.permission_key NOT IN (
+			'users.manage','settings.manage','invoice.sequence.manage',
+			'marketplace.manage.global','invoice.create.pos','price.override.pos',
+			'inventory.ghost.manage','month_end.manage'
+		  )
+		  AND permission.permission_key NOT LIKE 'month_end.%'
+		ON CONFLICT DO NOTHING
+	`); err != nil {
+		return err
+	}
+
+	if err = seedFreshOchaCatalogTx(ctx, tx, cfg, roleByKey); err != nil {
+		return err
+	}
+	if _, err = seedInventoryFloorTx(ctx, tx, inventorySeedMinimum); err != nil {
+		return err
+	}
+	err = tx.Commit()
+	return err
+
 	branchOneID := platform.MustUUID()
 	branchTwoID := platform.MustUUID()
 	for _, branch := range []struct {
-		ID      string
-		Code    string
-		Name    string
-		Address string
+		ID       string
+		Code     string
+		Name     string
+		Address  string
+		Type     string
+		ParentID *string
 	}{
-		{branchOneID, "MNS", "มนัสการแพทย์", "99 ถนนสุขุมวิท กรุงเทพมหานคร"},
-		{branchTwoID, "KNP", "คณาเภสัช", "88 ถนนพระราม 2 สมุทรสาคร"},
+		{branchOneID, "MNS", "มนัสการแพทย์", "99 ถนนสุขุมวิท กรุงเทพมหานคร", "main_warehouse", nil},
+		{branchTwoID, "KNP", "คณาเภสัช", "88 ถนนพระราม 2 สมุทรสาคร", "branch", &branchOneID},
 	} {
 		if _, err = tx.ExecContext(ctx, `
-			INSERT INTO branches (id, code, name, address, active, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, TRUE, NOW(), NOW())
-		`, branch.ID, branch.Code, branch.Name, branch.Address); err != nil {
+			INSERT INTO branches (id, code, name, address, branch_type, parent_branch_id, active, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, TRUE, NOW(), NOW())
+		`, branch.ID, branch.Code, branch.Name, branch.Address, branch.Type, platform.NullUUID(branch.ParentID)); err != nil {
 			return err
 		}
 	}
@@ -212,10 +247,10 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		Value    string
 		Metadata map[string]any
 	}{
-		{"vat_rate", fmt.Sprintf("%.2f", cfg.DefaultVATPct), map[string]any{"label": "VAT percentage", "type": "number"}},
-		{"company_name", "Pharmacy ERP Demo", map[string]any{"label": "Company Name"}},
-		{"company_tax_id", "0105559999999", map[string]any{"label": "Company Tax ID"}},
-		{"company_address", "สำนักงานใหญ่ 99 ถนนสุขุมวิท กรุงเทพมหานคร 10110", map[string]any{"label": "Company Address"}},
+		{"vat_rate", fmt.Sprintf("%.2f", cfg.DefaultVATPct), map[string]any{"label": "อัตราภาษีมูลค่าเพิ่ม", "type": "number"}},
+		{"company_name", "ระบบบริหารร้านขายยา PharmaPOS", map[string]any{"label": "ชื่อกิจการ"}},
+		{"company_tax_id", "0105559999999", map[string]any{"label": "เลขประจำตัวผู้เสียภาษี"}},
+		{"company_address", "สำนักงานใหญ่ 99 ถนนสุขุมวิท กรุงเทพมหานคร 10110", map[string]any{"label": "ที่อยู่กิจการ"}},
 	} {
 		metadata, _ := json.Marshal(setting.Metadata)
 		if _, err = tx.ExecContext(ctx, `
@@ -230,26 +265,26 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 	products := []struct {
 		ID          string
 		SKU         string
+		Barcode     string
+		CategoryID  string
 		Name        string
 		Description string
 		Cost        float64
 		Price       float64
-		Retail      float64
-		Installment float64
 		Unit        string
 		TaxExempt   bool
 	}{
-		{productIDs[0], "BED-001", "เตียงผู้ป่วยปรับระดับ", "เตียงผู้ป่วยแบบมือหมุน", 4200, 5500, 5800, 6200, "unit", false},
-		{productIDs[1], "DIAPER-001", "ผ้าอ้อมผู้ใหญ่", "ผ้าอ้อมผู้ใหญ่แบบกลางคืน", 180, 250, 269, 320, "pack", false},
-		{productIDs[2], "MASK-001", "หน้ากากอนามัย", "หน้ากาก 3 ชั้น", 55, 89, 99, 0, "box", false},
-		{productIDs[3], "MED-001", "ยาพาราเซตามอล", "500mg", 18, 35, 39, 0, "box", true},
+		{productIDs[0], "BED-001", "8850000000011", "11111111-1111-4111-8111-111111111111", "เตียงผู้ป่วยปรับระดับ", "เตียงผู้ป่วยแบบมือหมุน", 4200, 5500, "ชิ้น", false},
+		{productIDs[1], "DIAPER-001", "8850000000028", "22222222-2222-4222-8222-222222222222", "ผ้าอ้อมผู้ใหญ่", "ผ้าอ้อมผู้ใหญ่แบบกลางคืน", 180, 250, "แพ็ก", false},
+		{productIDs[2], "MASK-001", "8850000000035", "33333333-3333-4333-8333-333333333333", "หน้ากากอนามัย", "หน้ากาก 3 ชั้น", 55, 89, "กล่อง", false},
+		{productIDs[3], "MED-001", "8850000000042", "44444444-4444-4444-8444-444444444444", "ยาพาราเซตามอล", "500 มก.", 18, 35, "กล่อง", true},
 	}
 
 	for _, product := range products {
 		if _, err = tx.ExecContext(ctx, `
-			INSERT INTO products (id, sku, name, description, cost_price, base_selling_price, retail_price, installment_price, unit_name, tax_exempt, active, created_at, updated_at)
+			INSERT INTO products (id, sku, barcode, category_id, name, description, cost_price, base_selling_price, unit_name, tax_exempt, active, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, NOW(), NOW())
-		`, product.ID, product.SKU, product.Name, product.Description, product.Cost, product.Price, product.Retail, product.Installment, product.Unit, product.TaxExempt); err != nil {
+		`, product.ID, product.SKU, product.Barcode, product.CategoryID, product.Name, product.Description, product.Cost, product.Price, product.Unit, product.TaxExempt); err != nil {
 			return err
 		}
 	}
@@ -320,17 +355,12 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	adminHash, err := bcrypt.GenerateFromPassword([]byte("DevPassword123!"), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
 	posHash, err := bcrypt.GenerateFromPassword([]byte("DevPassword123!"), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 
 	superUserID := platform.MustUUID()
-	adminUserID := platform.MustUUID()
 	posUserID := platform.MustUUID()
 	for _, user := range []struct {
 		ID       string
@@ -340,9 +370,8 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		RoleID   string
 		BranchID any
 	}{
-		{superUserID, "ERP Super Admin", "superadmin@erp.local", string(superHash), roleByKey["super_admin"], nil},
-		{adminUserID, "Khana Branch Admin", "branchadmin@erp.local", string(adminHash), roleByKey["branch_admin"], branchOneID},
-		{posUserID, "Khana POS Staff", "pos@erp.local", string(posHash), roleByKey["branch_pos"], branchOneID},
+		{superUserID, "ผู้ดูแลระบบ ERP", "superadmin@erp.local", string(superHash), roleByKey["super_admin"], nil},
+		{posUserID, "พนักงานขายสาขามนัสการแพทย์", "pos@erp.local", string(posHash), roleByKey["branch_pos"], branchOneID},
 	} {
 		if _, err = tx.ExecContext(ctx, `
 			INSERT INTO users (id, role_id, branch_id, full_name, email, password_hash, active, created_at, updated_at)
@@ -352,6 +381,58 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		}
 	}
 
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO inventory_movements (
+			id, branch_id, product_id, movement_type, stock_bucket, quantity_delta,
+			reference_type, note, performed_by, created_at
+		)
+		SELECT gen_random_uuid(), i.branch_id, i.product_id, 'opening_balance',
+		       bucket.stock_bucket,
+		       CASE bucket.stock_bucket WHEN 'real' THEN i.qty_real ELSE i.qty_ghost END,
+		       'seed.opening_balance', 'ยอดตั้งต้นจากข้อมูลสินค้า', $1, NOW()
+		FROM inventory i
+		CROSS JOIN (VALUES ('real'), ('ghost')) AS bucket(stock_bucket)
+		WHERE CASE bucket.stock_bucket WHEN 'real' THEN i.qty_real ELSE i.qty_ghost END <> 0
+	`, superUserID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO inventory_lots (
+			id, branch_id, product_id, stock_bucket, lot_number, expires_on,
+			received_quantity, remaining_quantity, unit_cost, source_type,
+			source_id, source_item_id, received_at, created_at, updated_at
+		)
+		SELECT gen_random_uuid(), i.branch_id, i.product_id, bucket.stock_bucket,
+		       'SEED-' || UPPER(SUBSTRING(REPLACE(i.id::text, '-', '') FROM 1 FOR 10)), NULL,
+		       bucket.quantity, bucket.quantity, p.cost_price, 'seed_opening',
+		       NULL, NULL, NOW(), NOW(), NOW()
+		FROM inventory i
+		INNER JOIN products p ON p.id=i.product_id
+		CROSS JOIN LATERAL (
+			VALUES ('real'::text, i.qty_real), ('ghost'::text, i.qty_ghost)
+		) AS bucket(stock_bucket, quantity)
+		WHERE bucket.quantity > 0
+	`); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO inventory_movement_lots (
+			id, inventory_movement_id, inventory_lot_id, quantity_delta, created_at
+		)
+		SELECT gen_random_uuid(), m.id, l.id, m.quantity_delta, NOW()
+		FROM inventory_movements m
+		INNER JOIN inventory_lots l
+		  ON l.branch_id=m.branch_id AND l.product_id=m.product_id
+		 AND l.stock_bucket=m.stock_bucket AND l.source_type='seed_opening'
+		WHERE m.reference_type='seed.opening_balance'
+	`); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+
+	// Legacy demo fixtures remain below for source compatibility with explicit
+	// development helpers, but the normal seed path intentionally stops above.
 	now := time.Now().UTC()
 	quoteCreatedAt := now.Add(-12 * time.Hour)
 	quoteExpiresAt := quoteCreatedAt.AddDate(0, 0, 30)
@@ -367,7 +448,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO quotations (id, branch_id, quote_number, customer_name, customer_tax_id, status, subtotal, tax_rate, tax_amount, total_amount, created_by, expires_at, created_at, updated_at)
 		VALUES ($1, $2, $3, 'คลินิกสุขภาพดี', '0105567000012', 'draft', 478.00, 7.00, 33.46, 511.46, $4, $5, $6, $6)
-	`, quoteID, branchOneID, quoteNumber, adminUserID, quoteExpiresAt, quoteCreatedAt); err != nil {
+	`, quoteID, branchOneID, quoteNumber, superUserID, quoteExpiresAt, quoteCreatedAt); err != nil {
 		return err
 	}
 
@@ -389,7 +470,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 			($1, $2, $3, 'องค์การบริหารส่วนตำบลสุขใจ', '0107567000001', 'unpaid', 'issued', TRUE, 5200.00, 7.00, 364.00, 5564.00, $4, $5, $5, $5),
 			($6, $2, $7, 'ลูกค้าหน้าร้าน', NULL, 'paid', 'issued', FALSE, 245.00, 7.00, 17.15, 262.15, $8, $9, $9, $9),
 			($10, $2, $11, 'ขายหน้าร้านประจำวัน', NULL, 'paid', 'issued', FALSE, 478.00, 7.00, 33.46, 511.46, $8, $12, $12, $12)
-	`, openInvoiceID, branchOneID, openInvoiceNumber, adminUserID, openInvoiceIssuedAt, paidInvoiceID, paidInvoiceNumber, posUserID, paidInvoiceIssuedAt, posTodayInvoiceID, posTodayInvoiceNumber, posTodayIssuedAt); err != nil {
+	`, openInvoiceID, branchOneID, openInvoiceNumber, superUserID, openInvoiceIssuedAt, paidInvoiceID, paidInvoiceNumber, posUserID, paidInvoiceIssuedAt, posTodayInvoiceID, posTodayInvoiceNumber, posTodayIssuedAt); err != nil {
 		return err
 	}
 
@@ -421,17 +502,17 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 	checkID := platform.MustUUID()
 	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO checks (id, branch_id, check_number, bank_name, payer_name, amount, status, received_date, created_by, created_at, updated_at)
-		VALUES ($1, $2, 'CHK-0001', 'Krungthai', 'องค์การบริหารส่วนตำบลสุขใจ', 5564.00, 'pending', CURRENT_DATE, $3, NOW(), NOW())
-	`, checkID, branchOneID, adminUserID); err != nil {
+		VALUES ($1, $2, 'CHK-0001', 'ธนาคารกรุงไทย', 'องค์การบริหารส่วนตำบลสุขใจ', 5564.00, 'pending', CURRENT_DATE, $3, NOW(), NOW())
+	`, checkID, branchOneID, superUserID); err != nil {
 		return err
 	}
 
 	transferID := platform.MustUUID()
 	transferCode := "TRF-MNS-KNP-0001"
 	if _, err = tx.ExecContext(ctx, `
-		INSERT INTO transfers (id, transfer_code, source_branch_id, destination_branch_id, status, request_note, requested_by, pickup_name, courier_name, qr_code, requested_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, 'in_transit', 'ขอโอนหน้ากากอนามัยด่วน', $5, 'Somchai Receiver', 'ERP Courier', $2, NOW() - INTERVAL '5 hour', NOW(), NOW())
-	`, transferID, transferCode, branchOneID, branchTwoID, adminUserID); err != nil {
+			INSERT INTO transfers (id, transfer_code, source_branch_id, destination_branch_id, status, request_note, requested_by, pickup_name, courier_name, requested_at, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, 'in_transit', 'ขอโอนหน้ากากอนามัยด่วน', $5, 'สมชาย ผู้รับสินค้า', 'ขนส่ง ERP', NOW() - INTERVAL '5 hour', NOW(), NOW())
+	`, transferID, transferCode, branchOneID, branchTwoID, superUserID); err != nil {
 		return err
 	}
 
@@ -447,13 +528,13 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		Note   string
 		Time   time.Time
 	}{
-		{"requested", "Branch requested masks", now.Add(-8 * time.Hour)},
-		{"in_transit", "Shipment left branch", now.Add(-5 * time.Hour)},
+		{"requested", "สาขาขอโอนหน้ากากอนามัย", now.Add(-8 * time.Hour)},
+		{"in_transit", "สินค้าออกจากสาขาต้นทางแล้ว", now.Add(-5 * time.Hour)},
 	} {
 		if _, err = tx.ExecContext(ctx, `
 			INSERT INTO transfer_events (id, transfer_id, status, note, actor_id, event_at)
 			VALUES ($1, $2, $3, $4, $5, $6)
-		`, platform.MustUUID(), transferID, event.Status, event.Note, adminUserID, event.Time); err != nil {
+		`, platform.MustUUID(), transferID, event.Status, event.Note, superUserID, event.Time); err != nil {
 			return err
 		}
 	}
@@ -461,9 +542,9 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 	receiptTransferID := platform.MustUUID()
 	receiptTransferCode := "TRF-KNP-MNS-0002"
 	if _, err = tx.ExecContext(ctx, `
-		INSERT INTO transfers (id, transfer_code, source_branch_id, destination_branch_id, status, request_note, requested_by, pickup_name, courier_name, qr_code, requested_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, 'in_transit', 'ส่งผ้าอ้อมผู้ใหญ่กลับสาขา', $5, 'Niran Receiver', 'ERP Courier', $2, NOW() - INTERVAL '3 hour', NOW(), NOW())
-	`, receiptTransferID, receiptTransferCode, branchTwoID, branchOneID, adminUserID); err != nil {
+			INSERT INTO transfers (id, transfer_code, source_branch_id, destination_branch_id, status, request_note, requested_by, pickup_name, courier_name, requested_at, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, 'in_transit', 'ส่งผ้าอ้อมผู้ใหญ่กลับสาขา', $5, 'นิรันดร์ ผู้รับสินค้า', 'ขนส่ง ERP', NOW() - INTERVAL '3 hour', NOW(), NOW())
+	`, receiptTransferID, receiptTransferCode, branchTwoID, branchOneID, superUserID); err != nil {
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, `
@@ -477,13 +558,13 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		Note   string
 		Time   time.Time
 	}{
-		{"requested", "Branch requested diapers", now.Add(-6 * time.Hour)},
-		{"in_transit", "Shipment left source branch", now.Add(-3 * time.Hour)},
+		{"requested", "สาขาขอโอนผ้าอ้อมผู้ใหญ่", now.Add(-6 * time.Hour)},
+		{"in_transit", "สินค้าออกจากสาขาต้นทางแล้ว", now.Add(-3 * time.Hour)},
 	} {
 		if _, err = tx.ExecContext(ctx, `
 			INSERT INTO transfer_events (id, transfer_id, status, note, actor_id, event_at)
 			VALUES ($1, $2, $3, $4, $5, $6)
-		`, platform.MustUUID(), receiptTransferID, event.Status, event.Note, adminUserID, event.Time); err != nil {
+		`, platform.MustUUID(), receiptTransferID, event.Status, event.Note, superUserID, event.Time); err != nil {
 			return err
 		}
 	}
@@ -491,9 +572,9 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 	dispatchTransferID := platform.MustUUID()
 	dispatchTransferCode := "TRF-MNS-KNP-0003"
 	if _, err = tx.ExecContext(ctx, `
-		INSERT INTO transfers (id, transfer_code, source_branch_id, destination_branch_id, status, request_note, requested_by, pickup_name, courier_name, qr_code, requested_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, 'requested', 'รอส่งเตียงผู้ป่วยไปสาขาปลายทาง', $5, '', '', $2, NOW() - INTERVAL '1 hour', NOW(), NOW())
-	`, dispatchTransferID, dispatchTransferCode, branchOneID, branchTwoID, adminUserID); err != nil {
+			INSERT INTO transfers (id, transfer_code, source_branch_id, destination_branch_id, status, request_note, requested_by, pickup_name, courier_name, requested_at, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, 'requested', 'รอส่งเตียงผู้ป่วยไปสาขาปลายทาง', $5, '', '', NOW() - INTERVAL '1 hour', NOW(), NOW())
+	`, dispatchTransferID, dispatchTransferCode, branchOneID, branchTwoID, superUserID); err != nil {
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, `
@@ -504,8 +585,8 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 	}
 	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO transfer_events (id, transfer_id, status, note, actor_id, event_at)
-		VALUES ($1, $2, 'requested', 'Transfer queued for dispatch', $3, $4)
-	`, platform.MustUUID(), dispatchTransferID, adminUserID, now.Add(-1*time.Hour)); err != nil {
+		VALUES ($1, $2, 'requested', 'รายการโอนรอยืนยันส่งสินค้า', $3, $4)
+	`, platform.MustUUID(), dispatchTransferID, superUserID, now.Add(-1*time.Hour)); err != nil {
 		return err
 	}
 
@@ -514,19 +595,19 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 	orderID := platform.MustUUID()
 	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO marketplace_providers (id, provider_key, name, description, active, created_at, updated_at)
-		VALUES ($1, 'health-mart', 'Health Mart', 'Provider-ready marketplace inbox', TRUE, NOW(), NOW())
+		VALUES ($1, 'health-mart', 'Health Mart', 'ช่องทางรับคำสั่งซื้อจากตลาดออนไลน์', TRUE, NOW(), NOW())
 	`, providerID); err != nil {
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO marketplace_connections (id, provider_id, branch_id, connection_name, credentials_json, settings_json, status, created_by, created_at, updated_at)
-		VALUES ($1, $2, $3, 'Branch MNS Connector', '{}'::jsonb, '{"webhook_enabled":true}'::jsonb, 'configured', $4, NOW(), NOW())
-	`, connectionID, providerID, branchOneID, adminUserID); err != nil {
+		VALUES ($1, $2, $3, 'การเชื่อมต่อสาขา MNS', '{}'::jsonb, '{"webhook_enabled":true}'::jsonb, 'configured', $4, NOW(), NOW())
+	`, connectionID, providerID, branchOneID, superUserID); err != nil {
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO marketplace_orders (id, provider_id, connection_id, branch_id, external_order_id, status, customer_name, order_total, placed_at, raw_payload, created_at)
-		VALUES ($1, $2, $3, $4, 'HM-1001', 'queued', 'HealthMart Customer', 178.00, NOW() - INTERVAL '3 hour', '{"channel":"health-mart","notes":"awaiting branch confirmation"}'::jsonb, NOW())
+		VALUES ($1, $2, $3, $4, 'HM-1001', 'queued', 'ลูกค้า Health Mart', 178.00, NOW() - INTERVAL '3 hour', '{"channel":"health-mart","notes":"รอยืนยันจากสาขา"}'::jsonb, NOW())
 	`, orderID, providerID, connectionID, branchOneID); err != nil {
 		return err
 	}
@@ -544,7 +625,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 			($5, $2, $3, 'transfer', $6, 'seed.create', '{}'::jsonb, '{"transfer_code":"TRF-MNS-KNP-0001"}'::jsonb, 'seed-run', '127.0.0.1', 'seed', NOW()),
 			($7, $2, $3, 'transfer', $8, 'seed.create', '{}'::jsonb, '{"transfer_code":"TRF-KNP-MNS-0002"}'::jsonb, 'seed-run', '127.0.0.1', 'seed', NOW()),
 			($9, $2, $3, 'transfer', $10, 'seed.create', '{}'::jsonb, '{"transfer_code":"TRF-MNS-KNP-0003"}'::jsonb, 'seed-run', '127.0.0.1', 'seed', NOW())
-	`, platform.MustUUID(), adminUserID, branchOneID, openInvoiceID, platform.MustUUID(), transferID, platform.MustUUID(), receiptTransferID, platform.MustUUID(), dispatchTransferID, platform.MustJSON(map[string]any{"invoice_number": openInvoiceNumber})); err != nil {
+	`, platform.MustUUID(), superUserID, branchOneID, openInvoiceID, platform.MustUUID(), transferID, platform.MustUUID(), receiptTransferID, platform.MustUUID(), dispatchTransferID, platform.MustJSON(map[string]any{"invoice_number": openInvoiceNumber})); err != nil {
 		return err
 	}
 
@@ -562,7 +643,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		VALUES
 			($1, $2, $3, 'คุณสมชาย ใจดี (ผ่อนชำระ)', NULL, 'installment', 'issued', FALSE, 6200.00, 7.00, 434.00, 6634.00, $4, $5, $5, $5),
 			($6, $2, $7, 'คุณวิภา รักสุขภาพ (ผ่อนครบแล้ว)', NULL, 'paid', 'issued', FALSE, 640.00, 7.00, 44.80, 684.80, $4, $8, $8, $8)
-	`, activePlanInvoiceID, branchOneID, activePlanInvoiceNumber, adminUserID, activePlanIssuedAt, completedPlanInvoiceID, completedPlanInvoiceNumber, completedPlanIssuedAt); err != nil {
+	`, activePlanInvoiceID, branchOneID, activePlanInvoiceNumber, superUserID, activePlanIssuedAt, completedPlanInvoiceID, completedPlanInvoiceNumber, completedPlanIssuedAt); err != nil {
 		return err
 	}
 
@@ -582,7 +663,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		VALUES
 			($1, $2, $3, 6, 1105.67, 6634.00, 'active', $4, $5, $5),
 			($6, $7, $3, 2, 342.40, 684.80, 'completed', $4, $8, $8)
-	`, activePlanID, activePlanInvoiceID, branchOneID, adminUserID, activePlanIssuedAt, completedPlanID, completedPlanInvoiceID, completedPlanIssuedAt); err != nil {
+	`, activePlanID, activePlanInvoiceID, branchOneID, superUserID, activePlanIssuedAt, completedPlanID, completedPlanInvoiceID, completedPlanIssuedAt); err != nil {
 		return err
 	}
 
@@ -649,7 +730,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 	appliedCheckID := platform.MustUUID()
 	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO checks (id, branch_id, check_number, bank_name, payer_name, amount, status, received_date, created_by, created_at, updated_at)
-		VALUES ($1, $2, 'CHK-0002', 'Kasikorn', 'รพ.สต.บางน้ำใส', 350.00, 'applied', CURRENT_DATE - 2, $3, NOW(), NOW())
+		VALUES ($1, $2, 'CHK-0002', 'ธนาคารกสิกรไทย', 'รพ.สต.บางน้ำใส', 350.00, 'applied', CURRENT_DATE - 2, $3, NOW(), NOW())
 	`, appliedCheckID, branchTwoID, superUserID); err != nil {
 		return err
 	}
@@ -708,7 +789,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		if _, err = tx.ExecContext(ctx, `
 			INSERT INTO inventory_movements (id, branch_id, product_id, movement_type, stock_bucket, quantity_delta, reference_type, reference_id, note, performed_by, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		`, platform.MustUUID(), m.BranchID, m.ProductID, m.Type, m.Bucket, m.Delta, m.RefType, m.RefID, m.Note, adminUserID, m.At); err != nil {
+		`, platform.MustUUID(), m.BranchID, m.ProductID, m.Type, m.Bucket, m.Delta, m.RefType, m.RefID, m.Note, superUserID, m.At); err != nil {
 			return err
 		}
 	}
@@ -718,7 +799,183 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		VALUES
 			($1, $2, $3, 'installment_plan', $4, 'installment.plan_create', '{}'::jsonb, '{"months":6,"total_amount":6634.00}'::jsonb, 'seed-run', '127.0.0.1', 'seed', $5),
 			($6, $2, $3, 'installment_plan', $7, 'installment.plan_create', '{}'::jsonb, '{"months":2,"total_amount":684.80}'::jsonb, 'seed-run', '127.0.0.1', 'seed', $8)
-	`, platform.MustUUID(), adminUserID, branchOneID, activePlanID, activePlanIssuedAt, platform.MustUUID(), completedPlanID, completedPlanIssuedAt); err != nil {
+	`, platform.MustUUID(), superUserID, branchOneID, activePlanID, activePlanIssuedAt, platform.MustUUID(), completedPlanID, completedPlanIssuedAt); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func SeedDemo(ctx context.Context, db *sql.DB, cfg config.Config) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var branchOneID, branchTwoID, superUserID, posUserID string
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM branches WHERE code = 'MNS' LIMIT 1`).Scan(&branchOneID); err != nil {
+		return err
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM branches WHERE code = 'KNP' LIMIT 1`).Scan(&branchTwoID); err != nil {
+		return err
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE email = 'superadmin@erp.local' LIMIT 1`).Scan(&superUserID); err != nil {
+		return err
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE email = 'pos@erp.local' LIMIT 1`).Scan(&posUserID); err != nil {
+		return err
+	}
+
+	productIDs := map[string]string{}
+	rows, err := tx.QueryContext(ctx, `SELECT id, sku FROM products WHERE sku IN ('BED-001', 'DIAPER-001', 'MASK-001', 'MED-001')`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, sku string
+		if err = rows.Scan(&id, &sku); err != nil {
+			return err
+		}
+		productIDs[sku] = id
+	}
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	for _, sku := range []string{"BED-001", "DIAPER-001", "MASK-001", "MED-001"} {
+		if _, ok := productIDs[sku]; !ok {
+			return fmt.Errorf("missing demo product %s", sku)
+		}
+	}
+
+	tables := []string{
+		"month_end_workpaper_lines",
+		"month_end_workpapers",
+		"payment_invoice_map",
+		"invoice_payments",
+		"installment_payments",
+		"installment_plans",
+		"invoice_items",
+		"invoices",
+		"quotation_items",
+		"quotations",
+		"transfer_events",
+		"transfer_items",
+		"transfers",
+		"checks",
+		"inventory_movements",
+	}
+	for _, table := range tables {
+		if _, err = tx.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s", table)); err != nil {
+			return err
+		}
+	}
+
+	inventoryRows := []struct {
+		branchID, productID string
+		real, ghost         int
+	}{
+		{branchOneID, productIDs["DIAPER-001"], 47, 20},
+		{branchOneID, productIDs["MASK-001"], 78, 10},
+		{branchOneID, productIDs["MED-001"], 99, 0},
+		{branchOneID, productIDs["BED-001"], 5, 1},
+		{branchTwoID, productIDs["DIAPER-001"], 40, 15},
+		{branchTwoID, productIDs["MASK-001"], 60, 5},
+		{branchTwoID, productIDs["MED-001"], 120, 4},
+	}
+	for _, row := range inventoryRows {
+		if _, err = tx.ExecContext(ctx, `UPDATE inventory SET qty_real = $1, qty_ghost = $2, updated_at = NOW() WHERE branch_id = $3 AND product_id = $4`, row.real, row.ghost, row.branchID, row.productID); err != nil {
+			return err
+		}
+	}
+
+	now := time.Now().UTC()
+	issuedAt1 := platform.InBangkok(now).AddDate(0, 0, -3)
+	issuedAt2 := platform.InBangkok(now).AddDate(0, 0, -2)
+	issuedAt3 := platform.InBangkok(now).AddDate(0, 0, -1)
+	invoice1ID := platform.MustUUID()
+	invoice2ID := platform.MustUUID()
+	invoice3ID := platform.MustUUID()
+	invoiceNumber1 := platform.FormatSalesDocNumber("BL", issuedAt1, 1)
+	invoiceNumber2 := platform.FormatSalesDocNumber("BL", issuedAt2, 2)
+	invoiceNumber3 := platform.FormatSalesDocNumber("BL", issuedAt3, 3)
+
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO invoices (id, branch_id, invoice_number, customer_name, customer_tax_id, payment_status, invoice_status, is_government_mode, tax_invoice_type, subtotal, tax_rate, tax_amount, total_amount, created_by, issued_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, 'paid', 'issued', FALSE, 'abbreviated', 300.00, 7.00, 21.00, 321.00, $6, $7, $7, $7)
+	`, invoice1ID, branchOneID, invoiceNumber1, "ลูกค้าหน้าร้าน 1", sql.NullString{}, posUserID, issuedAt1); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO invoices (id, branch_id, invoice_number, customer_name, customer_tax_id, payment_status, invoice_status, is_government_mode, tax_invoice_type, subtotal, tax_rate, tax_amount, total_amount, created_by, issued_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, 'paid', 'issued', FALSE, 'abbreviated', 180.00, 7.00, 12.60, 192.60, $6, $7, $7, $7)
+	`, invoice2ID, branchOneID, invoiceNumber2, "ลูกค้าหน้าร้าน 2", sql.NullString{}, posUserID, issuedAt2); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO invoices (id, branch_id, invoice_number, customer_name, customer_tax_id, payment_status, invoice_status, is_government_mode, tax_invoice_type, subtotal, tax_rate, tax_amount, total_amount, created_by, issued_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, 'paid', 'issued', FALSE, 'full', 35.00, 7.00, 2.45, 37.45, $6, $7, $7, $7)
+	`, invoice3ID, branchOneID, invoiceNumber3, "ลูกค้าหน้าร้าน 3", "0101234567890", posUserID, issuedAt3); err != nil {
+		return err
+	}
+
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO invoice_items (id, invoice_id, product_id, alias_id, actual_product_name, display_name, quantity, stock_bucket, unit_price, line_subtotal, tax_rate, tax_amount, line_total, price_source, override_reason, cost_snapshot, created_at)
+		VALUES ($1, $2, $3, NULL, 'ผ้าอ้อมผู้ใหญ่', 'ผ้าอ้อมผู้ใหญ่', 3, 'real', 100.00, 300.00, 7.00, 21.00, 321.00, 'branch_price', '', 80.00, NOW())
+	`, platform.MustUUID(), invoice1ID, productIDs["DIAPER-001"]); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO invoice_items (id, invoice_id, product_id, alias_id, actual_product_name, display_name, quantity, stock_bucket, unit_price, line_subtotal, tax_rate, tax_amount, line_total, price_source, override_reason, cost_snapshot, created_at)
+		VALUES ($1, $2, $3, NULL, 'หน้ากากอนามัย', 'หน้ากากอนามัย', 2, 'real', 90.00, 180.00, 7.00, 12.60, 192.60, 'branch_price', '', 55.00, NOW())
+	`, platform.MustUUID(), invoice2ID, productIDs["MASK-001"]); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO invoice_items (id, invoice_id, product_id, alias_id, actual_product_name, display_name, quantity, stock_bucket, unit_price, line_subtotal, tax_rate, tax_amount, line_total, price_source, override_reason, cost_snapshot, created_at)
+		VALUES ($1, $2, $3, NULL, 'ยาพาราเซตามอล', 'ยาพาราเซตามอล', 1, 'real', 35.00, 35.00, 7.00, 2.45, 37.45, 'branch_price', '', 18.00, NOW())
+	`, platform.MustUUID(), invoice3ID, productIDs["MED-001"]); err != nil {
+		return err
+	}
+
+	for _, payment := range []struct {
+		invoiceID string
+		amount    float64
+		note      string
+	}{
+		{invoice1ID, 321.00, "รับเงินสดหน้าร้าน"},
+		{invoice2ID, 192.60, "รับเงินสดหน้าร้าน"},
+		{invoice3ID, 37.45, "รับเงินสดหน้าร้าน"},
+	} {
+		if _, err = tx.ExecContext(ctx, `
+			INSERT INTO invoice_payments (id, invoice_id, payment_type, amount, reference_code, notes, created_by, created_at)
+			VALUES ($1, $2, 'cash', $3, $4, $5, $6, NOW())
+		`, platform.MustUUID(), payment.invoiceID, payment.amount, fmt.Sprintf("CASH-%s", payment.invoiceID[:8]), payment.note, posUserID); err != nil {
+			return err
+		}
+	}
+
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO inventory_movements (id, branch_id, product_id, movement_type, stock_bucket, quantity_delta, reference_type, reference_id, note, performed_by, created_at)
+		VALUES ($1, $2, $3, 'sale', 'real', -3, 'invoice', $4, 'ขายผ้าอ้อมผู้ใหญ่', $5, $6)
+	`, platform.MustUUID(), branchOneID, productIDs["DIAPER-001"], invoice1ID, posUserID, issuedAt1); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO inventory_movements (id, branch_id, product_id, movement_type, stock_bucket, quantity_delta, reference_type, reference_id, note, performed_by, created_at)
+		VALUES ($1, $2, $3, 'sale', 'real', -2, 'invoice', $4, 'ขายหน้ากากอนามัย', $5, $6)
+	`, platform.MustUUID(), branchOneID, productIDs["MASK-001"], invoice2ID, posUserID, issuedAt2); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO inventory_movements (id, branch_id, product_id, movement_type, stock_bucket, quantity_delta, reference_type, reference_id, note, performed_by, created_at)
+		VALUES ($1, $2, $3, 'sale', 'real', -1, 'invoice', $4, 'ขายยาพาราเซตามอล', $5, $6)
+	`, platform.MustUUID(), branchOneID, productIDs["MED-001"], invoice3ID, posUserID, issuedAt3); err != nil {
 		return err
 	}
 

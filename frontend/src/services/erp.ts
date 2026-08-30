@@ -19,18 +19,68 @@ export async function getDashboard() {
   return apiServer<Record<string, unknown>>("/dashboard");
 }
 
-export async function getDailySales(date?: string) {
-  const query = date ? `?date=${encodeURIComponent(date)}` : "";
-  return apiServer<Record<string, unknown>>(`/dashboard/daily-sales${query}`);
+export async function getBranchSales() {
+  return apiServer<{ items: Array<Record<string, unknown>> }>("/dashboard/branch-sales");
+}
+
+export async function getDailySales(startDate?: string, endDate?: string) {
+  const query = new URLSearchParams();
+  if (startDate) query.set("start_date", startDate);
+  if (endDate) query.set("end_date", endDate);
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return apiServer<Record<string, unknown>>(`/dashboard/daily-sales${suffix}`);
 }
 
 export async function getBranches() {
   return apiServer<{ items: Array<Record<string, unknown>> }>("/branches");
 }
 
-export async function getProducts(branchId?: string) {
-  const query = branchId ? `?branch_id=${branchId}` : "";
-  return apiServer<{ items: Array<Record<string, unknown>> }>(`/products${query}`);
+export async function getMonthEndReconciliations() {
+  return apiServer<{ items: Array<Record<string, unknown>> }>("/accounting/month-end/reconciliations");
+}
+
+export type Pagination = { page: number; page_size: number; total: number; total_pages: number };
+
+export async function getProducts(branchId?: string, filters?: {
+  search?: string;
+  categoryId?: string;
+  active?: string;
+  page?: number;
+  pageSize?: number;
+  salesChannel?: string;
+  requiresFdaReport?: string;
+}) {
+  const query = new URLSearchParams();
+  if (branchId) query.set("branch_id", branchId);
+  if (filters?.search) query.set("search", filters.search);
+  if (filters?.categoryId) query.set("category_id", filters.categoryId);
+  if (filters?.active) query.set("active", filters.active);
+  if (filters?.page) query.set("page", String(filters.page));
+  if (filters?.pageSize) query.set("page_size", String(filters.pageSize));
+  if (filters?.salesChannel) query.set("sales_channel", filters.salesChannel);
+  if (filters?.requiresFdaReport) query.set("requires_fda_report", filters.requiresFdaReport);
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return apiServer<{ items: Array<Record<string, unknown>>; pagination: Pagination }>(`/products${suffix}`);
+}
+
+export async function getProductReturns(status?: string) {
+  const suffix = status ? `?status=${encodeURIComponent(status)}` : "";
+  return apiServer<{ items: Array<Record<string, unknown>> }>(`/product-returns${suffix}`);
+}
+
+export async function getFdaReportSummary(filters?: { dateFrom?: string; dateTo?: string; branchId?: string; categoryId?: string; productIds?: string[] }) {
+  const query = new URLSearchParams();
+  if (filters?.dateFrom) query.set("date_from", filters.dateFrom);
+  if (filters?.dateTo) query.set("date_to", filters.dateTo);
+  if (filters?.branchId) query.set("branch_id", filters.branchId);
+  if (filters?.categoryId) query.set("category_id", filters.categoryId);
+  for (const id of filters?.productIds || []) query.append("product_id", id);
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return apiServer<Record<string, unknown>>(`/fda-reports/summary${suffix}`);
+}
+
+export async function getProductCategories() {
+  return apiServer<{ items: Array<Record<string, unknown>> }>("/product-categories");
 }
 
 export async function getAliases(filters?: { branchId?: string; productId?: string }) {
@@ -45,17 +95,60 @@ export async function getAliases(filters?: { branchId?: string; productId?: stri
   return apiServer<{ items: Array<Record<string, unknown>> }>(`/aliases${suffix}`);
 }
 
-export async function getInventory(branchId?: string) {
-  const query = branchId ? `?branch_id=${branchId}` : "";
-  return apiServer<{ items: Array<Record<string, unknown>> }>(`/inventory${query}`);
+export async function getInventory(branchId?: string, filters?: { search?: string; page?: number; pageSize?: number }) {
+  const query = new URLSearchParams();
+  if (branchId) query.set("branch_id", branchId);
+  if (filters?.search) query.set("search", filters.search);
+  if (filters?.page) query.set("page", String(filters.page));
+  if (filters?.pageSize) query.set("page_size", String(filters.pageSize));
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return apiServer<{ items: Array<Record<string, unknown>>; pagination: Pagination }>(`/inventory${suffix}`);
 }
 
-export async function getQuotations() {
-  return apiServer<{ items: Array<Record<string, unknown>> }>("/quotations");
+export async function getSuppliers(filters?: { search?: string; active?: string; cursor?: string; limit?: number }) {
+  const query = new URLSearchParams();
+  if (filters?.search) query.set("search", filters.search);
+  if (filters?.active) query.set("active", filters.active);
+  if (filters?.cursor) query.set("cursor", filters.cursor);
+  query.set("limit", String(filters?.limit || 20));
+  return apiServer<{ items: Array<Record<string, unknown>>; next_cursor?: string; has_more: boolean }>(`/suppliers?${query.toString()}`);
 }
 
-export async function getInvoices() {
-  return apiServer<{ items: Array<Record<string, unknown>> }>("/invoices");
+export async function getPurchaseOrders(filters?: { search?: string; supplierId?: string; branchId?: string; status?: string; dateFrom?: string; dateTo?: string; page?: number; pageSize?: number }) {
+  const query = new URLSearchParams();
+  if (filters?.search) query.set("search", filters.search);
+  if (filters?.supplierId) query.set("supplier_id", filters.supplierId);
+  if (filters?.branchId) query.set("branch_id", filters.branchId);
+  if (filters?.status) query.set("status", filters.status);
+  if (filters?.dateFrom) query.set("date_from", filters.dateFrom);
+  if (filters?.dateTo) query.set("date_to", filters.dateTo);
+  query.set("page", String(filters?.page || 1));
+  query.set("page_size", String(filters?.pageSize || 50));
+  return apiServer<{ items: Array<Record<string, unknown>>; pagination: Pagination }>(`/purchase-orders?${query.toString()}`);
+}
+
+export async function getPurchaseOrder(id: string) {
+  return apiServer<Record<string, unknown>>(`/purchase-orders/${id}`);
+}
+
+export async function getInventoryLots(branchId: string, productId: string, stockBucket: string) {
+  const query = new URLSearchParams({ branch_id: branchId, product_id: productId, stock_bucket: stockBucket });
+  return apiServer<{ items: Array<Record<string, unknown>> }>(`/inventory/lots?${query.toString()}`);
+}
+
+export async function getStockTransferRequests(status?: string) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return apiServer<{ items: Array<Record<string, unknown>> }>(`/stock-transfer-requests${query}`);
+}
+
+export async function getQuotations(governmentMode?: boolean) {
+  const query = governmentMode === undefined ? "" : `?government_mode=${governmentMode}`;
+  return apiServer<{ items: Array<Record<string, unknown>> }>(`/quotations${query}`);
+}
+
+export async function getInvoices(governmentMode?: boolean) {
+  const query = governmentMode === undefined ? "" : `?government_mode=${governmentMode}`;
+  return apiServer<{ items: Array<Record<string, unknown>> }>(`/invoices${query}`);
 }
 
 export async function getInvoice(id: string) {
@@ -66,30 +159,12 @@ export async function getInvoicePrint(id: string) {
   return apiServer<Record<string, unknown>>(`/invoices/${id}/print`);
 }
 
-export async function getInstallments(filters?: { branchId?: string; status?: string }) {
-  const query = new URLSearchParams();
-  if (filters?.branchId) {
-    query.set("branch_id", filters.branchId);
-  }
-  if (filters?.status) {
-    query.set("status", filters.status);
-  }
-  const suffix = query.size ? `?${query.toString()}` : "";
-  return apiServer<{ items: Array<Record<string, unknown>>; summary: Record<string, unknown> }>(
-    `/installments${suffix}`
-  );
-}
-
 export async function getTransfers() {
   return apiServer<{ items: Array<Record<string, unknown>> }>("/transfers");
 }
 
-export async function getChecks() {
-  return apiServer<{ items: Array<Record<string, unknown>> }>("/checks");
-}
-
-export async function getOutstandingInvoices() {
-  return apiServer<{ items: Array<Record<string, unknown>> }>("/checks/outstanding-invoices");
+export async function getMonthEndWorkpapers() {
+  return apiServer<{ items: Array<Record<string, unknown>> }>("/accounting/month-end");
 }
 
 export async function getTaxReport() {
@@ -122,6 +197,20 @@ export async function getMarketplaceProviders() {
 
 export async function getMarketplaceOrders() {
   return apiServer<{ items: Array<Record<string, unknown>> }>("/marketplace/orders");
+}
+
+/** Server-side report execution. The report-builder service is browser-only
+ *  (proxyClient), so a server component has to go through apiServer instead —
+ *  calling the client helper from the server silently returns nothing. */
+export async function executeReportServer(definition: Record<string, unknown>, page = 1) {
+  return apiServer<{
+    columns: Array<Record<string, unknown>>;
+    rows: Array<Record<string, unknown>>;
+    pagination: { page: number; page_size: number; total: number; total_pages: number };
+  }>("/report-builder/execute", {
+    method: "POST",
+    body: JSON.stringify({ definition, page })
+  });
 }
 
 export async function getAuditLogs(filters?: Record<string, string | undefined>) {

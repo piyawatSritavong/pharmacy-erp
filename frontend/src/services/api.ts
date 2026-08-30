@@ -1,9 +1,10 @@
 export async function proxyClient<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api/backend${path}`, {
+	const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
+	const response = await fetch(`/api/backend${path}`, {
     ...init,
     cache: "no-store",
-    headers: {
-      "Content-Type": "application/json",
+		headers: {
+			...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(init?.headers || {})
     }
   });
@@ -18,8 +19,8 @@ export async function proxyClient<T>(path: string, init?: RequestInit): Promise<
 async function extractMessage(response: Response) {
   try {
     const body = (await response.json()) as { message?: string };
-    return body.message || "Request failed";
-  } catch {
-    return "Request failed";
-  }
+		return body.message || "ดำเนินการไม่สำเร็จ";
+	} catch {
+		return "ดำเนินการไม่สำเร็จ";
+	}
 }

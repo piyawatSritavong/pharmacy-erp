@@ -1,8 +1,7 @@
 import { PageIntro } from "@/components/sections/common";
 import { SettingsConsole } from "@/components/sections/settings-console";
-import { requireRole } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac";
 import {
-  getAuditLogs,
   getBranches,
   getMarketplaceOrders,
   getMarketplaceProviders,
@@ -16,47 +15,42 @@ import {
 export default async function SettingsPage({
   searchParams
 }: {
-  searchParams?: {
-    tab?: string | string[];
-    branch_id?: string | string[];
-    entity_type?: string | string[];
-    action?: string | string[];
-    date_from?: string | string[];
-    date_to?: string | string[];
-  };
+  searchParams?: Promise<{ tab?: string | string[] }>;
 }) {
-  requireRole(await requireSession(), ["super_admin"]);
-  const auditFilters = {
-    branch_id: typeof searchParams?.branch_id === "string" ? searchParams.branch_id : "",
-    entity_type: typeof searchParams?.entity_type === "string" ? searchParams.entity_type : "",
-    action: typeof searchParams?.action === "string" ? searchParams.action : "",
-    date_from: typeof searchParams?.date_from === "string" ? searchParams.date_from : "",
-    date_to: typeof searchParams?.date_to === "string" ? searchParams.date_to : ""
-  };
-  const [branches, users, roles, permissions, sequences, providers, marketplaceOrders, auditLogs] =
+  const session = requirePermission(await requireSession(), ["settings.manage", "users.manage"]);
+  const resolvedSearchParams = await searchParams;
+  // D11: this page is reachable with EITHER settings.manage OR users.manage
+  // (see requirePermission above), but users/roles/permissions specifically
+  // require users.manage on the backend. A role holding only settings.manage
+  // (e.g. แอดมิน, by design — see migration 025) would otherwise 403 on
+  // getUsers()/getRoles()/getPermissions() and, since these were all in one
+  // Promise.all, take the *whole* page down with them. Degrade those three
+  // to an empty list instead so the Branches/Sequences/Marketplace tabs such
+  // a role legitimately has access to still render; the ผู้ใช้ and
+  // บทบาทและสิทธิ์ tabs just end up empty for them, which is correct.
+  const emptyList = { items: [] as Array<Record<string, unknown>> };
+  const usersOnly = (promise: Promise<{ items: Array<Record<string, unknown>> }>) => promise.catch(() => emptyList);
+  const [branches, users, roles, permissions, sequences, providers, marketplaceOrders] =
     await Promise.all([
       getBranches(),
-      getUsers(),
-      getRoles(),
-      getPermissions(),
+      usersOnly(getUsers()),
+      usersOnly(getRoles()),
+      usersOnly(getPermissions()),
       getSequences(),
       getMarketplaceProviders(),
-      getMarketplaceOrders(),
-      getAuditLogs(auditFilters)
+      getMarketplaceOrders()
     ]);
 
   return (
     <div className="space-y-6">
       <PageIntro
-        eyebrow="Settings"
-        title="Settings"
-        description="Manage branches, roles, users, invoice sequence, marketplace configuration, and audit logs from a single super-admin workspace."
+        title="ตั้งค่า"
+        description="จัดการสาขา ผู้ใช้ บทบาทและสิทธิ์ เลขที่เอกสาร และตลาดออนไลน์"
       />
       <SettingsConsole
-        auditLogs={auditLogs.items}
-        auditFilters={auditFilters}
         branches={branches.items}
-        defaultTab={typeof searchParams?.tab === "string" ? searchParams.tab : "branches"}
+        currentUserId={session.user.id}
+        defaultTab={typeof resolvedSearchParams?.tab === "string" ? resolvedSearchParams.tab : "branches"}
         marketplaceOrders={marketplaceOrders.items}
         permissions={permissions.items}
         providers={providers.items}

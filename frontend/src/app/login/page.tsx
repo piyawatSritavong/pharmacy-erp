@@ -29,41 +29,38 @@ export default function LoginPage() {
         router.refresh();
       });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Login failed");
+      setError(caught instanceof Error ? caught.message : "เข้าสู่ระบบไม่สำเร็จ");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main className="grid min-h-screen bg-background px-4 py-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,0.65fr)] lg:px-8">
-      <section className="hidden items-end rounded-lg border bg-gradient-to-br from-[hsl(173,80%,16%)] to-[hsl(173,60%,26%)] p-10 text-white shadow-sm lg:flex">
+    <main className="grid min-h-screen gap-6 bg-background p-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(420px,0.65fr)] lg:p-6">
+      <section className="relative hidden overflow-hidden rounded-[2.5rem] bg-foreground p-12 text-white shadow-card lg:flex lg:items-end">
+        <span className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-primary" />
+        <span className="absolute right-40 top-24 h-20 w-20 rounded-full bg-secondary" />
         <div className="space-y-4">
-          <p className="text-xs font-medium uppercase tracking-widest text-white/60">Thin Client</p>
-          <h1 className="max-w-lg text-4xl font-semibold tracking-tight">
-            Pharmacy ERP
-          </h1>
-          <p className="max-w-lg text-sm leading-7 text-white/75">
-            Next.js renders only. Every calculation, tax, stock movement, sequence,
-            and audit trail is enforced by the Go API.
-          </p>
+          <p className="text-sm font-semibold text-warning">PharmaPOS</p>
+          <h1 className="max-w-lg text-5xl font-bold tracking-tight">จัดการร้านขายยาให้ง่ายขึ้นในทุกสาขา</h1>
+          <p className="max-w-lg leading-8 text-white/70">ขายหน้าร้าน จัดการสต๊อก ออกเอกสาร และติดตามการเงินจากระบบเดียว</p>
         </div>
       </section>
 
       <section className="grid place-items-center">
         <Card className="w-full max-w-md">
           <CardHeader
-            title="Sign In"
-            description="Seeded dev accounts are ready. Try Super Admin, Branch Admin, or POS."
+            title="เข้าสู่ระบบ"
+            description="เลือกใช้งานในฐานะผู้ดูแลระบบหรือพนักงานขายหน้าร้าน"
           />
           <CardBody>
             <form className="space-y-4" onSubmit={handleSubmit}>
               <label className="block space-y-2">
-                <span className="text-sm font-medium">Email</span>
+                <span className="text-sm font-medium">อีเมล</span>
                 <Input value={email} onChange={(event) => setEmail(event.target.value)} />
               </label>
               <label className="block space-y-2">
-                <span className="text-sm font-medium">Password</span>
+                <span className="text-sm font-medium">รหัสผ่าน</span>
                 <Input
                   type="password"
                   value={password}
@@ -72,12 +69,16 @@ export default function LoginPage() {
               </label>
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
               <Button className="w-full" disabled={loading} type="submit">
-                {loading ? "Signing in..." : "Sign In"}
+                {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
               </Button>
             </form>
             <div className="mt-6 rounded-md border bg-muted/50 p-4 text-sm text-muted-foreground">
-              <p>`superadmin@erp.local` / `branchadmin@erp.local` / `pos@erp.local`</p>
-              <p className="mt-1">Password: `DevPassword123!`</p>
+              <p><strong>ผู้ดูแลระบบ:</strong> superadmin@erp.local</p>
+              <p><strong>POS MES:</strong> pos.mes@erp.local</p>
+              <p><strong>POS หน้ารพ.พหลฯ:</strong> pos.phahol@erp.local</p>
+              <p><strong>POS หน้าตลาดผาสุก:</strong> pos.phasuk@erp.local</p>
+              <p><strong>POS จังหวัดนครปฐม:</strong> pos.nakhonpathom@erp.local</p>
+              <p className="mt-1">รหัสผ่านทดสอบ: DevPassword123!</p>
             </div>
           </CardBody>
         </Card>

@@ -7,9 +7,10 @@ import { cn } from "@/lib/utils";
 
 export function Dialog({
   open,
+  onOpenChange,
   children
-}: PropsWithChildren<{ open: boolean }>) {
-  return <DialogPrimitive.Root open={open}>{children}</DialogPrimitive.Root>;
+}: PropsWithChildren<{ open: boolean; onOpenChange?: (open: boolean) => void }>) {
+  return <DialogPrimitive.Root onOpenChange={onOpenChange} open={open}>{children}</DialogPrimitive.Root>;
 }
 
 export function DialogContent({
@@ -18,10 +19,15 @@ export function DialogContent({
 }: PropsWithChildren<{ className?: string }>) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40" />
+      {/* print:hidden — a modal backdrop should never appear in printed/exported output (see D4's PO print layout). */}
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 print:hidden" />
+      {/* Centred on both axes and capped to the viewport, so a tall form
+          scrolls inside the dialog instead of running off-screen (the header
+          and action buttons stayed unreachable before). Every dialog in the
+          app inherits this — don't re-declare max-h/overflow at call sites. */}
       <DialogPrimitive.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-black/10 bg-white p-6 shadow-2xl",
+          "fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-y-auto overscroll-contain rounded-2xl border border-black/10 bg-white p-6 shadow-2xl",
           className
         )}
       >

@@ -38,6 +38,26 @@ func (a *App) Seed(ctx context.Context) error {
 	return Seed(ctx, a.DB, a.Config)
 }
 
+func (a *App) SeedDemo(ctx context.Context) error {
+	return SeedDemo(ctx, a.DB, a.Config)
+}
+
+func (a *App) SeedMonthEnd(ctx context.Context) error {
+	return SeedMonthEnd(ctx, a.DB, a.Config)
+}
+
+func (a *App) SeedInventoryFloor(ctx context.Context) (SeedInventoryFloorResult, error) {
+	return SeedInventoryFloor(ctx, a.DB, a.Config)
+}
+
+func (a *App) ResetOperationalData(ctx context.Context, confirmation string) (ResetOperationalDataResult, error) {
+	return ResetOperationalData(ctx, a.DB, a.Config, confirmation)
+}
+
+func (a *App) ReplaceOchaCatalog(ctx context.Context, confirmation string) (ReplaceOchaCatalogResult, error) {
+	return ReplaceOchaCatalog(ctx, a.DB, a.Config, confirmation)
+}
+
 func (a *App) Serve() error {
 	server := http.NewServer(a.Config, a.DB)
 	return server.Start(fmt.Sprintf(":%s", a.Config.HTTPPort))

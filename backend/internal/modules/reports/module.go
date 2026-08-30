@@ -22,7 +22,7 @@ func (s *Service) Tax(ctx context.Context) ([]map[string]any, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT b.name, COUNT(i.id), COALESCE(SUM(i.subtotal), 0), COALESCE(SUM(i.tax_amount), 0), COALESCE(SUM(i.total_amount), 0)
 		FROM branches b
-		LEFT JOIN invoices i ON i.branch_id = b.id AND i.invoice_status = 'issued'
+		LEFT JOIN invoices i ON i.branch_id = b.id AND i.invoice_status = 'issued' AND i.deleted_at IS NULL
 		GROUP BY b.name
 		ORDER BY b.name
 	`)
@@ -51,11 +51,18 @@ func (s *Service) Tax(ctx context.Context) ([]map[string]any, error) {
 
 func (s *Service) ProfitLoss(ctx context.Context) ([]map[string]any, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT b.name, COALESCE(SUM(ii.line_subtotal), 0), COALESCE(SUM(ii.cost_snapshot * ii.quantity), 0), COALESCE(SUM(ii.line_subtotal - (ii.cost_snapshot * ii.quantity)), 0)
+		SELECT b.name,
+		       COALESCE((
+		           SELECT SUM(ii.line_subtotal)
+		           FROM invoices i INNER JOIN invoice_items ii ON ii.invoice_id = i.id
+		           WHERE i.branch_id = b.id AND i.invoice_status = 'issued' AND i.deleted_at IS NULL
+		       ), 0) AS sales_revenue,
+		       COALESCE((
+		           SELECT SUM(ii.cost_snapshot * ii.quantity)
+		           FROM invoices i INNER JOIN invoice_items ii ON ii.invoice_id = i.id
+		           WHERE i.branch_id = b.id AND i.invoice_status = 'issued' AND i.deleted_at IS NULL
+		       ), 0) AS cost
 		FROM branches b
-		LEFT JOIN invoices i ON i.branch_id = b.id AND i.invoice_status = 'issued'
-		LEFT JOIN invoice_items ii ON ii.invoice_id = i.id
-		GROUP BY b.name
 		ORDER BY b.name
 	`)
 	if err != nil {
@@ -65,15 +72,16 @@ func (s *Service) ProfitLoss(ctx context.Context) ([]map[string]any, error) {
 	items := []map[string]any{}
 	for rows.Next() {
 		var branchName string
-		var revenue, cost, profit float64
-		if err := rows.Scan(&branchName, &revenue, &cost, &profit); err != nil {
+		var salesRevenue, cost float64
+		if err := rows.Scan(&branchName, &salesRevenue, &cost); err != nil {
 			return nil, err
 		}
+		profit := platform.Round2(salesRevenue - cost)
 		items = append(items, map[string]any{
-			"branch_name": branchName,
-			"revenue":     revenue,
-			"cost":        cost,
-			"profit":      profit,
+			"branch_name":   branchName,
+			"sales_revenue": salesRevenue,
+			"cost":          cost,
+			"profit":        profit,
 		})
 	}
 	return items, rows.Err()

@@ -7,7 +7,7 @@ export function PrintButton() {
       onClick={() => window.print()}
       type="button"
     >
-      Print
+      พิมพ์เอกสาร
     </button>
   );
 }

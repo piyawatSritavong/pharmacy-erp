@@ -78,6 +78,19 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 		WHERE 1 = 1
 	`
 	args := []any{}
+	if user.RoleKey != "super_admin" {
+		// Ghost-stock and hidden-invoice operations are deliberately absent
+		// from non-superadmin history, including when a caller guesses a filter.
+		query += ` AND a.entity_type NOT IN ('month_end_workpaper','month_end_workpaper_line','month_end_reconciliation')
+			AND a.action NOT LIKE 'month_end.%'
+			AND NOT (a.entity_type='invoice' AND a.action='invoice.delete')
+			AND NOT (
+				a.before_data ? 'qty_ghost' OR a.after_data ? 'qty_ghost'
+				OR a.before_data->>'stock_bucket'='ghost' OR a.after_data->>'stock_bucket'='ghost'
+				OR a.before_data->>'from_bucket'='ghost' OR a.after_data->>'from_bucket'='ghost'
+				OR a.before_data->>'to_bucket'='ghost' OR a.after_data->>'to_bucket'='ghost'
+			)`
+	}
 	if branchID != "" {
 		args = append(args, branchID)
 		query += " AND a.branch_id = $" + strconvI(len(args))

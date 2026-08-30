@@ -9,27 +9,121 @@ import {
   TableBody,
   TableCell,
   TableContainer,
+  TableEmptyState,
   TableHead,
   TableHeader,
   TableRow
 } from "@/components/ui/primitives";
-import { buildQRCodeSVG } from "@/lib/qr";
 import { cn, currency, dateTime } from "@/lib/utils";
 
+const statusLabels: Record<string, string> = {
+  active: "ใช้งาน",
+  approved: "อนุมัติแล้ว",
+  cancelled: "ยกเลิก",
+  calculated: "คำนวณแล้ว",
+  completed: "เสร็จสิ้น",
+  configured: "ตั้งค่าแล้ว",
+  converted: "ออกใบขายแล้ว",
+  draft: "ฉบับร่าง",
+  finalized: "ยืนยันและล็อกแล้ว",
+  ghost: "สต๊อกผี",
+  in_transit: "กำลังขนส่ง",
+  issued: "ออกเอกสารแล้ว",
+  overdue: "เกินกำหนด",
+  paid: "ชำระแล้ว",
+  pending: "รอดำเนินการ",
+  posted: "บันทึกแล้ว",
+  processing: "กำลังดำเนินการ",
+  queued: "รอประมวลผล",
+  requested: "รอส่ง",
+  real: "สต๊อกจริง",
+  rejected: "ไม่อนุมัติ",
+  unpaid: "ค้างชำระ",
+  void: "ยกเลิกแล้ว",
+  cash: "เงินสด",
+  bank_transfer: "เงินโอน",
+  other: "อื่นๆ"
+};
+
+const auditActionLabels: Record<string, string> = {
+  "branch.create": "เพิ่มสาขา",
+  "branch.delete": "ลบสาขา",
+  "branch.update": "แก้ไขสาขา",
+  "inventory.adjust": "ปรับยอดสต๊อก",
+  "inventory.receive": "รับสินค้าเข้า",
+  "inventory.rebalance": "ย้ายประเภทสต๊อก",
+  "inventory.receipt_request.approve": "อนุมัติคำขอรับสินค้า",
+  "inventory.receipt_request.create": "ส่งคำขอรับสินค้า",
+  "inventory.receipt_request.reject": "ไม่รับนำเข้าสินค้า",
+  "invoice.create": "สร้างใบขาย",
+  "invoice.delete": "ลบใบขาย",
+  "marketplace.upsert_connection": "บันทึกการเชื่อมต่อตลาดออนไลน์",
+  "month_end.calculate": "คำนวณสรุปสิ้นเดือน",
+  "month_end.finalize": "ยืนยันสรุปสิ้นเดือน",
+  "pos.checkout": "ขายสินค้าหน้าร้าน",
+  "product.create": "เพิ่มสินค้า",
+  "product.delete": "ลบสินค้า",
+  "product.image.delete": "ลบรูปสินค้า",
+  "product.image.update": "อัปโหลดรูปสินค้า",
+  "product.update": "แก้ไขสินค้า",
+  "product_alias.create": "เพิ่มชื่อสินค้าสำหรับราชการ",
+  "product_alias.delete": "ลบชื่อสินค้าสำหรับราชการ",
+  "product_alias.update": "แก้ไขชื่อสินค้าสำหรับราชการ",
+  "product_category.create": "เพิ่มหมวดสินค้า",
+  "product_category.delete": "ลบหมวดสินค้า",
+  "product_category.update": "แก้ไขหมวดสินค้า",
+  "quotation.convert": "ออกใบขายจากใบเสนอราคา",
+  "quotation.create": "สร้างใบเสนอราคา",
+  "quotation.delete": "ลบใบเสนอราคา",
+  "sequence.update": "แก้ไขเลขที่เอกสาร",
+  "transfer.dispatch": "ส่งสินค้า",
+  "transfer.receive": "รับโอนสินค้า",
+  "transfer.request": "สร้างรายการโอน",
+  "user.create": "เพิ่มผู้ใช้",
+  "user.delete": "ลบผู้ใช้",
+  "user.password.reset": "ตั้งรหัสผ่านใหม่",
+  "user.update": "แก้ไขผู้ใช้"
+};
+
+const auditEntityLabels: Record<string, string> = {
+  alias: "ชื่อสินค้าสำหรับราชการ",
+  branch: "สาขา",
+  category: "หมวดสินค้า",
+  document_sequence: "เลขที่เอกสาร",
+  inventory: "สต๊อก",
+  inventory_receipt_request: "คำขอรับสินค้า",
+  invoice: "ใบขาย",
+  marketplace_connection: "การเชื่อมต่อตลาดออนไลน์",
+  month_end_workpaper: "กระดาษทำการปิดเดือน",
+  product: "สินค้า",
+  quotation: "ใบเสนอราคา",
+  transfer: "การโอนสินค้า",
+  user: "ผู้ใช้"
+};
+
+export function statusLabel(value: unknown) {
+  const key = String(value || "");
+  return statusLabels[key] || key;
+}
+
+/**
+ * Single page header for every screen: title and description share one
+ * baseline-aligned row (no eyebrow badge — it only repeated what the sidebar
+ * already says). Wraps to two lines on narrow viewports.
+ */
 export function PageIntro({
-  eyebrow,
   title,
   description
 }: {
-  eyebrow: string;
   title: string;
-  description: string;
+  description?: string;
 }) {
   return (
-    <div className="mb-6 space-y-1.5">
-      <Badge className="bg-accent/10 text-accent">{eyebrow}</Badge>
+    <div className="mb-6 flex flex-wrap items-baseline gap-x-3 gap-y-1">
       <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-      <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
+      {description ? (
+        <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
+      ) : null}
     </div>
   );
 }
@@ -76,46 +170,66 @@ export function SectionCard({
   );
 }
 
+export type DataTableColumn = {
+  key: string;
+  label: string;
+  type?: "currency" | "date" | "datetime" | "default";
+  /** Renders the cell yourself — for badges, chips or anything that isn't
+   *  plain text. Falls back to the value formatting when omitted. */
+  render?: (row: Record<string, unknown>) => ReactNode;
+  /** Applied to both the header and every body cell in the column, so a
+   *  column can be pinned to a width and kept from wrapping. */
+  className?: string;
+};
+
 export function DataTable({
   columns,
   rows,
-  rowActions
+  rowActions,
+  emptyDescription
 }: {
-  columns: Array<{ key: string; label: string; type?: "currency" | "datetime" | "default" }>;
+  columns: DataTableColumn[];
   rows: Array<Record<string, unknown>>;
   rowActions?: (row: Record<string, unknown>) => ReactNode;
+  /** Optional secondary line under the shared A3 "ไม่มีรายการแสดง" message. */
+  emptyDescription?: string;
 }) {
+  const columnCount = columns.length + (rowActions ? 1 : 0);
   return (
     <TableContainer>
       <Table>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             {columns.map((column) => (
-              <TableHead key={column.key}>
+              <TableHead className={column.className} key={column.key}>
                 {column.label}
               </TableHead>
             ))}
-            {rowActions ? <TableHead className="text-right">Actions</TableHead> : null}
+            {rowActions ? <TableHead className="text-right">จัดการ</TableHead> : null}
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((row, rowIndex) => (
-            <TableRow key={String(row.id || rowIndex)} className="text-sm text-foreground">
-              {columns.map((column) => (
-                <TableCell key={column.key}>
-                  {renderCell(row[column.key], column.type)}
-                </TableCell>
-              ))}
-              {rowActions ? <TableCell className="text-right">{rowActions(row)}</TableCell> : null}
-            </TableRow>
-          ))}
+          {rows.length === 0 ? (
+            <TableEmptyState colSpan={columnCount} description={emptyDescription} />
+          ) : (
+            rows.map((row, rowIndex) => (
+              <TableRow key={String(row.id || rowIndex)} className="text-sm text-foreground">
+                {columns.map((column) => (
+                  <TableCell className={column.className} key={column.key}>
+                    {column.render ? column.render(row) : renderCell(row[column.key], column.type)}
+                  </TableCell>
+                ))}
+                {rowActions ? <TableCell className="text-right">{rowActions(row)}</TableCell> : null}
+              </TableRow>
+            ))
+          )}
         </TableBody>
       </Table>
     </TableContainer>
   );
 }
 
-function renderCell(value: unknown, type?: "currency" | "datetime" | "default") {
+function renderCell(value: unknown, type?: "currency" | "date" | "datetime" | "default") {
   if (value === null || value === undefined || value === "") {
     return <span className="text-muted-foreground">-</span>;
   }
@@ -125,8 +239,14 @@ function renderCell(value: unknown, type?: "currency" | "datetime" | "default") 
   if (type === "datetime" && typeof value === "string") {
     return dateTime(value);
   }
+  if (type === "date" && typeof value === "string") {
+    return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" }).format(new Date(value));
+  }
   if (typeof value === "boolean") {
-    return value ? "Yes" : "No";
+    return value ? "ใช่" : "ไม่";
+  }
+  if (typeof value === "string" && statusLabel(value) !== value) {
+    return statusLabel(value);
   }
   return String(value);
 }
@@ -139,10 +259,10 @@ export function InvoiceSummary({ summary }: { summary?: Record<string, unknown> 
   return (
     <div className="grid gap-3 rounded-lg border border-border bg-muted/50 p-4 sm:grid-cols-4">
       {[
-        { key: "subtotal", label: "Subtotal" },
+        { key: "subtotal", label: "ยอดก่อนภาษี" },
         { key: "tax_rate", label: "VAT %" },
-        { key: "tax_amount", label: "VAT" },
-        { key: "total_amount", label: "Total" }
+        { key: "tax_amount", label: "ภาษีมูลค่าเพิ่ม" },
+        { key: "total_amount", label: "ยอดรวม" }
       ].map((item) => (
         <div key={item.key}>
           <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
@@ -168,37 +288,19 @@ export function AuditTimeline({ items }: { items: Array<Record<string, unknown>>
           className="rounded-lg border border-border bg-muted/50 p-4"
         >
           <div className="flex flex-wrap items-center gap-3">
-            <Badge className="bg-white">{String(item.action || "audit")}</Badge>
-            <p className="text-sm font-medium text-black">{String(item.entity_type || "entity")}</p>
-            <p className="text-xs text-muted-foreground">{String(item.actor_name || "system")}</p>
+            <Badge className="bg-white">
+              {auditActionLabels[String(item.action || "")] || "ตรวจสอบข้อมูล"}
+            </Badge>
+            <p className="text-sm font-medium text-black">
+              {auditEntityLabels[String(item.entity_type || "")] || "ข้อมูลระบบ"}
+            </p>
+            <p className="text-xs text-muted-foreground">{String(item.actor_name || "ระบบ")}</p>
           </div>
           <p className="mt-3 text-xs leading-6 text-muted-foreground">
             {String(item.after_data || "{}")}
           </p>
         </div>
       ))}
-    </div>
-  );
-}
-
-export function QRPanel({ code, title }: { code?: string; title: string }) {
-  const qrMarkup = code ? buildQRCodeSVG(code) : null;
-  return (
-    <div className="rounded-lg border border-dashed border-border bg-white px-6 py-8 text-center">
-      <p className="text-xs font-medium text-muted-foreground">{title}</p>
-      {qrMarkup ? (
-        <div
-          aria-label={`QR ${code}`}
-          className="mx-auto mt-4 h-40 w-40 rounded-lg border border-border bg-white p-2"
-          dangerouslySetInnerHTML={{ __html: qrMarkup }}
-        />
-      ) : (
-        <div className="mx-auto mt-4 grid h-40 w-40 place-items-center rounded-lg border border-border bg-muted/50 text-xs uppercase tracking-[0.3em] text-muted-foreground">
-          No QR
-        </div>
-      )}
-      <p className="mt-4 text-sm font-medium text-black">{code || "No code"}</p>
-      <p className="mt-2 text-xs text-muted-foreground">Camera scan is available on the receipt screen, with manual code fallback.</p>
     </div>
   );
 }

@@ -6,7 +6,7 @@
     "dev": "next dev --hostname 0.0.0.0 --port 3000",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3000",
-    "lint": "next lint",
+    "lint": "eslint . --max-warnings=0",
     "e2e": "playwright test",
     "e2e:brave": "playwright test --config=playwright.brave.config.ts --workers=1",
     "build:check": "NEXT_DIST_DIR=.next-build next build"
@@ -20,21 +20,27 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "lucide-react": "0.468.0",
-    "next": "14.2.35",
+    "next": "15.5.20",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "sonner": "1.7.1",
-    "tailwind-merge": "2.6.0"
+    "tailwind-merge": "2.6.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@playwright/test": "1.49.1",
+    "@playwright/test": "1.61.1",
     "@types/node": "22.10.2",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
     "autoprefixer": "10.4.20",
-    "postcss": "8.4.49",
+    "eslint": "8.57.1",
+    "eslint-config-next": "15.5.20",
+    "postcss": "8.5.10",
     "tailwindcss": "3.4.16",
     "tailwindcss-animate": "1.0.7",
     "typescript": "5.7.2"
+  },
+  "overrides": {
+    "postcss": "8.5.10"
   }
 }
