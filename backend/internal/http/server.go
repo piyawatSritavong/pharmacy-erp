@@ -16,6 +16,7 @@ import (
 	"pharmacy-erp/backend/internal/modules/monthend"
 	"pharmacy-erp/backend/internal/modules/parkedbills"
 	"pharmacy-erp/backend/internal/modules/products"
+	"pharmacy-erp/backend/internal/modules/promotions"
 	"pharmacy-erp/backend/internal/modules/purchasing"
 	"pharmacy-erp/backend/internal/modules/reportbuilder"
 	"pharmacy-erp/backend/internal/modules/reports"
@@ -51,6 +52,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	userHandler := users.NewHandler(users.NewService(db, auditService))
 	dashboardHandler := dashboard.NewHandler(dashboard.NewService(db))
 	productHandler := products.NewHandler(products.NewService(db, auditService, cfg.UploadDir))
+	promotionHandler := promotions.NewHandler(promotions.NewService(db, auditService))
 	purchasingHandler := purchasing.NewHandler(purchasing.NewService(db, auditService))
 	inventoryHandler := inventory.NewHandler(inventory.NewService(db, auditService))
 	salesHandler := sales.NewHandler(sales.NewService(db, auditService))
@@ -107,6 +109,13 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.GET("/products", productHandler.List, appMiddleware.RequireAnyPermission("products.view", "products.manage"))
 	protected.POST("/products", productHandler.CreateProduct, appMiddleware.RequireAnyPermission("products.manage"))
 	protected.PUT("/products/:productID", productHandler.UpdateProduct, appMiddleware.RequireAnyPermission("products.manage"))
+	protected.GET("/products/:productID/units", productHandler.ListUnits, appMiddleware.RequireAnyPermission("products.view", "products.manage"))
+	protected.PUT("/products/:productID/units", productHandler.SaveUnits, appMiddleware.RequireAnyPermission("products.manage"))
+
+	protected.GET("/promotions", promotionHandler.List, appMiddleware.RequireAnyPermission("promotion.view", "promotion.manage"))
+	protected.POST("/promotions", promotionHandler.Create, appMiddleware.RequireAnyPermission("promotion.manage"))
+	protected.PUT("/promotions/:promotionID", promotionHandler.Update, appMiddleware.RequireAnyPermission("promotion.manage"))
+	protected.DELETE("/promotions/:promotionID", promotionHandler.Delete, appMiddleware.RequireAnyPermission("promotion.manage"))
 	protected.GET("/products/:productID/branch-settings/:branchID", productHandler.GetBranchSettings, appMiddleware.RequireAnyPermission("products.manage"))
 	protected.PUT("/products/:productID/branch-settings/:branchID", productHandler.UpdateBranchSettings, appMiddleware.RequireAnyPermission("products.manage"))
 	protected.DELETE("/products/:productID", productHandler.DeleteProduct, superadminOnly)

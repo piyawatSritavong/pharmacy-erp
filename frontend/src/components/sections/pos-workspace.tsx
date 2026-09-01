@@ -18,6 +18,9 @@ type CartLine = {
   product: Option;
   lot: Option;
   quantity: number;
+  // Selling unit chosen by the cashier; empty means the product's base unit.
+  unitId: string;
+  discount: string;
 };
 
 type Preview = {
@@ -30,8 +33,34 @@ type Preview = {
     transfer_amount?: number;
     tendered_amount?: number;
     change_amount?: number;
+    line_discount_total?: number;
+    bill_discount_amount?: number;
+    promotion_discount_total?: number;
+    discount_total?: number;
   };
+  applied_promotions?: Option[];
 };
+
+// The POS portal only receives availability_status; exact counts stay with the
+// back office. Fall back to qty_real when a privileged role opens this screen.
+function isSellable(stock?: Option) {
+  if (!stock) return false;
+  if (stock.qty_real !== undefined) return Number(stock.qty_real) > 0;
+  return String(stock.availability_status || "") !== "out_of_stock";
+}
+
+function stockLabel(stock: Option | undefined, unitName: string) {
+  if (!stock) return "ไม่มีข้อมูลสต๊อก";
+  if (stock.qty_real !== undefined) return `คงเหลือ ${Number(stock.qty_real)} ${unitName}`;
+  switch (String(stock.availability_status || "")) {
+    case "out_of_stock":
+      return "หมดสต๊อก";
+    case "low_stock":
+      return "เหลือน้อย";
+    default:
+      return "พร้อมขาย";
+  }
+}
 
 function parseMoneyCents(value: string) {
   const trimmed = value.trim();
@@ -55,6 +84,7 @@ export function PosWorkspace({
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [billDiscount, setBillDiscount] = useState("");
   const [lotProduct, setLotProduct] = useState<Option | null>(null);
   const [lotOptions, setLotOptions] = useState<Option[]>([]);
   const [lotsLoading, setLotsLoading] = useState(false);
@@ -104,10 +134,13 @@ export function PosWorkspace({
       payment_type: extra?.payment_type || paymentType,
       tendered_amount: extra?.tendered_amount ?? Number(tendered || 0),
       transfer_amount: extra?.transfer_amount ?? Number(transferAmount || 0),
+      bill_discount_amount: Number(billDiscount || 0),
       items: cart.map((line) => ({
         product_id: String(line.product.id),
         inventory_lot_id: String(line.lot.id),
         quantity: line.quantity,
+        unit_id: line.unitId,
+        discount_amount: Number(line.discount || 0),
         stock_bucket: "real"
       }))
     };
@@ -129,12 +162,12 @@ export function PosWorkspace({
     return () => window.clearTimeout(timer);
     // payload intentionally follows every cart and tax-document field.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchId, cart, customerName, customerTaxId, fullTaxInvoice]);
+  }, [branchId, cart, billDiscount, customerName, customerTaxId, fullTaxInvoice]);
 
   async function chooseProductLot(product: Option) {
     setMessage("");
     setReceipt(null);
-    if (Number(inventoryByProduct.get(String(product.id))?.qty_real || 0) <= 0) {
+    if (!isSellable(inventoryByProduct.get(String(product.id)))) {
       setMessage("สินค้านี้หมดสต๊อก");
       return;
     }
@@ -164,7 +197,7 @@ export function PosWorkspace({
           cartLineKey(line) === key ? { ...line, quantity: line.quantity + 1 } : line
         );
       }
-      return [...current, { product: lotProduct, lot, quantity: 1 }];
+      return [...current, { product: lotProduct, lot, quantity: 1, unitId: "", discount: "" }];
     });
     setLotProduct(null);
     setCartOpen(true);
@@ -175,6 +208,9 @@ export function PosWorkspace({
       current.map((line) => (cartLineKey(line) === key ? { ...line, ...patch } : line))
     );
   }
+
+  // Promotional rewards come back from the backend as extra preview lines.
+  const giveawayLines = (preview?.lines || []).filter((item) => Boolean(item.is_giveaway));
 
   function cartLineKey(line: CartLine) {
     return `${String(line.product.id)}:${String(line.lot.id)}`;
@@ -276,7 +312,9 @@ export function PosWorkspace({
           price: Number(item.unit_price || 0)
         },
         lot: { id: String(item.inventory_lot_id), lot_number: String(item.lot_number || "") },
-        quantity: Number(item.quantity || 1)
+        quantity: Number(item.quantity || 1),
+        unitId: String(item.unit_id || ""),
+        discount: item.discount_amount ? String(item.discount_amount) : ""
       }));
       if (!restored.length) return;
       setCart(restored);
@@ -540,9 +578,9 @@ export function PosWorkspace({
                         {String(product.description || "ไม่มีรายละเอียด")}
                       </p>
                       <div className="mt-4 flex items-center justify-between text-xs">
-                        <span>คงเหลือ {String(stock?.qty_real ?? 0)} {String(product.unit_name || "ชิ้น")}</span>
+                        <span>{stockLabel(stock, String(product.unit_name || "ชิ้น"))}</span>
                         <span className="rounded-full bg-primary px-3 py-1.5 font-bold text-white">
-                          {Number(stock?.qty_real || 0) > 0 ? "+ เพิ่ม" : "หมด"}
+                          {isSellable(stock) ? "+ เพิ่ม" : "หมด"}
                         </span>
                       </div>
                     </div>
@@ -611,6 +649,7 @@ export function PosWorkspace({
               const id = String(line.product.id);
               const key = cartLineKey(line);
               const priced = preview?.lines.find((item) => String(item.product_id) === id && String(item.inventory_lot_id) === String(line.lot.id));
+              const units = ((line.product.units as Option[]) || []).filter((unit) => Number(unit.conversion_qty) > 0);
               return (
                 <div className="rounded-2xl bg-muted p-3" key={key}>
                   <div className="flex items-start justify-between gap-3">
@@ -631,6 +670,31 @@ export function PosWorkspace({
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {units.length > 1 ? (
+                      <Select
+                        aria-label={`หน่วยขาย ${String(line.product.name)}`}
+                        className="h-9 text-xs"
+                        onChange={(event) => updateLine(key, { unitId: event.target.value })}
+                        value={line.unitId}
+                      >
+                        {units.map((unit) => (
+                          <option key={String(unit.id)} value={unit.is_base ? "" : String(unit.id)}>
+                            {String(unit.unit_name)}
+                            {Number(unit.conversion_qty) > 1 ? ` (x${Number(unit.conversion_qty)})` : ""} · {currency(Number(unit.price || 0))}
+                          </option>
+                        ))}
+                      </Select>
+                    ) : <span />}
+                    <Input
+                      aria-label={`ส่วนลด ${String(line.product.name)}`}
+                      className="h-9 text-xs"
+                      inputMode="decimal"
+                      onChange={(event) => updateLine(key, { discount: event.target.value })}
+                      placeholder="ส่วนลด (บาท)"
+                      value={line.discount}
+                    />
                   </div>
                   <div className="mt-3 flex justify-end">
                     <div className="flex items-center rounded-full bg-white">
@@ -665,7 +729,35 @@ export function PosWorkspace({
             ) : null}
           </div>
 
+          {giveawayLines.length ? (
+            <div className="mt-3 space-y-1 rounded-2xl border border-dashed border-success p-3">
+              <p className="text-xs font-bold text-success">ของแถมจากโปรโมชั่น</p>
+              {giveawayLines.map((item, index) => (
+                <p className="text-xs text-muted-foreground" key={`${String(item.product_id)}-${index}`}>
+                  {String(item.display_name)} × {Number(item.quantity)}
+                  {item.promotion_name ? ` · ${String(item.promotion_name)}` : ""}
+                </p>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="mt-4">
+            <Input
+              aria-label="ส่วนลดท้ายบิล"
+              inputMode="decimal"
+              onChange={(event) => setBillDiscount(event.target.value)}
+              placeholder="ส่วนลดท้ายบิล (บาท)"
+              value={billDiscount}
+            />
+          </div>
+
           <div className="mt-5 space-y-2 border-t pt-4 text-sm">
+            {Number(preview?.summary.discount_total || 0) > 0 ? (
+              <div className="flex justify-between text-success">
+                <span>ส่วนลดรวม</span>
+                <span>-{currency(Number(preview?.summary.discount_total || 0))}</span>
+              </div>
+            ) : null}
             <div className="flex justify-between"><span>ยอดก่อนภาษี</span><span>{currency(Number(preview?.summary.subtotal || 0))}</span></div>
             <div className="flex justify-between"><span>ภาษีมูลค่าเพิ่ม</span><span>{currency(Number(preview?.summary.tax_amount || 0))}</span></div>
             <div className="flex justify-between pt-2 text-xl font-bold"><span>ยอดรวม</span><span>{currency(Number(preview?.summary.total_amount || 0))}</span></div>

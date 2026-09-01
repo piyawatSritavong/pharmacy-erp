@@ -214,6 +214,11 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 	if err != nil {
 		return ListResult{}, err
 	}
+	// Selling units travel with the catalog so POS can offer ชิ้น/แพ็ค/ลัง
+	// without a second round trip.
+	if err := attachProductUnits(ctx, s.db, items); err != nil {
+		return ListResult{}, err
+	}
 	totalPages := 1
 	if pageSize > 0 {
 		totalPages = (total + pageSize - 1) / pageSize

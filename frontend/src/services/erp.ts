@@ -83,6 +83,11 @@ export async function getProductCategories() {
   return apiServer<{ items: Array<Record<string, unknown>> }>("/product-categories");
 }
 
+export async function getPromotions(activeOnly = false) {
+  const query = activeOnly ? "?active_only=true" : "";
+  return apiServer<{ items: Array<Record<string, unknown>> }>(`/promotions${query}`);
+}
+
 export async function getAliases(filters?: { branchId?: string; productId?: string }) {
   const query = new URLSearchParams();
   if (filters?.branchId) {

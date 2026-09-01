@@ -75,18 +75,18 @@ func TestSalesFEFOExpiryAndInvoiceRestoreAgainstConfiguredDatabase(t *testing.T)
 	tooLow := 70.0
 	allowedFloor := 80.0
 	posUser := platform.AuthUser{ID: userID, RoleKey: "branch_pos", Portal: "pos", Scope: "branch", BranchID: &branchID, Permissions: []string{"price.override.pos", "invoice.create.pos"}}
-	if _, err := salesService.Preview(ctx, posUser, branchID, false, []LineInput{{ProductID: productID, Quantity: 1, StockBucket: "real", OverrideUnitPrice: &tooLow}}); err == nil {
+	if _, err := salesService.Preview(ctx, posUser, branchID, false, []LineInput{{ProductID: productID, Quantity: 1, StockBucket: "real", OverrideUnitPrice: &tooLow}}, 0); err == nil {
 		t.Fatal("expected POS discount below the effective floor to be rejected")
 	}
-	if _, err := salesService.Preview(ctx, posUser, branchID, false, []LineInput{{ProductID: productID, Quantity: 1, StockBucket: "real", OverrideUnitPrice: &allowedFloor}}); err != nil {
+	if _, err := salesService.Preview(ctx, posUser, branchID, false, []LineInput{{ProductID: productID, Quantity: 1, StockBucket: "real", OverrideUnitPrice: &allowedFloor}}, 0); err != nil {
 		t.Fatalf("expected POS discount at the floor to pass: %v", err)
 	}
 	adminOverride := user
 	adminOverride.Permissions = []string{"price.override.global"}
-	if _, err := salesService.Preview(ctx, adminOverride, branchID, false, []LineInput{{ProductID: productID, Quantity: 1, StockBucket: "real", OverrideUnitPrice: &tooLow}}); err == nil {
+	if _, err := salesService.Preview(ctx, adminOverride, branchID, false, []LineInput{{ProductID: productID, Quantity: 1, StockBucket: "real", OverrideUnitPrice: &tooLow}}, 0); err == nil {
 		t.Fatal("expected super admin override below the floor to require a reason")
 	}
-	if _, err := salesService.Preview(ctx, adminOverride, branchID, false, []LineInput{{ProductID: productID, Quantity: 1, StockBucket: "real", OverrideUnitPrice: &tooLow, OverrideReason: "approved integration exception"}}); err != nil {
+	if _, err := salesService.Preview(ctx, adminOverride, branchID, false, []LineInput{{ProductID: productID, Quantity: 1, StockBucket: "real", OverrideUnitPrice: &tooLow, OverrideReason: "approved integration exception"}}, 0); err != nil {
 		t.Fatalf("expected reasoned super admin override to pass: %v", err)
 	}
 	var earlyLotID, lateLotID string

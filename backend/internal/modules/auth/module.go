@@ -245,6 +245,7 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	inventoryChildren = appendItemIf(inventoryChildren, has("inventory.manage.global"), "real_inventory", "สต๊อกจริง", "/real-inventory", "ดู รับเข้า และปรับยอดสต๊อกจริง")
 	inventoryChildren = appendItemIf(inventoryChildren, user.RoleKey == "super_admin" && has("inventory.ghost.manage"), "ghost_inventory", "สต๊อกผี", "/ghost-inventory", "ดู รับเข้า และปรับยอดสต๊อกผี")
 	inventoryChildren = appendItemIf(inventoryChildren, has("products.manage"), "product_categories", "หมวดสินค้า", "/product-categories", "จัดกลุ่มสินค้าและกำหนดสีสำหรับการค้นหา")
+	inventoryChildren = appendItemIf(inventoryChildren, has("promotion.manage"), "promotions", "โปรโมชั่น", "/promotions", "ส่วนลด ของแถม และราคาชุดที่หน้าร้านใช้อัตโนมัติ")
 	inventoryChildren = appendItemIf(inventoryChildren, has("transfer.approve"), "stock_transfers", "โอนสินค้า", "/transfers", "สร้างใบโอนและตรวจสอบคำขอสินค้าจากสาขา")
 
 	var documentsChildren []map[string]any
