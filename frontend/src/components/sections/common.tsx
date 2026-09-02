@@ -279,6 +279,71 @@ export function InvoiceSummary({ summary }: { summary?: Record<string, unknown> 
   );
 }
 
+// The audit log stores each change as JSON; showing it raw is unreadable. These
+// turn a change object into a short list of "field: value" a person can scan.
+const auditFieldLabels: Record<string, string> = {
+  code: "รหัส", name: "ชื่อ", active: "สถานะใช้งาน", address: "ที่อยู่",
+  branch_type: "ประเภทสาขา", sales_enabled: "เปิดขายหน้าร้าน", online_sales_enabled: "ขายออนไลน์",
+  legal_name: "ชื่อบริษัท", customer_name: "ลูกค้า", invoice_number: "เลขที่ใบขาย",
+  original_invoice_number: "เลขที่เดิม", new_invoice_number: "เลขที่ใหม่",
+  total_amount: "ยอดรวม", subtotal: "ยอดก่อนภาษี", tax_amount: "ภาษี", quantity: "จำนวน",
+  unit_price: "ราคาต่อหน่วย", cost_price: "ราคาทุน", base_selling_price: "ราคาขาย",
+  sku: "SKU", tax_id: "เลขผู้เสียภาษี", reason: "เหตุผล", note: "หมายเหตุ", notes: "หมายเหตุ",
+  payment_method: "ช่องทางชำระ", payment_type: "ช่องทางชำระ", status: "สถานะ",
+  markup_percent: "กำไรเหนือทุน (%)", adjustment_percent: "ปรับราคา (%)", final_revenue: "ยอดเป้าหมาย",
+  supplier_name: "คู่ค้า", po_number: "เลขที่ใบสั่งซื้อ", stock_bucket: "ประเภทสต๊อก",
+  hidden: "ซ่อนบิล", request_full_tax_invoice: "ขอใบกำกับเต็มรูป"
+};
+
+const auditValueLabels: Record<string, string> = {
+  main_warehouse: "โกดังหลัก", branch: "สาขา", cash: "เงินสด", bank_transfer: "เงินโอน",
+  mixed: "ผสม", real: "สต๊อกจริง", ghost: "สต๊อกผี", paid: "ชำระแล้ว", unpaid: "ยังไม่ชำระ",
+  issued: "ออกบิลแล้ว", full: "เต็มรูป", abbreviated: "อย่างย่อ"
+};
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function formatAuditValue(key: string, value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "boolean") return value ? "ใช่" : "ไม่";
+  if (typeof value === "number") {
+    if (/price|amount|total|revenue|subtotal|cost/.test(key)) {
+      return new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(value);
+    }
+    return value.toLocaleString("th-TH");
+  }
+  const text = String(value);
+  if (uuidPattern.test(text)) return null; // a raw id says nothing to a reader
+  if (/^\d{4}-\d{2}-\d{2}T/.test(text)) {
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) {
+      return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" }).format(parsed);
+    }
+  }
+  return auditValueLabels[text] || text;
+}
+
+function auditChangeEntries(raw: unknown): Array<[string, string]> {
+  let parsed: unknown = null;
+  if (typeof raw === "string") {
+    try { parsed = JSON.parse(raw); } catch { return []; }
+  } else {
+    parsed = raw;
+  }
+  // JSON.parse("null") succeeds with null, and a change payload can also be a
+  // primitive; only a plain object has fields to list.
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+  const data = parsed as Record<string, unknown>;
+  const entries: Array<[string, string]> = [];
+  for (const [key, value] of Object.entries(data)) {
+    if (key.endsWith("_id") || key === "id") continue; // ids are not reader-facing
+    const formatted = formatAuditValue(key, value);
+    if (formatted === null) continue;
+    entries.push([auditFieldLabels[key] || key, formatted]);
+  }
+  return entries;
+}
+
 export function AuditTimeline({ items }: { items: Array<Record<string, unknown>> }) {
   return (
     <div className="space-y-3">
@@ -296,9 +361,22 @@ export function AuditTimeline({ items }: { items: Array<Record<string, unknown>>
             </p>
             <p className="text-xs text-muted-foreground">{String(item.actor_name || "ระบบ")}</p>
           </div>
-          <p className="mt-3 text-xs leading-6 text-muted-foreground">
-            {String(item.after_data || "{}")}
-          </p>
+          {(() => {
+            const entries = auditChangeEntries(item.after_data);
+            if (entries.length === 0) {
+              return <p className="mt-3 text-xs text-muted-foreground">ไม่มีรายละเอียดเพิ่มเติม</p>;
+            }
+            return (
+              <dl className="mt-3 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
+                {entries.map(([label, value]) => (
+                  <div className="flex gap-2" key={label}>
+                    <dt className="shrink-0 text-muted-foreground">{label}</dt>
+                    <dd className="min-w-0 flex-1 truncate font-medium text-foreground">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            );
+          })()}
         </div>
       ))}
     </div>

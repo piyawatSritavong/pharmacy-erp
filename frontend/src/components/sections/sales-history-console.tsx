@@ -30,6 +30,7 @@ export function SalesHistoryConsole({ initialItems, showFullTimestamp = false }:
   // Filter bar + pager, both client-side: GET /invoices returns the branch's
   // history in one response and takes no page or search params.
   const [search, setSearch] = useState("");
+  const [branchFilter, setBranchFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
   const [taxFilter, setTaxFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -37,20 +38,37 @@ export function SalesHistoryConsole({ initialItems, showFullTimestamp = false }:
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE_DEFAULT);
 
+  // Branch is only worth filtering when the history actually spans branches —
+  // a cashier sees one branch, a back-office user sees them all.
+  const branchOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const invoice of initialItems) {
+      const name = String(invoice.branch_name || "").trim();
+      if (name) names.add(name);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, "th"));
+  }, [initialItems]);
+  const showBranch = branchOptions.length > 1;
+
   const filtered = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("th");
-    return initialItems.filter((invoice) => {
-      if (term && ![invoice.invoice_number, invoice.customer_name].some((value) => String(value || "").toLocaleLowerCase("th").includes(term))) return false;
-      if (paymentFilter && String(invoice.payment_status) !== paymentFilter) return false;
-      if (taxFilter && String(invoice.tax_invoice_type) !== taxFilter) return false;
-      // issued_at is an ISO timestamp; comparing the date half keeps the
-      // range inclusive of the whole "to" day.
-      const day = String(invoice.issued_at || "").slice(0, 10);
-      if (dateFrom && day < dateFrom) return false;
-      if (dateTo && day > dateTo) return false;
-      return true;
-    });
-  }, [dateFrom, dateTo, initialItems, paymentFilter, search, taxFilter]);
+    return initialItems
+      .filter((invoice) => {
+        if (term && ![invoice.invoice_number, invoice.customer_name].some((value) => String(value || "").toLocaleLowerCase("th").includes(term))) return false;
+        if (branchFilter && String(invoice.branch_name) !== branchFilter) return false;
+        if (paymentFilter && String(invoice.payment_status) !== paymentFilter) return false;
+        if (taxFilter && String(invoice.tax_invoice_type) !== taxFilter) return false;
+        // issued_at is an ISO timestamp; comparing the date half keeps the
+        // range inclusive of the whole "to" day.
+        const day = String(invoice.issued_at || "").slice(0, 10);
+        if (dateFrom && day < dateFrom) return false;
+        if (dateTo && day > dateTo) return false;
+        return true;
+      })
+      // Ordered by invoice number so a run of a branch's bills reads in sequence;
+      // numeric-aware so BL...9 precedes BL...10.
+      .sort((a, b) => String(a.invoice_number || "").localeCompare(String(b.invoice_number || ""), "th", { numeric: true }));
+  }, [branchFilter, dateFrom, dateTo, initialItems, paymentFilter, search, taxFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(Math.max(1, page), totalPages);
@@ -116,6 +134,14 @@ export function SalesHistoryConsole({ initialItems, showFullTimestamp = false }:
               />
             </div>
           </Field>
+          {showBranch ? (
+            <Field className="w-48" label="สาขา">
+              <Select aria-label="กรองตามสาขา" onChange={(event) => resetPage(setBranchFilter)(event.target.value)} value={branchFilter}>
+                <option value="">ทุกสาขา</option>
+                {branchOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+              </Select>
+            </Field>
+          ) : null}
           <Field className="w-40" label="สถานะชำระเงิน">
             <Select aria-label="กรองตามสถานะชำระเงิน" onChange={(event) => resetPage(setPaymentFilter)(event.target.value)} value={paymentFilter}>
               <option value="">ทุกสถานะ</option>
@@ -140,6 +166,7 @@ export function SalesHistoryConsole({ initialItems, showFullTimestamp = false }:
         <DataTable
           columns={[
             { key: "invoice_number", label: "เลขที่ใบขาย", className: "whitespace-nowrap font-medium" },
+            ...(showBranch ? [{ key: "branch_name", label: "สาขา", className: "whitespace-nowrap" }] : []),
             { key: "customer_name", label: "ลูกค้า" },
             { key: "payment_status", label: "สถานะ", className: "whitespace-nowrap" },
             { key: "tax_invoice_label", label: "ใบกำกับภาษี", className: "whitespace-nowrap" },

@@ -239,10 +239,9 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	// This comparison exposes hidden invoices and Ghost Stock deductions, so the
 	// literal superadmin role is required in addition to the report permission.
 	reportsChildren = appendItemIf(reportsChildren, user.RoleKey == "super_admin" && has("reports.view.global", "reports.generate.global"), "month_end_report", "รายงานสรุปสิ้นเดือน", "/month-end-report", "เปรียบเทียบบิล ราคา และการตัดสต๊อกก่อนกับหลังปิดรอบ")
-	// A global-scope back-office user has no branch_ops_group (that group is
-	// branch-scoped), so the two branch-operations pages are linked here and
-	// in คลังสินค้า instead of being unreachable.
-	reportsChildren = appendItemIf(reportsChildren, user.Scope == "global" && has("dashboard.view.self"), "daily_sales_summary", "สรุปยอดขาย", "/daily-sales", "ยอดขายและยอดรับชำระของผู้ใช้ปัจจุบัน")
+	// สรุปยอดขาย is intentionally absent from the back-office nav: รายงานสรุปสิ้นเดือน
+	// covers the same ground for a global user in more detail. The POS portal
+	// keeps its own สรุปยอดขาย, which is that cashier's till for the day.
 
 	var inventoryChildren []map[string]any
 	inventoryChildren = appendItemIf(inventoryChildren, has("products.view", "products.manage"), "product_catalog", "รายการสินค้า", "/product-catalog", "แหล่งข้อมูลสินค้าเดียวที่ทุกสาขาดึงไปใช้")

@@ -88,11 +88,21 @@ const statusLabels: Record<ReportRow["status"], string> = {
 };
 
 const movementLabels: Record<string, string> = {
-  sale_source_reversal: "ย้อน Real deduction เดิม (internal)",
-  branch_return_dispatch: "สาขาส่งคืน Real ไป WH",
-  warehouse_return_receive: "WH รับ Real คืน",
-  invoice_ghost_source: "กำหนด Ghost เป็นแหล่งตัดของบิล",
-  warehouse_ghost_deficit: "บันทึก Ghost deficit"
+  sale_source_reversal: "คืนสต๊อกที่เคยตัดตอนขาย",
+  branch_return_dispatch: "สาขาส่งของกลับโกดัง",
+  warehouse_return_receive: "โกดังรับของคืน",
+  invoice_ghost_source: "ตัดสต๊อกผีแทน",
+  warehouse_ghost_deficit: "Ghost ไม่พอ บันทึกส่วนขาด"
+};
+
+// The stock steps of a hidden bill run in a fixed order; the report groups them
+// per product and reads them top to bottom as a timeline.
+const MOVEMENT_STEPS: Record<string, { order: number; title: string; detail: string }> = {
+  sale_source_reversal: { order: 1, title: "คืนสต๊อกที่เคยตัดตอนขาย", detail: "ยกเลิกการตัด Real ที่สาขาเมื่อตอนออกบิล (รายการภายใน)" },
+  branch_return_dispatch: { order: 2, title: "สาขาส่งของกลับโกดัง", detail: "ตัด Real ออกจากสาขา ส่งคืนไปยังโกดังกลาง" },
+  warehouse_return_receive: { order: 3, title: "โกดังรับของคืน", detail: "รับ Real เข้าโกดัง" },
+  invoice_ghost_source: { order: 4, title: "ตัดสต๊อกผีแทน", detail: "หักออกจาก Ghost ที่โกดัง เป็นแหล่งตัดจริงของบิลนี้" },
+  warehouse_ghost_deficit: { order: 5, title: "Ghost ไม่พอ บันทึกส่วนขาด", detail: "Ghost หมด บันทึกส่วนที่ขาดไว้ใน deficit ledger" }
 };
 
 function stockSource(value: ReportRow["stock_deduction_source"]) {
@@ -216,13 +226,33 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
       </SectionCard>
 
       {summary ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 lg:grid-cols-2">
           <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">ใบขาย Active ก่อน → หลัง</p><p className="mt-1 text-xl font-semibold">{summary.active_invoices_before.toLocaleString("th-TH")} → {summary.active_invoices_after.toLocaleString("th-TH")}</p><p className="mt-1 text-xs text-muted-foreground">ซ่อน {invoiceDifference.toLocaleString("th-TH")} ใบ</p></div>
           <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">รายได้ก่อน → หลัง</p><p className="mt-1 text-xl font-semibold">{currency(summary.revenue_before)} → {currency(summary.revenue_after)}</p><p className="mt-1 text-xs text-muted-foreground">ลดลง {currency(revenueDifference)}</p></div>
-          <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">Branch Real returned</p><p className="mt-1 text-xl font-semibold">{summary.branch_real_returned.toLocaleString("th-TH")} ชิ้น</p><p className="mt-1 text-xs text-muted-foreground">การส่งคืนแยกจากแหล่งตัดของบิล</p></div>
-          <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">WH Real received</p><p className="mt-1 text-xl font-semibold">{summary.warehouse_real_received.toLocaleString("th-TH")} ชิ้น</p></div>
-          <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">WH Ghost deducted</p><p className="mt-1 text-xl font-semibold">{summary.ghost_quantity_deducted.toLocaleString("th-TH")} ชิ้น</p></div>
-          <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">Ghost deficit</p><p className="mt-1 text-xl font-semibold">{summary.ghost_deficit_quantity.toLocaleString("th-TH")} ชิ้น</p></div>
+          {/* Branch-returned, WH-received and Ghost-deducted are the SAME physical
+              quantity seen at three points of one atomic transfer, so they are
+              always equal; showing them as three cards read as three facts. This
+              collapses them into one pipeline and only surfaces a deficit if the
+              warehouse actually ran short of Ghost Stock. */}
+          <div className="rounded-lg border bg-card p-4 lg:col-span-2">
+            <p className="text-xs text-muted-foreground">สินค้าที่ส่งคืนโกดังและตัดจากสต๊อกผี</p>
+            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-stretch">
+              {[
+                ["สาขาส่งคืน Real", summary.branch_real_returned],
+                ["โกดังรับ Real", summary.warehouse_real_received],
+                ["ตัด Ghost ที่โกดัง", summary.ghost_quantity_deducted]
+              ].map(([label, value], index) => (
+                <div className="flex flex-1 items-center gap-3" key={String(label)}>
+                  <div className="flex-1 rounded-lg bg-muted/50 px-3 py-2.5">
+                    <p className="text-2xl font-semibold tabular-nums">{Number(value).toLocaleString("th-TH")}<span className="ml-1 text-sm font-normal text-muted-foreground">ชิ้น</span></p>
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                  </div>
+                  {index < 2 ? <span aria-hidden className="hidden text-lg text-muted-foreground sm:block">→</span> : null}
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">สินค้าชุดเดียวกันเดินผ่าน 3 ขั้นของการซ่อนบิล ทั้งสามค่าจึงเท่ากันเสมอ · {summary.ghost_deficit_quantity > 0 ? <span className="font-medium text-red-700">Ghost ไม่พอ {summary.ghost_deficit_quantity.toLocaleString("th-TH")} ชิ้น บันทึกเป็น deficit ledger</span> : "Ghost ที่โกดังเพียงพอทุกชิ้น ไม่มีส่วนขาด"}</p>
+          </div>
         </div>
       ) : null}
 
@@ -298,15 +328,42 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
                               {invoice.items.every((item) => item.movements.length === 0) ? (
                                 <p className="mt-2 text-sm text-muted-foreground">บิลนี้ไม่มีการเคลื่อนไหวสต๊อก — การบันทึกที่ต้นทุน + % เปลี่ยนเฉพาะราคา สต๊อกยังตัดตามเดิม</p>
                               ) : (
-                                <div className="mt-2 grid gap-2 lg:grid-cols-2">
-                                  {invoice.items.flatMap((item) => item.movements.map((movement, index) => (
-                                    <div className="rounded-md border bg-white p-3 text-sm" key={`${item.invoice_item_id}:${movement.role}:${index}`}>
-                                      <p className="font-medium">{movementLabels[movement.role] || movement.role}</p>
-                                      <p className="mt-1 text-xs text-muted-foreground">{item.product_name}</p>
-                                      <p className="mt-1 text-muted-foreground">{movement.branch_name} · {movement.stock_type || "-"} · <span className={movement.quantity < 0 ? "text-red-700" : "text-emerald-700"}>{movement.quantity > 0 ? "+" : ""}{movement.quantity.toLocaleString("th-TH")}</span></p>
-                                      {movement.reason ? <p className="mt-1 text-xs text-muted-foreground">Reason: {movement.reason}</p> : null}
-                                    </div>
-                                  )))}
+                                <div className="mt-3 space-y-4">
+                                  {invoice.items.filter((item) => item.movements.length > 0).map((item) => {
+                                    const steps = [...item.movements].sort((a, b) => (MOVEMENT_STEPS[a.role]?.order ?? 99) - (MOVEMENT_STEPS[b.role]?.order ?? 99));
+                                    return (
+                                      <div className="rounded-lg border bg-white p-4" key={item.invoice_item_id}>
+                                        <div className="flex flex-wrap items-center gap-2 border-b pb-3">
+                                          <span className="text-base font-semibold">{item.product_name}</span>
+                                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">ตัดจาก {stockSource(item.stock_deduction_source)}</span>
+                                        </div>
+                                        <ol className="mt-3">
+                                          {steps.map((movement, index) => {
+                                            const step = MOVEMENT_STEPS[movement.role];
+                                            const isGhost = (movement.stock_type || "").toUpperCase() === "GHOST";
+                                            const last = index === steps.length - 1;
+                                            return (
+                                              <li className="relative flex gap-3 pb-5 last:pb-0" key={`${movement.role}:${index}`}>
+                                                {last ? null : <span aria-hidden className="absolute left-[13px] top-7 h-[calc(100%-1rem)] w-px bg-border" />}
+                                                <span className="z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">{step?.order ?? index + 1}</span>
+                                                <div className="min-w-0 flex-1">
+                                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <p className="font-medium">{step?.title || movementLabels[movement.role] || movement.role}</p>
+                                                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs">
+                                                      <span className="text-muted-foreground">{movement.branch_name}</span>
+                                                      <span className={`rounded px-1.5 py-0.5 font-medium ${isGhost ? "bg-violet-100 text-violet-700" : "bg-sky-100 text-sky-700"}`}>{isGhost ? "Ghost" : "Real"}</span>
+                                                      <span className={`font-semibold tabular-nums ${movement.quantity < 0 ? "text-red-700" : "text-emerald-700"}`}>{movement.quantity > 0 ? "+" : ""}{movement.quantity.toLocaleString("th-TH")}</span>
+                                                    </span>
+                                                  </div>
+                                                  {step?.detail ? <p className="mt-0.5 text-xs text-muted-foreground">{step.detail}</p> : null}
+                                                </div>
+                                              </li>
+                                            );
+                                          })}
+                                        </ol>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               )}
                             </div>
