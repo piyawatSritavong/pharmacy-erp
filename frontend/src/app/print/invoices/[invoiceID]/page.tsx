@@ -7,7 +7,7 @@ export default async function InvoicePrintPage({
 }: {
   params: Promise<{ invoiceID: string }>;
 }) {
-  const session = await requireSession();
+  await requireSession();
   const { invoiceID } = await params;
   const payload = await getInvoicePrint(invoiceID);
   const document = (payload.document as Record<string, unknown>) || {};
@@ -16,7 +16,7 @@ export default async function InvoicePrintPage({
   const summary = (payload.summary as Record<string, unknown>) || {};
   const items = (payload.items as Array<Record<string, unknown>>) || [];
   const payments = (payload.payments as Array<Record<string, unknown>>) || [];
-  const showInternalStock = session.user.role_key === "super_admin";
+  // A customer document never names a stock bucket, for any role.
 
   return (
     <main className="mx-auto max-w-4xl bg-white px-8 py-10 text-black print:max-w-none print:px-4">
@@ -62,7 +62,6 @@ export default async function InvoicePrintPage({
               <th className="py-3 pr-3">สินค้าจริง</th>
               <th className="py-3 pr-3">จำนวน</th>
               <th className="py-3 pr-3">Lot</th>
-              {showInternalStock ? <th className="py-3 pr-3">ประเภทสต๊อก</th> : null}
               <th className="py-3 pr-3 text-right">ราคาต่อหน่วย</th>
               <th className="py-3 pr-0 text-right">รวม</th>
             </tr>
@@ -74,7 +73,6 @@ export default async function InvoicePrintPage({
                 <td className="py-3 pr-3 text-muted-foreground">{String(item.actual_name || "-")}</td>
                 <td className="py-3 pr-3">{String(item.quantity || "-")}</td>
                 <td className="py-3 pr-3"><span className="block">{String(item.lot_number || "-")}</span><span className="text-xs text-muted-foreground">หมดอายุ {item.lot_expires_on ? new Date(String(item.lot_expires_on)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" }) : "ไม่กำหนด"}</span></td>
-                {showInternalStock ? <td className="py-3 pr-3">{stockBucketLabel(String(item.stock_bucket || ""))}</td> : null}
                 <td className="py-3 pr-3 text-right">
                   <span className="block">{currency(Number(item.unit_price || 0))}</span>
                   {Number(item.discount_amount || 0) > 0 ? <span className="mt-1 block text-xs text-muted-foreground">ส่วนลดรายการ {currency(Number(item.discount_amount))}</span> : null}
@@ -121,10 +119,6 @@ export default async function InvoicePrintPage({
       </section>
     </main>
   );
-}
-
-function stockBucketLabel(value: string) {
-  return value === "real" ? "สต๊อกจริง" : value === "ghost" ? "สต๊อกผี" : "-";
 }
 
 function paymentTypeLabel(value: string) {

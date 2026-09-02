@@ -225,10 +225,8 @@ func (s *Service) MonthEndReport(ctx context.Context, user platform.AuthUser, re
 	if err := s.db.QueryRowContext(ctx, `
 		WITH selected AS (`+selectedReconciliationsSQL+`)
 		SELECT COUNT(*)
-		FROM reconciliation_item_snapshots item
-		INNER JOIN reconciliation_invoice_snapshots invoice
-		        ON invoice.reconciliation_id=item.reconciliation_id AND invoice.invoice_id=item.invoice_id
-		INNER JOIN selected s ON s.id=item.reconciliation_id
+		FROM reconciliation_invoice_snapshots invoice
+		INNER JOIN selected s ON s.id=invoice.reconciliation_id
 		WHERE $4::uuid IS NULL OR invoice.branch_id=$4::uuid
 	`, args...).Scan(&total); err != nil {
 		return MonthEndReportResult{}, err
@@ -236,7 +234,15 @@ func (s *Service) MonthEndReport(ctx context.Context, user platform.AuthUser, re
 
 	queryArgs := append(args, pageSize, (page-1)*pageSize)
 	rows, err := s.db.QueryContext(ctx, `
-		WITH selected AS (`+selectedReconciliationsSQL+`), price_changes AS (
+		WITH selected AS (`+selectedReconciliationsSQL+`), paged_invoices AS (
+			SELECT invoice.reconciliation_id,invoice.invoice_id
+			FROM reconciliation_invoice_snapshots invoice
+			INNER JOIN selected s ON s.id=invoice.reconciliation_id
+			INNER JOIN branches branch ON branch.id=invoice.branch_id
+			WHERE $4::uuid IS NULL OR invoice.branch_id=$4::uuid
+			ORDER BY branch.name,invoice.invoice_created_at,invoice.invoice_id
+			LIMIT $5 OFFSET $6
+		), price_changes AS (
 			SELECT DISTINCT ON (log.reconciliation_id,log.invoice_item_id)
 			       log.reconciliation_id,log.invoice_item_id,log.new_unit_price,log.variance_amount
 			FROM reconciliation_logs log INNER JOIN selected s ON s.id=log.reconciliation_id
@@ -279,9 +285,9 @@ func (s *Service) MonthEndReport(ctx context.Context, user platform.AuthUser, re
 		       ON price.reconciliation_id=item.reconciliation_id AND price.invoice_item_id=item.invoice_item_id
 		LEFT JOIN movement_details movement
 		       ON movement.reconciliation_id=item.reconciliation_id AND movement.invoice_item_id=item.invoice_item_id
-		WHERE $4::uuid IS NULL OR invoice.branch_id=$4::uuid
+		INNER JOIN paged_invoices paged
+		        ON paged.reconciliation_id=item.reconciliation_id AND paged.invoice_id=item.invoice_id
 		ORDER BY branch.name,invoice.invoice_created_at,item.invoice_id,item.invoice_item_id
-		LIMIT $5 OFFSET $6
 	`, queryArgs...)
 	if err != nil {
 		return MonthEndReportResult{}, err

@@ -86,11 +86,14 @@ func (s *Service) SalesSummary(ctx context.Context, user platform.AuthUser, star
 
 func (s *Service) loadSalesSummary(ctx context.Context, user platform.AuthUser, start, end time.Time, startLabel, endLabel string) (salesSummaryResult, error) {
 	result := salesSummaryResult{Start: start, End: end, StartLabel: startLabel, EndLabel: endLabel}
+	// A cashier's summary is their own till; a global-scope back-office user has
+	// no sales of their own and wants the whole company's instead.
+	everyone := user.Scope == "global"
 	if err := s.db.QueryRowContext(ctx, `
 			SELECT COUNT(*), COALESCE(SUM(total_amount), 0)
 		FROM invoices
-		WHERE created_by = $1 AND invoice_status = 'issued' AND deleted_at IS NULL AND issued_at >= $2 AND issued_at < $3
-		`, user.ID, start, end).Scan(&result.InvoiceCount, &result.TotalSales); err != nil {
+		WHERE ($4 OR created_by = $1) AND invoice_status = 'issued' AND deleted_at IS NULL AND issued_at >= $2 AND issued_at < $3
+		`, user.ID, start, end, everyone).Scan(&result.InvoiceCount, &result.TotalSales); err != nil {
 		return salesSummaryResult{}, err
 	}
 
@@ -100,12 +103,12 @@ func (s *Service) loadSalesSummary(ctx context.Context, user platform.AuthUser, 
 			COALESCE(SUM(CASE WHEN payment_type = 'bank_transfer' THEN amount ELSE 0 END), 0)
 		FROM invoice_payments ip
 		INNER JOIN invoices i ON i.id=ip.invoice_id AND i.deleted_at IS NULL
-		WHERE ip.created_by = $1 AND ip.created_at >= $2 AND ip.created_at < $3
-		`, user.ID, start, end).Scan(&result.CashReceived, &result.BankReceived); err != nil {
+		WHERE ($4 OR ip.created_by = $1) AND ip.created_at >= $2 AND ip.created_at < $3
+		`, user.ID, start, end, everyone).Scan(&result.CashReceived, &result.BankReceived); err != nil {
 		return salesSummaryResult{}, err
 	}
 
-	invoices, err := s.listSalesInvoices(ctx, user.ID, start, end)
+	invoices, err := s.listSalesInvoices(ctx, user.ID, everyone, start, end)
 	if err != nil {
 		return salesSummaryResult{}, err
 	}
@@ -185,7 +188,7 @@ func bangkokDateRange(startInput, endInput string) (time.Time, time.Time, string
 	return startDay.UTC(), endDay.AddDate(0, 0, 1).UTC(), startDay.Format("2006-01-02"), endDay.Format("2006-01-02"), nil
 }
 
-func (s *Service) listSalesInvoices(ctx context.Context, userID string, start, end time.Time) ([]map[string]any, error) {
+func (s *Service) listSalesInvoices(ctx context.Context, userID string, everyone bool, start, end time.Time) ([]map[string]any, error) {
 	// The month-end round a bill belongs to, so the summary can group bills by
 	// round instead of listing years of them flat. A branch cannot have two
 	// rounds over the same dates, so a bill belongs to at most one.
@@ -197,9 +200,9 @@ func (s *Service) listSalesInvoices(ctx context.Context, userID string, start, e
 		INNER JOIN branches b ON b.id = i.branch_id
 		LEFT JOIN reconciliation_invoice_snapshots ris ON ris.invoice_id = i.id
 		LEFT JOIN month_end_reconciliations mer ON mer.id = ris.reconciliation_id
-		WHERE i.invoice_status = 'issued' AND i.deleted_at IS NULL AND i.created_by = $1 AND i.issued_at >= $2 AND i.issued_at < $3
+		WHERE i.invoice_status = 'issued' AND i.deleted_at IS NULL AND ($4 OR i.created_by = $1) AND i.issued_at >= $2 AND i.issued_at < $3
 		ORDER BY i.issued_at DESC
-	`, userID, start, end)
+	`, userID, start, end, everyone)
 	if err != nil {
 		return nil, err
 	}

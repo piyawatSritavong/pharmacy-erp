@@ -41,7 +41,7 @@ const statusLabels: Record<string, string> = { paid: "ชำระแล้ว",
  *  rounds because the round is chosen by date range. Bills not yet in any round
  *  sit in their own group at the top.
  */
-export function SalesSummaryInvoices({ invoices }: { invoices: Row[] }) {
+export function SalesSummaryInvoices({ invoices, everyone = false }: { invoices: Row[]; everyone?: boolean }) {
   const groups = useMemo<Group[]>(() => {
     const buckets = new Map<string, Group>();
     for (const invoice of invoices) {
@@ -76,8 +76,8 @@ export function SalesSummaryInvoices({ invoices }: { invoices: Row[] }) {
 
   return (
     <SectionCard
-      title="ใบขายของคุณ"
-      description="แสดงเฉพาะใบขายที่พนักงานคนปัจจุบันสร้างในช่วงวันที่เลือก · ยุบเป็นกลุ่มตามรอบสรุปสิ้นเดือน"
+      title={everyone ? "ใบขายทุกสาขา" : "ใบขายของคุณ"}
+      description={`${everyone ? "ใบขายทุกสาขาในช่วงวันที่เลือก" : "แสดงเฉพาะใบขายที่พนักงานคนปัจจุบันสร้างในช่วงวันที่เลือก"} · ยุบเป็นกลุ่มตามรอบสรุปสิ้นเดือน`}
     >
       {groups.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">ไม่มีใบขายในช่วงวันที่เลือก</p>
@@ -117,6 +117,7 @@ export function SalesSummaryInvoices({ invoices }: { invoices: Row[] }) {
                         <TableRow>
                           <TableHead>เลขที่ใบขาย</TableHead>
                           <TableHead>ลูกค้า</TableHead>
+                          {everyone ? <TableHead>สาขา</TableHead> : null}
                           <TableHead>สถานะ</TableHead>
                           <TableHead className="text-right">ยอดรวม</TableHead>
                           <TableHead>วันที่ออก</TableHead>
@@ -127,6 +128,7 @@ export function SalesSummaryInvoices({ invoices }: { invoices: Row[] }) {
                           <TableRow key={text(invoice.id)}>
                             <TableCell className="whitespace-nowrap font-medium">{text(invoice.invoice_number)}</TableCell>
                             <TableCell>{text(invoice.customer_name)}</TableCell>
+                            {everyone ? <TableCell className="whitespace-nowrap">{text(invoice.branch_name)}</TableCell> : null}
                             <TableCell>{statusLabels[text(invoice.payment_status)] || text(invoice.payment_status)}</TableCell>
                             <TableCell className="whitespace-nowrap text-right tabular-nums">{currency(Number(invoice.total_amount || 0))}</TableCell>
                             <TableCell className="whitespace-nowrap">{dateTime(invoice.issued_at)}</TableCell>

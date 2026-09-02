@@ -10,7 +10,9 @@ export default async function DailySalesPage({
 }: {
   searchParams?: Promise<{ start_date?: string | string[]; end_date?: string | string[] }>;
 }) {
-  requirePermission(await requireSession(), ["dashboard.view.self"]);
+  const session = requirePermission(await requireSession(), ["dashboard.view.self"]);
+  // A cashier sees their own till; a global-scope user sees every branch.
+  const everyone = session.user.scope === "global";
   const resolvedSearchParams = await searchParams;
   const startDate = typeof resolvedSearchParams?.start_date === "string" ? resolvedSearchParams.start_date : undefined;
   const endDate = typeof resolvedSearchParams?.end_date === "string" ? resolvedSearchParams.end_date : undefined;
@@ -25,7 +27,7 @@ export default async function DailySalesPage({
     <div className="space-y-6">
       <PageIntro
         title="สรุปยอดขาย"
-        description={`ยอดขายและยอดรับชำระของพนักงานคนปัจจุบัน ช่วง ${String(summary.range_label || selectedStart)}`}
+        description={`${everyone ? "ยอดขายและยอดรับชำระของทุกสาขา" : "ยอดขายและยอดรับชำระของพนักงานคนปัจจุบัน"} ช่วง ${String(summary.range_label || selectedStart)}`}
       />
       <SectionCard title="เลือกช่วงวันที่" description="รองรับการสรุปรายวัน รายสัปดาห์ รายเดือน หรือช่วงวันที่ที่กำหนดเอง">
         <form action="/daily-sales" className="grid gap-3 lg:grid-cols-[220px_220px_auto_auto_auto]">
@@ -53,7 +55,7 @@ export default async function DailySalesPage({
         </form>
       </SectionCard>
       <MetricGrid items={metrics} />
-      <SalesSummaryInvoices invoices={recentInvoices} />
+      <SalesSummaryInvoices everyone={everyone} invoices={recentInvoices} />
     </div>
   );
 }

@@ -19,7 +19,9 @@ export default async function PurchaseOrdersPage({
   const pageSize = Math.max(1, Number(resolved?.page_size) || 20);
   const [orders, suppliers, branches] = await Promise.all([
     getPurchaseOrders({ page, pageSize }),
-    getSuppliers({ active: "true", limit: 20 }),
+    // The PO dialog picks a supplier from a plain select with no search, so a
+    // 20-row page made suppliers past the first page impossible to order from.
+    getSuppliers({ active: "true", limit: 500 }),
     getBranches(),
   ]);
   return (

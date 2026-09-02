@@ -41,6 +41,17 @@ type ReportRow = {
   movements: Movement[];
 };
 
+type InvoiceGroup = {
+  invoiceID: string;
+  branchName: string;
+  originalNo: string;
+  currentNo: string | null;
+  paymentMethod: ReportRow["payment_method"];
+  status: ReportRow["status"];
+  discountTotal: number;
+  items: ReportRow[];
+};
+
 type Report = {
   reconciliation_id?: string;
   reconciliation_ids: string[];
@@ -142,25 +153,45 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
     void loadReport(1);
   }, [loadReport]);
 
-  // Rows arrive flat but may span several rounds when filtering by date range:
-  // fold them under the round that produced them so a year of closes stays
-  // readable, and so one month holding several rounds reads as several groups.
+  // The report reads per item, but a bill is the unit people recognise: fold
+  // items into their invoice, and invoices into the round that closed them, so
+  // a year of closes stays navigable and one bill reads as one line.
   const roundGroups = useMemo(() => {
     const meta = new Map(reconciliations.map((item) => [item.id, item]));
-    const buckets = new Map<string, { id: string; label: string; period: string; rows: ReportRow[] }>();
+    const rounds = new Map<string, { id: string; label: string; period: string; invoices: InvoiceGroup[]; byInvoice: Map<string, InvoiceGroup> }>();
     for (const row of report?.rows || []) {
-      if (!buckets.has(row.reconciliation_id)) {
+      if (!rounds.has(row.reconciliation_id)) {
         const round = meta.get(row.reconciliation_id);
-        buckets.set(row.reconciliation_id, {
+        rounds.set(row.reconciliation_id, {
           id: row.reconciliation_id,
           label: round?.reconciliation_number || row.reconciliation_id,
           period: round ? `${periodLabel(round.period_start)} · ${shortDate(round.period_start)} ถึง ${shortDate(round.period_end)}` : "",
-          rows: []
+          invoices: [],
+          byInvoice: new Map()
         });
       }
-      buckets.get(row.reconciliation_id)!.rows.push(row);
+      const group = rounds.get(row.reconciliation_id)!;
+      let invoice = group.byInvoice.get(row.invoice_id);
+      if (!invoice) {
+        invoice = {
+          invoiceID: row.invoice_id,
+          branchName: row.branch_name,
+          originalNo: row.original_invoice_no,
+          currentNo: row.current_invoice_no,
+          paymentMethod: row.payment_method,
+          status: row.status,
+          discountTotal: 0,
+          items: []
+        };
+        group.byInvoice.set(row.invoice_id, invoice);
+        group.invoices.push(invoice);
+      }
+      invoice.items.push(row);
+      invoice.discountTotal += row.discount_amount;
+      // hidden beats adjusted beats active: the strongest outcome names the bill.
+      if (row.status === "hidden" || (row.status === "adjusted" && invoice.status === "active")) invoice.status = row.status;
     }
-    return [...buckets.values()];
+    return [...rounds.values()];
   }, [reconciliations, report]);
 
   if (reconciliations.length === 0) {
@@ -195,19 +226,19 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
         </div>
       ) : null}
 
-      <SectionCard title="เปรียบเทียบใบขายและสินค้า Before / After" description={report ? `${report.date_from} ถึง ${report.date_to} · ${report.pagination.total.toLocaleString("th-TH")} รายการสินค้า` : "กำลังโหลดข้อมูล"}>
+      <SectionCard title="เปรียบเทียบใบขายและสินค้า Before / After" description={report ? `${report.date_from} ถึง ${report.date_to} · ${report.pagination.total.toLocaleString("th-TH")} ใบขาย · กดลูกศรเพื่อดูรายการในบิล` : "กำลังโหลดข้อมูล"}>
         <TableContainer>
           <Table>
-            <TableHeader><TableRow><TableHead /><TableHead>สาขา</TableHead><TableHead>Original Invoice No.</TableHead><TableHead>Current Invoice No.</TableHead><TableHead>สินค้า</TableHead><TableHead className="text-right">จำนวน</TableHead><TableHead className="text-right">ราคาเดิม</TableHead><TableHead className="text-right">ราคาหลังปรับ</TableHead><TableHead className="text-right">ส่วนลด</TableHead><TableHead>การชำระ</TableHead><TableHead>สถานะ</TableHead><TableHead>แหล่งตัดสต๊อก</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead /><TableHead>สาขา</TableHead><TableHead>Original Invoice No.</TableHead><TableHead>Current Invoice No.</TableHead><TableHead className="text-right">รายการในบิล</TableHead><TableHead className="text-right">ส่วนลดรวมของบิล</TableHead><TableHead>การชำระ</TableHead><TableHead>สถานะ</TableHead></TableRow></TableHeader>
             <TableBody>
-              {loading && !report ? <TableRow><TableCell className="py-12 text-center" colSpan={12}><Loader2 className="mx-auto h-5 w-5 animate-spin" /></TableCell></TableRow> : null}
-              {!loading && report?.rows.length === 0 ? <TableRow><TableCell className="py-12 text-center text-muted-foreground" colSpan={12}>ไม่พบรายการในรอบและสาขาที่เลือก</TableCell></TableRow> : null}
+              {loading && !report ? <TableRow><TableCell className="py-12 text-center" colSpan={8}><Loader2 className="mx-auto h-5 w-5 animate-spin" /></TableCell></TableRow> : null}
+              {!loading && report?.rows.length === 0 ? <TableRow><TableCell className="py-12 text-center text-muted-foreground" colSpan={8}>ไม่พบรายการในรอบและสาขาที่เลือก</TableCell></TableRow> : null}
               {roundGroups.flatMap((group, groupIndex) => {
                 // A single round needs no fold; several rounds open the newest only.
                 const folded = foldedRounds[group.id] ?? (roundGroups.length > 1 && groupIndex > 0);
                 const header = (
                   <TableRow className="bg-muted/40" key={`group:${group.id}`}>
-                    <TableCell colSpan={12}>
+                    <TableCell colSpan={8}>
                       <button
                         aria-expanded={!folded}
                         className="flex w-full items-center gap-3 text-left"
@@ -219,22 +250,71 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
                           <span className="block font-semibold">{group.label}</span>
                           {group.period ? <span className="block text-xs text-muted-foreground">{group.period}</span> : null}
                         </span>
-                        <span className="shrink-0 text-xs text-muted-foreground">{group.rows.length.toLocaleString("th-TH")} รายการ</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">{group.invoices.length.toLocaleString("th-TH")} ใบ</span>
                       </button>
                     </TableCell>
                   </TableRow>
                 );
                 if (folded) return [header];
-                return [header, ...group.rows.flatMap((row) => {
-                const key = `${row.reconciliation_id}:${row.invoice_item_id}`;
-                const isExpanded = expanded === key;
-                return [
-                  <TableRow key={key}>
-                    <TableCell><button aria-label="ดู movement" className="rounded p-1 hover:bg-muted" onClick={() => setExpanded(isExpanded ? null : key)} type="button">{isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button></TableCell>
-                    <TableCell className="whitespace-nowrap">{row.branch_name}</TableCell><TableCell className="whitespace-nowrap font-medium">{row.original_invoice_no}</TableCell><TableCell className="whitespace-nowrap">{row.current_invoice_no || "—"}</TableCell><TableCell className="min-w-48">{row.product_name}</TableCell><TableCell className="text-right">{row.quantity.toLocaleString("th-TH")}</TableCell><TableCell className="whitespace-nowrap text-right">{currency(row.original_price)}</TableCell><TableCell className="whitespace-nowrap text-right">{row.adjusted_price == null ? "N/A" : currency(row.adjusted_price)}</TableCell><TableCell className="whitespace-nowrap text-right">{currency(row.discount_amount)}</TableCell><TableCell>{paymentLabels[row.payment_method]}</TableCell><TableCell><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${row.status === "hidden" ? "bg-red-100 text-red-700" : row.status === "adjusted" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>{statusLabels[row.status]}</span></TableCell><TableCell className="min-w-48">{stockSource(row.stock_deduction_source)}</TableCell>
-                  </TableRow>,
-                  isExpanded ? <TableRow key={`${key}:movements`}><TableCell colSpan={12}><div className="m-2 rounded-lg border bg-muted/30 p-4"><p className="text-sm font-semibold">Movement details</p>{row.movements.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">ไม่มี movement เพิ่มเติมในรอบนี้</p> : <div className="mt-2 grid gap-2 lg:grid-cols-2">{row.movements.map((movement, index) => <div className="rounded-md border bg-white p-3 text-sm" key={`${movement.role}:${index}`}><p className="font-medium">{movementLabels[movement.role] || movement.role}</p><p className="mt-1 text-muted-foreground">{movement.branch_name} · {movement.stock_type || "-"} · <span className={movement.quantity < 0 ? "text-red-700" : "text-emerald-700"}>{movement.quantity > 0 ? "+" : ""}{movement.quantity.toLocaleString("th-TH")}</span></p>{movement.reason ? <p className="mt-1 text-xs text-muted-foreground">Reason: {movement.reason}</p> : null}</div>)}</div>}</div></TableCell></TableRow> : null
-                ];
+                return [header, ...group.invoices.flatMap((invoice) => {
+                  const key = `${group.id}:${invoice.invoiceID}`;
+                  const isExpanded = expanded === key;
+                  return [
+                    <TableRow key={key}>
+                      <TableCell><button aria-label={`ดูรายการในบิล ${invoice.originalNo}`} className="rounded p-1 hover:bg-muted" onClick={() => setExpanded(isExpanded ? null : key)} type="button">{isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button></TableCell>
+                      <TableCell className="whitespace-nowrap">{invoice.branchName}</TableCell>
+                      <TableCell className="whitespace-nowrap font-medium">{invoice.originalNo}</TableCell>
+                      <TableCell className="whitespace-nowrap">{invoice.currentNo || "—"}</TableCell>
+                      <TableCell className="text-right tabular-nums">{invoice.items.length.toLocaleString("th-TH")}</TableCell>
+                      <TableCell className="whitespace-nowrap text-right tabular-nums">{invoice.discountTotal > 0 ? currency(invoice.discountTotal) : "—"}</TableCell>
+                      <TableCell>{paymentLabels[invoice.paymentMethod]}</TableCell>
+                      <TableCell><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${invoice.status === "hidden" ? "bg-red-100 text-red-700" : invoice.status === "adjusted" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>{statusLabels[invoice.status]}</span></TableCell>
+                    </TableRow>,
+                    isExpanded ? (
+                      <TableRow key={`${key}:items`}>
+                        <TableCell colSpan={8}>
+                          <div className="m-2 space-y-3 rounded-lg border bg-muted/30 p-4">
+                            <p className="text-sm font-semibold">รายการในบิล {invoice.originalNo}</p>
+                            <TableContainer className="bg-white">
+                              <Table>
+                                <TableHeader><TableRow><TableHead>สินค้า</TableHead><TableHead className="text-right">จำนวน</TableHead><TableHead className="text-right">ราคาเดิม/หน่วย</TableHead><TableHead className="text-right">ราคาหลังปรับ/หน่วย</TableHead><TableHead className="text-right">ส่วนลด</TableHead><TableHead>สถานะ</TableHead><TableHead>แหล่งตัดสต๊อก</TableHead></TableRow></TableHeader>
+                                <TableBody>
+                                  {invoice.items.map((item) => (
+                                    <TableRow key={item.invoice_item_id}>
+                                      <TableCell className="min-w-48">{item.product_name}</TableCell>
+                                      <TableCell className="text-right tabular-nums">{item.quantity.toLocaleString("th-TH")}</TableCell>
+                                      <TableCell className="whitespace-nowrap text-right tabular-nums">{currency(item.original_price)}</TableCell>
+                                      <TableCell className="whitespace-nowrap text-right tabular-nums">{item.adjusted_price == null ? <span className="text-muted-foreground">ไม่ปรับลด</span> : currency(item.adjusted_price)}</TableCell>
+                                      <TableCell className="whitespace-nowrap text-right tabular-nums">{item.discount_amount > 0 ? currency(item.discount_amount) : "—"}</TableCell>
+                                      <TableCell><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${item.status === "hidden" ? "bg-red-100 text-red-700" : item.status === "adjusted" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>{statusLabels[item.status]}</span></TableCell>
+                                      <TableCell className="min-w-40">{stockSource(item.stock_deduction_source)}</TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </TableContainer>
+                            <div>
+                              <p className="text-sm font-semibold">การเคลื่อนไหวสต๊อกของบิลนี้</p>
+                              {invoice.items.every((item) => item.movements.length === 0) ? (
+                                <p className="mt-2 text-sm text-muted-foreground">บิลนี้ไม่มีการเคลื่อนไหวสต๊อก — การบันทึกที่ต้นทุน + % เปลี่ยนเฉพาะราคา สต๊อกยังตัดตามเดิม</p>
+                              ) : (
+                                <div className="mt-2 grid gap-2 lg:grid-cols-2">
+                                  {invoice.items.flatMap((item) => item.movements.map((movement, index) => (
+                                    <div className="rounded-md border bg-white p-3 text-sm" key={`${item.invoice_item_id}:${movement.role}:${index}`}>
+                                      <p className="font-medium">{movementLabels[movement.role] || movement.role}</p>
+                                      <p className="mt-1 text-xs text-muted-foreground">{item.product_name}</p>
+                                      <p className="mt-1 text-muted-foreground">{movement.branch_name} · {movement.stock_type || "-"} · <span className={movement.quantity < 0 ? "text-red-700" : "text-emerald-700"}>{movement.quantity > 0 ? "+" : ""}{movement.quantity.toLocaleString("th-TH")}</span></p>
+                                      {movement.reason ? <p className="mt-1 text-xs text-muted-foreground">Reason: {movement.reason}</p> : null}
+                                    </div>
+                                  )))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ) : null
+                  ];
                 })];
               })}
             </TableBody>
