@@ -57,40 +57,29 @@ test.describe("refactored operational workflows", () => {
     await expect(page.getByText("ราคาขาย", { exact: true })).toHaveCount(0);
   });
 
-  test("เอกสารทั่วไปและ รพ.สต. แยกหน้าและใช้ dialog ตาม tab", async ({ page }) => {
+  test("ใบขายและ รพ.สต. เป็นฟีเจอร์ Pro และแสดงกล่องอัปเกรด", async ({ page }) => {
     await signIn(page, "superadmin@erp.local", "/dashboard");
 
-    for (const entry of [
-      { route: "/sales-management", heading: "ใบขาย", government: false },
-      { route: "/government-sales", heading: "รพ.สต.", government: true }
-    ]) {
-      await page.goto(entry.route);
-      await expect(page.getByRole("heading", { level: 1, name: entry.heading, exact: true })).toBeVisible();
-      await expect(page.getByRole("tab", { name: "ใบเสนอราคา", exact: true })).toBeVisible();
-      await expect(page.getByRole("tab", { name: "ใบขาย", exact: true })).toBeVisible();
-
-      await page.getByRole("button", { name: "สร้างใบเสนอราคา", exact: true }).click();
-      await expect(page.getByRole("dialog").getByText(entry.government ? "เอกสารนี้จะถูกจัดเป็นงาน รพ.สต. โดยอัตโนมัติ" : "เอกสารทั่วไป ไม่รวมรายการงานราชการ")).toBeVisible();
-      await page.keyboard.press("Escape");
-
-      await page.getByRole("tab", { name: "ใบขาย", exact: true }).click();
-      await page.getByRole("button", { name: "สร้างใบขาย", exact: true }).click();
-      await expect(page.getByRole("dialog").getByRole("heading", { name: "สร้างใบขาย", exact: true })).toBeVisible();
-      await page.keyboard.press("Escape");
+    for (const route of ["/sales-management", "/government-sales"]) {
+      await page.goto(route);
+      await expect(page.getByText("PharmaPOS Pro").first()).toBeVisible();
+      await expect(page.getByRole("button", { name: "สมัคร Pro รายเดือน" })).toBeVisible();
     }
   });
 
   test("POS ขอสินค้าได้เฉพาะสินค้าและจำนวน และไม่มีเช็คหรือผ่อนชำระ", async ({ page }) => {
     await signIn(page, "pos.mes@erp.local", "/sales");
-    await page.goto("/inventory-check");
+    await page.goto("/requisitions");
 
-    await expect(page.getByLabel("สินค้าที่ต้องการเบิก")).toHaveCount(0);
+    await expect(page.getByLabel("เลือกสินค้าที่ต้องการเบิก")).toHaveCount(0);
     await page.getByRole("button", { name: "สร้างใบเบิกสินค้า" }).click();
     const dialog = page.getByRole("dialog");
-    await expect(dialog.getByLabel("สินค้าที่ต้องการเบิก")).toBeVisible();
-    await expect(dialog.getByLabel("จำนวนสินค้าที่ต้องการ")).toBeVisible();
-    await expect(dialog.getByText("ผู้ดูแลจะเลือกสาขาต้นทางและประเภทสต๊อกให้")).toBeVisible();
-    await expect(dialog.getByLabel(/หมายเหตุ/)).toHaveCount(0);
+    await expect(dialog.getByLabel("เลือกสินค้าที่ต้องการเบิก")).toBeVisible();
+    await expect(dialog.getByLabel("จำนวนที่ต้องการ")).toBeVisible();
+    await expect(dialog.getByText(/ผู้ดูแลจะเลือกสาขาต้นทางและประเภทสต๊อกให้/)).toBeVisible();
+    // A POS requisition names no branch and no stock bucket — that is the
+    // admin's call — and never a cheque or instalment.
+    await expect(dialog.getByText("สาขาที่ขอเบิก")).toHaveCount(0);
     await expect(dialog.getByLabel(/ประเภทสต๊อก/)).toHaveCount(0);
     await expect(page.getByText("เช็ค", { exact: true })).toHaveCount(0);
     await expect(page.getByText("ผ่อนชำระ", { exact: true })).toHaveCount(0);

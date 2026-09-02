@@ -56,9 +56,12 @@ test.describe("สิทธิ์และการนำทางสองบ�
     // The sidebar is an accordion: one parent group is open at a time, so the
     // links on screen are the open group's children. Walk every group.
     const adminNav = admin.getByRole("navigation", { name: "เมนูหลัก", exact: true });
+    // ขายหน้าร้าน is a standalone link in the nav (not a group), so it stays
+    // visible alongside whichever group is open — count it in each total.
+    await expect(adminNav.getByRole("link", { name: "ขายหน้าร้าน", exact: true })).toBeVisible();
     const adminGroups: Array<[string, string[]]> = [
-      ["รายงาน", ["Dashboard", "Generate Report", "สรุปสิ้นเดือน", "รายงานสรุปสิ้นเดือน", "สรุปยอดขาย"]],
-      ["คลังสินค้า", ["รายการสินค้า", "สต๊อกจริง", "สต๊อกผี", "หมวดสินค้า", "โปรโมชั่น", "เช็กสต๊อก", "โอนสินค้า"]],
+      ["รายงาน", ["Dashboard", "สรุปสิ้นเดือน", "รายงานสรุปสิ้นเดือน"]],
+      ["คลังสินค้า", ["รายการสินค้า", "สต๊อกจริง", "สต๊อกผี", "หมวดสินค้า", "โปรโมชั่น", "เบิกสินค้า", "โอนสินค้า"]],
       ["ใบเอกสาร", ["ใบสั่งซื้อเข้า", "บริษัทคู่ค้า", "รพ.สต.", "ใบขาย", "เคลม/คืนสินค้า", "อย."]],
       ["ระบบ", ["ตั้งค่า", "ประวัติระบบ", "ประวัติการขาย"]],
     ];
@@ -69,26 +72,27 @@ test.describe("สิทธิ์และการนำทางสองบ�
       if ((await trigger.getAttribute("aria-expanded")) !== "true") {
         await trigger.click();
       }
-      await expect(adminNav.getByRole("link")).toHaveCount(children.length);
+      // +1 for the standalone ขายหน้าร้าน link that is always present.
+      await expect(adminNav.getByRole("link")).toHaveCount(children.length + 1);
       for (const child of children) {
         await expect(adminNav.getByRole("link", { name: child, exact: true })).toBeVisible();
       }
     }
-    await expect(
-      admin.getByRole("link", { name: "ขายหน้าร้าน", exact: true }),
-    ).toHaveCount(0);
 
     const posNav = pos.getByRole("navigation", { name: "เมนูจุดขาย", exact: true });
-    await expect(posNav.getByRole("link")).toHaveCount(6);
+    await expect(posNav.getByRole("link")).toHaveCount(7);
+    // Non-exact: a nav item may carry a red count badge (e.g. "พักบิล 1"), so
+    // the accessible name is the label plus its count.
     for (const name of [
       "ขายหน้าร้าน",
       "พักบิล",
       "ประวัติ",
-      "เช็กสต๊อก",
+      "เบิกสินค้า",
       "รับโอนสินค้า",
+      "เคลม/คืนสินค้า",
       "สรุปยอดขาย",
     ]) {
-      await expect(posNav.getByRole("link", { name, exact: true }).first()).toBeVisible();
+      await expect(posNav.getByRole("link", { name }).first()).toBeVisible();
     }
     await expect(
       pos.getByRole("link", { name: "ตั้งค่า", exact: true }),
@@ -212,10 +216,7 @@ test.describe("สิทธิ์และการนำทางสองบ�
       ["โอนสินค้า", "/transfers", "โอนสินค้า"],
       ["สรุปสิ้นเดือน", "/month-end", "สรุปสิ้นเดือน"],
       ["รายงานสรุปสิ้นเดือน", "/month-end-report", "รายงานสรุปสิ้นเดือน"],
-      ["รพ.สต.", "/government-sales", "รพ.สต."],
-      ["การขายและเอกสาร", "/sales-management", "ใบขาย"],
       ["รายงาน", "/global-reports", "รายงาน"],
-      ["Generate Report", "/generate-report", "Generate Report"],
       ["ตั้งค่า", "/settings", "ตั้งค่า"],
       ["แดชบอร์ด", "/dashboard", "Dashboard"],
     ];
@@ -226,6 +227,13 @@ test.describe("สิทธิ์และการนำทางสองบ�
       await expect(
         session.page.getByRole("heading", { level: 1, name: heading, exact: true }),
       ).toBeVisible();
+    }
+    // รพ.สต. and ใบขาย are Pro features now: the page renders the upgrade gate.
+    for (const path of ["/government-sales", "/sales-management"]) {
+      await session.page.goto(path);
+      await session.page.waitForURL(new RegExp(`${path}$`));
+      await expect(session.page.getByText("PharmaPOS Pro").first()).toBeVisible();
+      await expect(session.page.getByRole("button", { name: "สมัคร Pro รายเดือน" })).toBeVisible();
     }
     await session.context.close();
   });
@@ -355,7 +363,7 @@ test.describe("สิทธิ์และการนำทางสองบ�
     const session = await openSession(browser, "pos.mes@erp.local", "/sales");
     const pages = [
       ["ประวัติ", "/sales-history", "ประวัติ"],
-      ["เช็กสต๊อก", "/inventory-check", "เช็กสต๊อก"],
+      ["เบิกสินค้า", "/requisitions", "เบิกสินค้า"],
       ["รับโอนสินค้า", "/transfer-receipts", "รับโอนสินค้า"],
       ["สรุปยอดขาย", "/daily-sales", /สรุปยอดขาย/],
       ["ขายหน้าร้าน", "/sales", "ขายหน้าร้าน"],
@@ -499,31 +507,18 @@ test.describe("สิทธิ์และการนำทางสองบ�
       .click();
     await expect(paymentDialog).toHaveCount(0);
 
-    await session.page.goto("/inventory-check");
-    const requestStatus = session.page.getByRole("heading", {
-      name: "สถานะคำขอสินค้า",
-    });
-    // The stock section is titled by what it shows — reorder-point alerts — so
-    // the page's own h1 is the only "เช็กสต๊อก" heading.
-    const stockSection = session.page.getByRole("heading", {
-      name: "แจ้งเตือนสต๊อกใกล้หมด",
-      exact: true,
-    });
-    await expect(requestStatus).toBeVisible();
-    await expect(stockSection).toBeVisible();
-    const [requestBox, stockBox] = await Promise.all([
-      requestStatus.boundingBox(),
-      stockSection.boundingBox(),
-    ]);
-    expect(requestBox!.y).toBeLessThan(stockBox!.y);
-    await session.page
-      .getByRole("button", { name: "สร้างใบเบิกสินค้า" })
-      .click();
-    await expect(
-      session.page
-        .getByRole("dialog")
-        .getByRole("heading", { name: "สร้างใบเบิกสินค้า" }),
-    ).toBeVisible();
+    // เบิกสินค้า is its own menu now; a POS cashier raises a multi-line
+    // requisition with no source/destination branch — the admin decides those.
+    await session.page.goto("/requisitions");
+    await expect(session.page.getByRole("heading", { name: "ใบเบิกสินค้าของสาขา" })).toBeVisible();
+    await session.page.getByRole("button", { name: "สร้างใบเบิกสินค้า" }).click();
+    const requisitionDialog = session.page.getByRole("dialog");
+    await expect(requisitionDialog.getByRole("heading", { name: "สร้างใบเบิกสินค้า" })).toBeVisible();
+    await expect(requisitionDialog.getByLabel("เลือกสินค้าที่ต้องการเบิก")).toBeVisible();
+    await expect(requisitionDialog.getByLabel("จำนวนที่ต้องการ")).toBeVisible();
+    // A POS cashier names neither source nor destination — the admin dest
+    // selector (its own labelled control) is absent from this dialog.
+    await expect(requisitionDialog.getByRole("combobox", { name: "สาขาที่ขอเบิก" })).toHaveCount(0);
     await session.context.close();
   });
 

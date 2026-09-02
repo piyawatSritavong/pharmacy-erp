@@ -20,7 +20,7 @@ async function openFromSidebar(
 test.describe("Supply Chain Management", () => {
   test.skip(!process.env.E2E_RUN, "กำหนด E2E_RUN=1 เมื่อเปิดบริการแล้ว");
 
-  test("สร้างคู่ค้า รับสินค้าเข้า Lot และค้นผ่าน Generate Report", async ({
+  test("สร้างคู่ค้า และรับสินค้าเข้า Lot", async ({
     page,
   }) => {
     const suffix = Date.now();
@@ -178,25 +178,6 @@ test.describe("Supply Chain Management", () => {
       detailDialog.getByRole("button", { name: "แก้ยอด/หมายเหตุ" }),
     ).toBeVisible();
     await page.keyboard.press("Escape");
-
-    await openFromSidebar(page, "รายงาน", "Generate Report");
-    await page.getByLabel("ชุดข้อมูลหลัก").selectOption("purchase_order_items");
-    await page.getByRole("button", { name: /ตัวกรองขั้นสูง/ }).click();
-    await page.getByRole("button", { name: "เงื่อนไข", exact: true }).click();
-    await page.getByLabel("ฟิลด์ตัวกรอง").selectOption("supplier_name");
-    await page.getByLabel("ค่าตัวกรอง").fill(supplierName);
-    await expect(
-      page
-        .locator("#report-builder tbody")
-        .getByText(supplierName, { exact: true })
-        .first(),
-    ).toBeVisible();
-    await expect(
-      page
-        .locator("#report-builder tbody")
-        .getByText(productName, { exact: true })
-        .first(),
-    ).toBeVisible();
 
     if (purchaseOrderID) {
       const cancel = await page.request.post(
