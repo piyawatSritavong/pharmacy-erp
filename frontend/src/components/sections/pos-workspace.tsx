@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 
 import { Field } from "@/components/ui/field";
 import { Button, Dialog, DialogContent, DialogHeader, EmptyState, Input, Notice, Select } from "@/components/ui/primitives";
-import { currency } from "@/lib/utils";
+import { cn, currency } from "@/lib/utils";
 import { RESUME_KEY } from "@/components/sections/parked-bills-console";
 import { proxyClient } from "@/services/api";
 
@@ -62,6 +62,18 @@ function stockLabel(stock: Option | undefined, unitName: string) {
   }
 }
 
+const PROMO_TYPE_LABELS: Record<string, string> = {
+  buy_x_get_y: "ซื้อ X แถม Y",
+  percent: "ลด %",
+  amount: "ลดเงิน",
+  bundle: "ราคาชุด",
+  bill_giveaway: "ของแถมท้ายบิล"
+};
+
+function promoTypeLabel(value: string) {
+  return PROMO_TYPE_LABELS[value] || "โปรโมชั่น";
+}
+
 function parseMoneyCents(value: string) {
   const trimmed = value.trim();
   if (!/^\d+(?:\.\d{0,2})?$/.test(trimmed)) return null;
@@ -107,6 +119,10 @@ export function PosWorkspace({
   const [paymentError, setPaymentError] = useState("");
   const [receipt, setReceipt] = useState<Option | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
+  // Active, in-date promotions and the shortcut a cashier has tapped to narrow
+  // the grid to that promotion's eligible products.
+  const [promotions, setPromotions] = useState<Option[]>([]);
+  const [activePromoId, setActivePromoId] = useState("");
   // พักบิล — suspend the cart without touching stock, resume it later.
   const [parking, setParking] = useState(false);
   const [parkNote, setParkNote] = useState("");
@@ -119,9 +135,14 @@ export function PosWorkspace({
   const inventoryByProduct = new Map(
     inventory.map((item) => [String(item.product_id), item])
   );
+  const activePromo = promotions.find((promo) => String(promo.id) === activePromoId);
+  const promoProductIds = new Set(
+    ((activePromo?.items as Option[]) || []).map((item) => String(item.product_id))
+  );
   const keyword = search.trim().toLocaleLowerCase("th-TH");
   const filteredProducts = products.filter((product) => {
     if (!Boolean(product.active)) return false;
+    if (activePromoId && !promoProductIds.has(String(product.id))) return false;
     if (!keyword) return true;
     return [product.name, product.sku, product.barcode, product.description]
       .filter(Boolean)
@@ -167,6 +188,14 @@ export function PosWorkspace({
     // payload intentionally follows every cart and tax-document field.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branchId, cart, billDiscount, customerName, customerTaxId, fullTaxInvoice]);
+
+  useEffect(() => {
+    // Active, in-date promotions for the shortcut bar; the backend already
+    // filters out expired ones when active_only is set.
+    void proxyClient<{ items: Option[] }>("/promotions?active_only=true")
+      .then((response) => setPromotions(response.items || []))
+      .catch(() => setPromotions([]));
+  }, []);
 
   async function chooseProductLot(product: Option) {
     setMessage("");
@@ -500,9 +529,9 @@ export function PosWorkspace({
 
   return (
     <div className="h-full min-h-0 overflow-hidden">
-      <section className="grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="flex min-h-0 min-w-0 flex-col gap-4">
-	          <div className="shrink-0 rounded-3xl border bg-white p-4 shadow-card">
+      <section className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_400px]">
+        <div className="flex min-h-0 min-w-0 flex-col gap-3">
+	          <div className="shrink-0 rounded-2xl border bg-white p-3 shadow-card">
 	            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
 	              <div className="shrink-0">
 	                <p className="text-xs font-semibold text-primary">{branchName}</p>
@@ -533,12 +562,50 @@ export function PosWorkspace({
 
           </div>
 
+          {promotions.length > 0 ? (
+            <div className="shrink-0">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                <button
+                  className={cn(
+                    "shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                    activePromoId ? "text-muted-foreground hover:bg-muted" : "border-primary bg-primary text-white"
+                  )}
+                  onClick={() => setActivePromoId("")}
+                  type="button"
+                >
+                  ทั้งหมด
+                </button>
+                {promotions.map((promo) => {
+                  const id = String(promo.id);
+                  const active = activePromoId === id;
+                  const productCount = ((promo.items as Option[]) || []).length;
+                  return (
+                    <button
+                      className={cn(
+                        "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                        active ? "border-primary bg-primary text-white" : "hover:border-primary/40 hover:bg-muted"
+                      )}
+                      key={id}
+                      onClick={() => setActivePromoId(active ? "" : id)}
+                      type="button"
+                      title={String(promo.name)}
+                    >
+                      <span className="max-w-40 truncate">{String(promo.name)}</span>
+                      <span className={cn("rounded-full px-1.5 text-[10px]", active ? "bg-white/20" : "bg-primary/10 text-primary")}>{promoTypeLabel(String(promo.promo_type))}</span>
+                      {productCount > 0 ? <span className={active ? "text-white/80" : "text-muted-foreground"}>· {productCount}</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1" data-testid="product-scroll-area">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {filteredProducts.map((product) => {
               const stock = inventoryByProduct.get(String(product.id));
               return (
-                <article className="overflow-hidden rounded-3xl border bg-white shadow-card" key={String(product.id)}>
+                <article className="overflow-hidden rounded-2xl border bg-white shadow-card" key={String(product.id)}>
                   <button
                     aria-label={`เพิ่ม ${String(product.name)} ลงตะกร้า`}
                     className="block w-full text-left"
@@ -600,7 +667,7 @@ export function PosWorkspace({
           </div>
         </div>
 
-        <aside className={`${cartOpen ? "flex" : "hidden"} fixed inset-3 top-24 z-40 min-h-0 flex-col rounded-3xl border bg-white p-5 shadow-2xl xl:static xl:flex xl:h-full xl:shadow-card`}>
+        <aside className={`${cartOpen ? "flex" : "hidden"} fixed inset-3 top-24 z-40 min-h-0 flex-col rounded-2xl border bg-white p-4 shadow-2xl xl:static xl:flex xl:h-full xl:shadow-card`}>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-primary">{branchName}</p>
@@ -614,7 +681,7 @@ export function PosWorkspace({
             </span>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
             <label className="flex min-h-11 items-center gap-3 rounded-2xl border px-4 text-sm font-semibold">
               <input
                 checked={fullTaxInvoice}
@@ -655,53 +722,45 @@ export function PosWorkspace({
               const priced = preview?.lines.find((item) => String(item.product_id) === id && String(item.inventory_lot_id) === String(line.lot.id));
               const units = ((line.product.units as Option[]) || []).filter((unit) => Number(unit.conversion_qty) > 0);
               return (
-                <div className="rounded-2xl bg-muted p-3" key={key}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-bold">{String(line.product.name)}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {currency(Number(priced?.line_total || line.product.effective_price || 0))}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Lot {String(line.lot.lot_number)} · รับ {new Date(String(line.lot.received_at)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })} · หมดอายุ {line.lot.expires_on ? new Date(String(line.lot.expires_on)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" }) : "ไม่กำหนด"}
+                <div className="rounded-xl bg-muted p-2.5" key={key}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold" title={String(line.product.name)}>{String(line.product.name)}</p>
+                      <p className="truncate text-[11px] text-muted-foreground">
+                        Lot {String(line.lot.lot_number)} · หมดอายุ {line.lot.expires_on ? new Date(String(line.lot.expires_on)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" }) : "ไม่กำหนด"}
                       </p>
                     </div>
-                    <button
-                      aria-label={`ลบ ${String(line.product.name)}`}
-                      className="rounded-full p-1.5 text-muted-foreground hover:bg-white hover:text-destructive"
-                      onClick={() => setCart((current) => current.filter((item) => cartLineKey(item) !== key))}
-                      type="button"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    {/* Bigger, bolder line price — the number a cashier scans down the cart to check. */}
+                    <p className="shrink-0 text-lg font-bold tabular-nums text-foreground">
+                      {currency(Number(priced?.line_total || line.product.effective_price || 0))}
+                    </p>
                   </div>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {units.length > 1 ? (
-                      <Select
-                        aria-label={`หน่วยขาย ${String(line.product.name)}`}
-                        className="h-9 text-xs"
-                        onChange={(event) => updateLine(key, { unitId: event.target.value })}
-                        value={line.unitId}
-                      >
-                        {units.map((unit) => (
-                          <option key={String(unit.id)} value={unit.is_base ? "" : String(unit.id)}>
-                            {String(unit.unit_name)}
-                            {Number(unit.conversion_qty) > 1 ? ` (x${Number(unit.conversion_qty)})` : ""} · {currency(Number(unit.price || 0))}
-                          </option>
-                        ))}
-                      </Select>
-                    ) : <span />}
+                  {units.length > 1 ? (
+                    <Select
+                      aria-label={`หน่วยขาย ${String(line.product.name)}`}
+                      className="mt-2 h-9 text-xs"
+                      onChange={(event) => updateLine(key, { unitId: event.target.value })}
+                      value={line.unitId}
+                    >
+                      {units.map((unit) => (
+                        <option key={String(unit.id)} value={unit.is_base ? "" : String(unit.id)}>
+                          {String(unit.unit_name)}
+                          {Number(unit.conversion_qty) > 1 ? ` (x${Number(unit.conversion_qty)})` : ""} · {currency(Number(unit.price || 0))}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : null}
+                  {/* Discount and quantity share one row so a full cart stays scannable. */}
+                  <div className="mt-2 flex items-center gap-2">
                     <Input
                       aria-label={`ส่วนลด ${String(line.product.name)}`}
-                      className="h-9 text-xs"
+                      className="h-9 min-w-0 flex-1 text-xs"
                       inputMode="decimal"
                       onChange={(event) => updateLine(key, { discount: event.target.value })}
                       placeholder="ส่วนลด (บาท)"
                       value={line.discount}
                     />
-                  </div>
-                  <div className="mt-3 flex justify-end">
-                    <div className="flex items-center rounded-full bg-white">
+                    <div className="flex shrink-0 items-center rounded-full bg-white">
                       <button
                         aria-label={`ลดจำนวน ${String(line.product.name)}`}
                         className="p-2"
@@ -712,7 +771,7 @@ export function PosWorkspace({
                       >
                         <Minus className="h-4 w-4" />
                       </button>
-                      <span className="w-8 text-center text-sm font-bold">{line.quantity}</span>
+                      <span className="w-7 text-center text-sm font-bold">{line.quantity}</span>
                       <button
                         aria-label={`เพิ่มจำนวน ${String(line.product.name)}`}
                         className="p-2"
@@ -722,6 +781,14 @@ export function PosWorkspace({
                         <Plus className="h-4 w-4" />
                       </button>
                     </div>
+                    <button
+                      aria-label={`ลบ ${String(line.product.name)}`}
+                      className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-white hover:text-destructive"
+                      onClick={() => setCart((current) => current.filter((item) => cartLineKey(item) !== key))}
+                      type="button"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
                 </div>
               );

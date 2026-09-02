@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 
 import { LogoutButton } from "@/components/layout/logout-button";
+import { usePosBadges } from "@/components/layout/use-pos-badges";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { NavigationItem, Session } from "@/types";
@@ -259,6 +260,7 @@ export function PosBottomNav({
   user: Session["user"];
 }) {
   const pathname = usePathname();
+  const badges = usePosBadges(String(user.branch_id || ""));
 
   return (
     <footer className="z-40 shrink-0 border-t bg-white/95 backdrop-blur">
@@ -274,10 +276,11 @@ export function PosBottomNav({
           {navigation.map((item) => {
             const active = activePath(pathname, item.href);
             const Icon = iconByKey[item.key] || Store;
+            const badge = badges[item.key] || 0;
             return (
               <Link
                 className={cn(
-                  "flex shrink-0 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition",
+                  "relative flex shrink-0 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition",
                   active ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
                 href={item.href}
@@ -285,6 +288,11 @@ export function PosBottomNav({
               >
                 <Icon className="h-4 w-4" />
                 <span>{item.title}</span>
+                {badge > 0 ? (
+                  <span className="absolute -right-0.5 -top-0.5 grid min-w-5 animate-pulse place-items-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-5 text-white">
+                    {badge > 99 ? "99+" : badge}
+                  </span>
+                ) : null}
               </Link>
             );
           })}
