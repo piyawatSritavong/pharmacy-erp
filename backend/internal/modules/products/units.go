@@ -16,14 +16,14 @@ import (
 // UnitInput is one selling unit of a product. The base unit always converts 1:1
 // and is what stock is counted in; larger units (แพ็ค, ลัง) multiply it.
 type UnitInput struct {
-	ID           string   `json:"id"`
-	UnitName     string   `json:"unit_name"`
-	ConversionQty int     `json:"conversion_qty"`
-	IsBase       bool     `json:"is_base"`
-	SellingPrice *float64 `json:"selling_price"`
-	Barcode      string   `json:"barcode"`
-	SortOrder    int      `json:"sort_order"`
-	Active       *bool    `json:"active"`
+	ID            string   `json:"id"`
+	UnitName      string   `json:"unit_name"`
+	ConversionQty int      `json:"conversion_qty"`
+	IsBase        bool     `json:"is_base"`
+	SellingPrice  *float64 `json:"selling_price"`
+	Barcode       string   `json:"barcode"`
+	SortOrder     int      `json:"sort_order"`
+	Active        *bool    `json:"active"`
 }
 
 // attachProductUnits fills each listed product with its selling units. The unit

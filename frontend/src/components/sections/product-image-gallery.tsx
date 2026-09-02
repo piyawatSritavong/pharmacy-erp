@@ -146,7 +146,7 @@ export function ProductImageSwiper({
   }
 
   return (
-    <div className={cn("w-full max-w-xs", className)}>
+    <div className={cn("w-full max-w-xs", className)} data-testid="product-image-swiper">
       <div className="relative aspect-square w-full touch-pan-y select-none overflow-hidden rounded-2xl border bg-surface-warm">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img

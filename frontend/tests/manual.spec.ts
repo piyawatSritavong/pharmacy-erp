@@ -61,7 +61,7 @@ test.describe("refactored operational workflows", () => {
     await signIn(page, "superadmin@erp.local", "/dashboard");
 
     for (const entry of [
-      { route: "/sales-management", heading: "การขายและเอกสาร", government: false },
+      { route: "/sales-management", heading: "ใบขาย", government: false },
       { route: "/government-sales", heading: "รพ.สต.", government: true }
     ]) {
       await page.goto(entry.route);

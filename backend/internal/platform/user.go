@@ -8,11 +8,11 @@ const (
 )
 
 type AuthUser struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Email       string   `json:"email"`
-	RoleKey     string   `json:"role_key"`
-	RoleName    string   `json:"role_name"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	RoleKey  string `json:"role_key"`
+	RoleName string `json:"role_name"`
 	// Portal is "backoffice" or "pos" — which app shell the user's role logs
 	// into (D11). Scope is "global" or "branch" — whether the role is tied
 	// to one branch_id. Both come from roles.portal/roles.scope.

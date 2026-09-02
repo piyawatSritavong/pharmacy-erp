@@ -16,7 +16,13 @@ export default async function InventoryCheckPage() {
     getProducts(session.user.branch_id),
     getStockTransferRequests()
   ]);
-  const branchOptions = branches.items.filter((item) => String(item.id) === String(session.user.branch_id || ""));
+  // A branch user is pinned to their own branch; a global-scope user (super
+  // admin) has no branch_id and picks from every branch instead of seeing none.
+  const scopedBranchId = String(session.user.branch_id || "");
+  const branchOptions = scopedBranchId
+    ? branches.items.filter((item) => String(item.id) === scopedBranchId)
+    : branches.items;
+  const defaultBranchId = scopedBranchId || String(branchOptions[0]?.id || "");
 
   return (
     <div className="space-y-6">
@@ -27,7 +33,7 @@ export default async function InventoryCheckPage() {
       <StockRequestConsole mode="pos" products={products.items} requests={requests.items} />
       <InventoryConsole
         branches={branchOptions}
-        defaultBranchId={session.user.branch_id}
+        defaultBranchId={defaultBranchId}
         mode="check"
         products={products.items}
       />

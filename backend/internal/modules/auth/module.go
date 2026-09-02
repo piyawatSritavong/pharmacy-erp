@@ -239,6 +239,10 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	// This comparison exposes hidden invoices and Ghost Stock deductions, so the
 	// literal superadmin role is required in addition to the report permission.
 	reportsChildren = appendItemIf(reportsChildren, user.RoleKey == "super_admin" && has("reports.view.global", "reports.generate.global"), "month_end_report", "รายงานสรุปสิ้นเดือน", "/month-end-report", "เปรียบเทียบบิล ราคา และการตัดสต๊อกก่อนกับหลังปิดรอบ")
+	// A global-scope back-office user has no branch_ops_group (that group is
+	// branch-scoped), so the two branch-operations pages are linked here and
+	// in คลังสินค้า instead of being unreachable.
+	reportsChildren = appendItemIf(reportsChildren, user.Scope == "global" && has("dashboard.view.self"), "daily_sales_summary", "สรุปยอดขาย", "/daily-sales", "ยอดขายและยอดรับชำระของผู้ใช้ปัจจุบัน")
 
 	var inventoryChildren []map[string]any
 	inventoryChildren = appendItemIf(inventoryChildren, has("products.view", "products.manage"), "product_catalog", "รายการสินค้า", "/product-catalog", "แหล่งข้อมูลสินค้าเดียวที่ทุกสาขาดึงไปใช้")
@@ -246,6 +250,7 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	inventoryChildren = appendItemIf(inventoryChildren, user.RoleKey == "super_admin" && has("inventory.ghost.manage"), "ghost_inventory", "สต๊อกผี", "/ghost-inventory", "ดู รับเข้า และปรับยอดสต๊อกผี")
 	inventoryChildren = appendItemIf(inventoryChildren, has("products.manage"), "product_categories", "หมวดสินค้า", "/product-categories", "จัดกลุ่มสินค้าและกำหนดสีสำหรับการค้นหา")
 	inventoryChildren = appendItemIf(inventoryChildren, has("promotion.manage"), "promotions", "โปรโมชั่น", "/promotions", "ส่วนลด ของแถม และราคาชุดที่หน้าร้านใช้อัตโนมัติ")
+	inventoryChildren = appendItemIf(inventoryChildren, user.Scope == "global" && has("inventory.view.branch"), "inventory_check", "เช็กสต๊อก", "/inventory-check", "ค้นหาสต๊อกและดูสินค้าที่ถึงจุดแจ้งเตือน")
 	inventoryChildren = appendItemIf(inventoryChildren, has("transfer.approve"), "stock_transfers", "โอนสินค้า", "/transfers", "สร้างใบโอนและตรวจสอบคำขอสินค้าจากสาขา")
 
 	var documentsChildren []map[string]any

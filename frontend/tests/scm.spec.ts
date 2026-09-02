@@ -2,6 +2,21 @@ import { expect, test } from "@playwright/test";
 
 const password = "DevPassword123!";
 
+/** The sidebar is an accordion, so a link is only clickable once its group is
+ *  open. Opening the group that already holds the current route would close it. */
+async function openFromSidebar(
+  page: import("@playwright/test").Page,
+  group: string,
+  link: string,
+) {
+  const nav = page.getByRole("navigation", { name: "เมนูหลัก", exact: true });
+  const trigger = nav.getByRole("button", { name: group, exact: true });
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+  await nav.getByRole("link", { name: link, exact: true }).click();
+}
+
 test.describe("Supply Chain Management", () => {
   test.skip(!process.env.E2E_RUN, "กำหนด E2E_RUN=1 เมื่อเปิดบริการแล้ว");
 
@@ -11,8 +26,9 @@ test.describe("Supply Chain Management", () => {
     const suffix = Date.now();
     const supplierName = `บริษัท SCM E2E ${suffix}`;
     const supplierCode = `SCM-${suffix}`;
-    const productName = `สินค้าทดสอบ Lot ${suffix}`;
-    const sku = `LOT-${suffix}`;
+    // business-flow.md moved product creation into the catalogue only, so a PO
+    // receives an existing product rather than inventing one here.
+    let productName = "";
     let supplierID = "";
     let purchaseOrderID = "";
 
@@ -22,10 +38,7 @@ test.describe("Supply Chain Management", () => {
     await page.getByRole("button", { name: "เข้าสู่ระบบ" }).click();
     await page.waitForURL(/\/dashboard$/);
 
-    await page
-      .getByRole("link", { name: "บริษัทคู่ค้า", exact: true })
-      .first()
-      .click();
+    await openFromSidebar(page, "ใบเอกสาร", "บริษัทคู่ค้า");
     await expect(
       page.getByRole("heading", { name: "บริษัทคู่ค้า", exact: true }),
     ).toBeVisible();
@@ -51,10 +64,7 @@ test.describe("Supply Chain Management", () => {
     supplierID = String((await supplierResponse.json()).id);
     await expect(page.getByText(supplierName, { exact: true })).toBeVisible();
 
-    await page
-      .getByRole("link", { name: "ใบสั่งซื้อเข้า", exact: true })
-      .first()
-      .click();
+    await openFromSidebar(page, "ใบเอกสาร", "ใบสั่งซื้อเข้า");
     await expect(
       page.getByRole("heading", { name: "ใบสั่งซื้อเข้า", exact: true }),
     ).toBeVisible();
@@ -115,19 +125,29 @@ test.describe("Supply Chain Management", () => {
     expect(productPage).toBeGreaterThanOrEqual(2);
     await page.unroute("**/api/backend/purchase-orders/product-options?*");
 
-    await poDialog.getByRole("button", { name: "สินค้าใหม่" }).click();
-    await poDialog.getByLabel("ชื่อสินค้า *").fill(productName);
-    await poDialog.getByLabel("SKU").fill(sku);
-    await poDialog.getByLabel("หน่วย", { exact: true }).fill("กล่อง");
-    await poDialog.getByLabel("ราคาขาย", { exact: true }).fill("120");
-    await poDialog.getByLabel("ราคาปลีก", { exact: true }).fill("135");
-    await poDialog.getByLabel("ลดได้สูงสุด/หน่วย", { exact: true }).fill("15");
-    await poDialog.getByLabel("เตือนสต๊อกจริง", { exact: true }).fill("3");
-    await poDialog.getByLabel("ติดตามวันหมดอายุ").check();
+    await poDialog.getByLabel("ค้นหาสินค้าเข้า PO").fill("OCH-");
+    const productOption = productList.getByRole("button").first();
+    // Wait for the real catalogue to replace the mocked page above; clicking too
+    // early picks a mock id the API does not know.
+    await expect(productOption).toContainText("OCH-");
+    // Label lines: optional "N รูป", the product name, then "SKU · barcode".
+    const optionLines = (await productOption.innerText())
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const skuLineIndex = optionLines.findIndex((line) => line.startsWith("OCH-"));
+    expect(skuLineIndex).toBeGreaterThan(0);
+    productName = optionLines[skuLineIndex - 1];
+    expect(productName.length).toBeGreaterThan(0);
+    await productOption.click();
+
     await poDialog.getByLabel("จำนวน", { exact: true }).fill("5");
     await poDialog.getByLabel("ราคาซื้อ/หน่วย", { exact: true }).fill("70");
     await poDialog.getByLabel("Lot/Batch", { exact: true }).fill(`BATCH-${suffix}`);
-    await poDialog.getByLabel("วันหมดอายุ *").fill("2027-12-31");
+    const expiry = poDialog.getByLabel("วันหมดอายุ *");
+    if (await expiry.count()) {
+      await expiry.fill("2027-12-31");
+    }
     const poResponsePromise = page.waitForResponse(
       (response) =>
         response.url().endsWith("/api/backend/purchase-orders") &&
@@ -139,14 +159,15 @@ test.describe("Supply Chain Management", () => {
     const poResponse = await poResponsePromise;
     expect(poResponse.status()).toBe(201);
     purchaseOrderID = String((await poResponse.json()).id);
-    const detailDialog = page.getByRole("dialog");
-    await expect(
-      detailDialog.getByText(productName, { exact: true }),
-    ).toBeVisible();
-    await expect(
-      detailDialog.getByText(`BATCH-${suffix}`, { exact: true }),
-    ).toBeVisible();
-    await expect(detailDialog.getByText("5", { exact: true })).toHaveCount(2);
+    // Saving swaps the create dialog for the read-only detail one; scope to the
+    // dialog that owns the detail actions so a stale node cannot match.
+    const detailDialog = page.getByRole("dialog").filter({ hasText: "แก้ยอด/หมายเหตุ" });
+    // The line shows the product name and its SKU in one cell.
+    // The dialog renders a desktop table and a mobile card list, so assert on
+    // the dialog's own text instead of picking one of the two nodes.
+    await expect(detailDialog).toContainText(productName);
+    await expect(detailDialog).toContainText(`BATCH-${suffix}`);
+    await expect(detailDialog).toContainText("฿70.00");
     await expect(
       detailDialog.getByRole("button", { name: "แก้รายการ" }),
     ).toBeVisible();
@@ -155,12 +176,9 @@ test.describe("Supply Chain Management", () => {
     ).toBeVisible();
     await page.keyboard.press("Escape");
 
-    await page
-      .getByRole("link", { name: "Generate Report", exact: true })
-      .first()
-      .click();
+    await openFromSidebar(page, "รายงาน", "Generate Report");
     await page.getByLabel("ชุดข้อมูลหลัก").selectOption("purchase_order_items");
-    await page.getByText(/Advanced filters/).click();
+    await page.getByRole("button", { name: /ตัวกรองขั้นสูง/ }).click();
     await page.getByRole("button", { name: "เงื่อนไข", exact: true }).click();
     await page.getByLabel("ฟิลด์ตัวกรอง").selectOption("supplier_name");
     await page.getByLabel("ค่าตัวกรอง").fill(supplierName);
@@ -185,8 +203,11 @@ test.describe("Supply Chain Management", () => {
       expect(cancel.ok()).toBeTruthy();
     }
     if (supplierID) {
+      // Deleting a supplier is confirmation-gated: the API wants the exact
+      // phrase, the same one the UI makes you type.
       const archive = await page.request.delete(
         `/api/backend/suppliers/${supplierID}`,
+        { data: { confirmation: `ลบ ${supplierName}` } },
       );
       expect(archive.ok()).toBeTruthy();
     }

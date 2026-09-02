@@ -529,7 +529,7 @@ func (s *Service) ListPurchaseOrders(ctx context.Context, user platform.AuthUser
 	args = append(args, pageSize, (page-1)*pageSize)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT po.id::text,po.po_number,po.status,po.revision,po.purchased_at,po.posted_at,
-		       po.supplier_id::text,po.supplier_name_snapshot,po.supplier_document_number,
+		       COALESCE(po.supplier_id::text,''),po.supplier_name_snapshot,po.supplier_document_number,
 		       po.branch_id::text,b.name,po.vat_mode,po.vat_rate,po.total_amount,COALESCE(SUM(poi.line_total),0),
 		       COUNT(poi.id)::bigint,COALESCE(SUM(poi.received_quantity),0)::bigint,
 		       u.full_name,po.updated_at
@@ -571,7 +571,7 @@ func (s *Service) GetPurchaseOrder(ctx context.Context, user platform.AuthUser, 
 	var dueDate, cancelledAt sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
 		SELECT po.id::text,po.po_number,po.status,po.revision,po.branch_id::text,b.name,b.address,COALESCE(b.tax_id,''),
-		po.supplier_id::text,po.supplier_code_snapshot,po.supplier_name_snapshot,po.supplier_tax_id_snapshot,
+		COALESCE(po.supplier_id::text,''),po.supplier_code_snapshot,po.supplier_name_snapshot,po.supplier_tax_id_snapshot,
 		po.supplier_address_snapshot,po.supplier_contact_snapshot,po.supplier_phone_snapshot,po.supplier_email_snapshot,
 		po.supplier_document_number,po.job_name,po.delivery_terms,
 		po.purchased_at,po.due_date,po.posted_at,po.vat_mode,po.vat_rate,po.subtotal,po.line_discount_total,

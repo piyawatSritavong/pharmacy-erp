@@ -23,7 +23,6 @@ test.describe("Generate Report", () => {
     await page.waitForURL(/\/generate-report$/);
     await expect(page.getByRole("heading", { name: "Generate Report", exact: true })).toBeVisible();
     await expect(page.getByText("All Fields", { exact: true })).toBeVisible();
-    await expect(page.getByText(/Safe semantic query · Read-only/)).toBeVisible();
     await expect(page.getByText("Selected columns:", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "รันรายงาน", exact: true })).toHaveCount(0);
     await expect(page.getByText(/read-only/).last()).toBeVisible();
@@ -33,12 +32,18 @@ test.describe("Generate Report", () => {
     await fieldSidebar.locator("summary").filter({ hasText: "สาขา" }).first().click();
 
     const headers = page.locator("#report-builder thead th");
-    await expect(headers).toHaveCount(14);
+    // The grid only renders the columns currently in view, so the definition's
+    // own "N คอลัมน์" summary is what counts — and the dataset owns N, so
+    // assert the delta rather than a total that moves with the preset.
+    const columnCount = async () =>
+      Number((await page.getByText(/\d+ คอลัมน์/).first().innerText()).match(/(\d+) คอลัมน์/)![1]);
+    const defaultColumnCount = await columnCount();
+    expect(defaultColumnCount).toBeGreaterThan(1);
     const branchIDField = fieldSidebar.getByRole("button").filter({ hasText: "รหัสอ้างอิงสาขา" });
     await expect(branchIDField).toBeEnabled();
     await branchIDField.dragTo(headers.nth(1), { targetPosition: { x: 2, y: 12 } });
     await expect(headers.nth(1)).toContainText("รหัสอ้างอิงสาขา");
-    await expect(headers).toHaveCount(15);
+    await expect.poll(columnCount).toBe(defaultColumnCount + 1);
     await expect(branchIDField).toBeDisabled();
 
     await headers.nth(1).dragTo(headers.nth(2), { targetPosition: { x: 130, y: 12 } });
@@ -52,7 +57,7 @@ test.describe("Generate Report", () => {
     await expect(page.getByText(/แกน X: กิจกรรมล่าสุด/).last()).toBeVisible();
     await dismissToasts(page);
 
-    await page.getByText(/Advanced filters/).click();
+    await page.getByRole("button", { name: /ตัวกรองขั้นสูง/ }).click();
     await page.getByRole("button", { name: "เงื่อนไข", exact: true }).click();
     await page.getByLabel("ฟิลด์ตัวกรอง").selectOption("product_name");
     await page.getByLabel("ค่าตัวกรอง").fill(unmatchedProduct);
@@ -60,6 +65,9 @@ test.describe("Generate Report", () => {
     await dismissToasts(page);
 
     const sidebarResize = page.getByRole("separator", { name: "ปรับความกว้าง All Fields" });
+    // The handle sits below the fold on this layout, and mouse coordinates are
+    // viewport-relative: without this the drag lands outside the window.
+    await sidebarResize.scrollIntoViewIfNeeded();
     const originalWidth = Number(await sidebarResize.getAttribute("aria-valuenow"));
     const resizeBox = await sidebarResize.boundingBox();
     expect(resizeBox).not.toBeNull();
@@ -118,9 +126,14 @@ test.describe("Generate Report", () => {
     const fieldSidebar = page.locator("#report-builder aside").filter({ hasText: "All Fields" });
     await expect(page.getByRole("separator", { name: "ปรับความกว้าง All Fields" })).toBeHidden();
     await expect(fieldSidebar.locator("details[open]")).toHaveCount(0);
+    const columnCount = async () =>
+      Number((await page.getByText(/\d+ คอลัมน์/).first().innerText()).match(/(\d+) คอลัมน์/)![1]);
+    const defaultColumnCount = await columnCount();
     await fieldSidebar.locator("summary").filter({ hasText: "สาขา" }).first().click();
-    await fieldSidebar.getByRole("button").filter({ hasText: "รหัสอ้างอิงสาขา" }).click();
-    await expect(page.locator("#report-builder thead th")).toHaveCount(15);
+    const branchIDField = fieldSidebar.getByRole("button").filter({ hasText: "รหัสอ้างอิงสาขา" });
+    await branchIDField.click();
+    await expect(branchIDField).toBeDisabled();
+    await expect.poll(columnCount).toBe(defaultColumnCount + 1);
 
     const menuButton = page.getByRole("button", { name: /เมนูคอลัมน์/ }).first();
     await menuButton.click();

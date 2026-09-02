@@ -9,7 +9,8 @@
     "lint": "eslint . --max-warnings=0",
     "e2e": "playwright test",
     "e2e:brave": "playwright test --config=playwright.brave.config.ts --workers=1",
-    "build:check": "NEXT_DIST_DIR=.next-build next build"
+    "build:check": "NEXT_DIST_DIR=.next-build next build",
+    "dev:alt": "NEXT_DIST_DIR=.next-dev-alt next dev --hostname 0.0.0.0 --port 3100"
   },
   "dependencies": {
     "@radix-ui/react-checkbox": "1.1.2",

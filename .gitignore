@@ -4,6 +4,8 @@ DockBill/
 node_modules
 .next
 .next-build
+.next-dev-alt
+.next-dev3100
 dist
 coverage
 backend/pharmacy-erp

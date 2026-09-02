@@ -450,14 +450,14 @@ func spread(target map[int]float64, indexes []int, weights []float64, amount flo
 // cartResult is the fully priced cart: cashier lines plus any promotional
 // giveaway lines, with every discount already applied.
 type cartResult struct {
-	Lines            []pricedLine
-	Subtotal         float64
-	TaxAmount        float64
-	TotalAmount      float64
-	LineDiscount     float64
-	BillDiscount     float64
+	Lines             []pricedLine
+	Subtotal          float64
+	TaxAmount         float64
+	TotalAmount       float64
+	LineDiscount      float64
+	BillDiscount      float64
 	PromotionDiscount float64
-	GiveawayCost     float64
+	GiveawayCost      float64
 	AppliedPromotions []map[string]any
 }
 

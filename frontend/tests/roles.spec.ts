@@ -53,47 +53,42 @@ test.describe("สิทธิ์และการนำทางสองบ�
     ]);
     const [admin, pos] = sessions.map((session) => session.page);
 
-    await expect(
-      admin.getByRole("navigation", { name: "เมนูหลัก", exact: true }).getByRole("link"),
-    ).toHaveCount(14);
-    await expect(
-      pos.getByRole("navigation", { name: "เมนูจุดขาย", exact: true }).getByRole("link"),
-    ).toHaveCount(5);
-
-    for (const name of [
-      "แดชบอร์ด",
-      "สต๊อกจริง",
-      "สต๊อกผี",
-      "หมวดสินค้า",
-      "ใบสั่งซื้อเข้า",
-      "บริษัทคู่ค้า",
-      "โอนสินค้า",
-      "สรุปสิ้นเดือน",
-      "รายงานสรุปสิ้นเดือน",
-      "รพ.สต.",
-      "การขายและเอกสาร",
-      "รายงาน",
-      "Generate Report",
-      "ตั้งค่า",
-    ]) {
-      await expect(
-        admin.getByRole("link", { name, exact: true }).first(),
-      ).toBeVisible();
+    // The sidebar is an accordion: one parent group is open at a time, so the
+    // links on screen are the open group's children. Walk every group.
+    const adminNav = admin.getByRole("navigation", { name: "เมนูหลัก", exact: true });
+    const adminGroups: Array<[string, string[]]> = [
+      ["รายงาน", ["Dashboard", "Generate Report", "สรุปสิ้นเดือน", "รายงานสรุปสิ้นเดือน", "สรุปยอดขาย"]],
+      ["คลังสินค้า", ["รายการสินค้า", "สต๊อกจริง", "สต๊อกผี", "หมวดสินค้า", "โปรโมชั่น", "เช็กสต๊อก", "โอนสินค้า"]],
+      ["ใบเอกสาร", ["ใบสั่งซื้อเข้า", "บริษัทคู่ค้า", "รพ.สต.", "ใบขาย", "เคลม/คืนสินค้า", "อย."]],
+      ["ระบบ", ["ตั้งค่า", "ประวัติระบบ", "ประวัติการขาย"]],
+    ];
+    for (const [group, children] of adminGroups) {
+      // The group holding the current route is already open; clicking it again
+      // would close it.
+      const trigger = adminNav.getByRole("button", { name: group, exact: true });
+      if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+        await trigger.click();
+      }
+      await expect(adminNav.getByRole("link")).toHaveCount(children.length);
+      for (const child of children) {
+        await expect(adminNav.getByRole("link", { name: child, exact: true })).toBeVisible();
+      }
     }
     await expect(
       admin.getByRole("link", { name: "ขายหน้าร้าน", exact: true }),
     ).toHaveCount(0);
 
+    const posNav = pos.getByRole("navigation", { name: "เมนูจุดขาย", exact: true });
+    await expect(posNav.getByRole("link")).toHaveCount(6);
     for (const name of [
       "ขายหน้าร้าน",
+      "พักบิล",
       "ประวัติ",
       "เช็กสต๊อก",
       "รับโอนสินค้า",
       "สรุปยอดขาย",
     ]) {
-      await expect(
-        pos.getByRole("link", { name, exact: true }).first(),
-      ).toBeVisible();
+      await expect(posNav.getByRole("link", { name, exact: true }).first()).toBeVisible();
     }
     await expect(
       pos.getByRole("link", { name: "ตั้งค่า", exact: true }),
@@ -102,7 +97,9 @@ test.describe("สิทธิ์และการนำทางสองบ�
     await Promise.all(sessions.map((session) => session.context.close()));
   });
 
-  test("สร้าง แก้ไข archive และ reactivate หมวดสินค้า", async ({ browser }) => {
+  // Categories are created, renamed and deleted; business-flow.md removed the
+  // archive/reactivate pair, so the console offers แก้ไข and ลบ only.
+  test("สร้าง แก้ไข และลบหมวดสินค้า", async ({ browser }) => {
     const session = await openSession(
       browser,
       "superadmin@erp.local",
@@ -139,12 +136,15 @@ test.describe("สิทธิ์และการนำทางสองบ�
       await expect(page.getByText(editedName, { exact: true })).toBeVisible();
 
       page.once("dialog", (prompt) => prompt.accept());
-      await page.getByRole("button", { name: `เก็บ ${editedName}` }).click();
-      await expect(page.getByText("เก็บแล้ว", { exact: true })).toBeVisible();
-
-      page.once("dialog", (prompt) => prompt.accept());
-      await page.getByRole("button", { name: `นำ ${editedName} กลับมาใช้` }).click();
-      await expect(page.getByText("เปิดใช้งาน", { exact: true }).last()).toBeVisible();
+      const deleteResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/backend/product-categories/${categoryID}`) &&
+          response.request().method() === "DELETE",
+      );
+      await page.getByRole("button", { name: `ลบ ${editedName}` }).click();
+      expect((await deleteResponsePromise).status()).toBe(200);
+      await expect(page.getByText(editedName, { exact: true })).toHaveCount(0);
+      categoryID = "";
     } finally {
       if (categoryID) {
         await page.request.delete(`/api/backend/product-categories/${categoryID}`);
@@ -153,15 +153,35 @@ test.describe("สิทธิ์และการนำทางสองบ�
     }
   });
 
-  test("POS ทั้ง 4 บัญชีเห็นเฉพาะสมาชิกสินค้าของสาขาตน", async ({ browser }) => {
+  // Scope, not counts: what each POS account sees must equal what an admin sees
+  // when filtering the catalogue to that same branch. Hard-coded totals drift
+  // with every reseed and hide the rule they were meant to protect.
+  test("POS แต่ละบัญชีเห็นสินค้าเท่าที่สาขาตนมีเท่านั้น", async ({ browser }) => {
     const accounts = [
-      ["pos.mes@erp.local", 202],
-      ["pos.phahol@erp.local", 414],
-      ["pos.phasuk@erp.local", 424],
-      ["pos.nakhonpathom@erp.local", 297],
+      ["pos.mes@erp.local", "MES"],
+      ["pos.phahol@erp.local", "PHH"],
+      ["pos.phasuk@erp.local", "PHS"],
+      ["pos.nakhonpathom@erp.local", "NPT"],
     ] as const;
 
-    for (const [email, expectedTotal] of accounts) {
+    const admin = await openSession(browser, "superadmin@erp.local", "/dashboard");
+    const branches = await admin.page.evaluate(async () => {
+      const result = await fetch("/api/backend/branches", { cache: "no-store" });
+      return (await result.json()).items as Array<{ id: string; code: string }>;
+    });
+
+    for (const [email, branchCode] of accounts) {
+      const branch = branches.find((item) => item.code === branchCode);
+      expect(branch, `branch ${branchCode} must exist`).toBeTruthy();
+      const scoped = await admin.page.evaluate(async (branchID) => {
+        const result = await fetch(
+          `/api/backend/products?search=OCH-&page=1&page_size=1&branch_id=${branchID}`,
+          { cache: "no-store" },
+        );
+        return { status: result.status, body: await result.json() };
+      }, branch!.id);
+      expect(scoped.status).toBe(200);
+
       const session = await openSession(browser, email, "/sales");
       const response = await session.page.evaluate(async () => {
         const result = await fetch("/api/backend/products?search=OCH-&page=1&page_size=1", {
@@ -170,9 +190,10 @@ test.describe("สิทธิ์และการนำทางสองบ�
         return { status: result.status, body: await result.json() };
       });
       expect(response.status).toBe(200);
-      expect(response.body.pagination.total).toBe(expectedTotal);
+      expect(response.body.pagination.total).toBe(scoped.body.pagination.total);
       await session.context.close();
     }
+    await admin.context.close();
   });
 
   test("ผู้ดูแลเปิดทุกหน้าจาก sidebar ได้จริง", async ({ browser }) => {
@@ -217,20 +238,42 @@ test.describe("สิทธิ์และการนำทางสองบ�
       "superadmin@erp.local",
       "/dashboard",
     );
+    // The user's canonical example: 600 sold → hide CA002 (Ghost covers) →
+    // CA003/CB001 recorded at cost × 1.05 = 75 → target 450.
+    const planSummary = {
+      original_revenue: 600,
+      cash_no_tax_revenue: 300,
+      hidden_revenue: 100,
+      suppressed_revenue: 100,
+      base_revenue: 500,
+      repriced_original_revenue: 200,
+      repriced_final_revenue: 150,
+      adjustment_reduction: 50,
+      unchanged_revenue: 300,
+      final_revenue: 450,
+      target_revenue: 450,
+      invoice_count: 6,
+      suppressed_invoice_count: 1,
+      hidden_invoice_count: 1,
+      repriced_invoice_count: 2,
+      unchanged_invoice_count: 3,
+      adjusted_item_count: 2,
+      missing_cost_item_count: 0,
+      adjustment_percent: 5,
+      minimum_adjustment_percent: 5,
+      maximum_adjustment_percent: 10,
+    };
     await session.page.route("**/api/backend/accounting/month-end/reconciliation-overview", async (route) => {
       await route.fulfill({
         contentType: "application/json",
         json: {
-          original_revenue: 367897.91,
-          suppressed_revenue: 244298.87,
-          base_revenue: 123599.04,
-          invoice_count: 68,
-          suppressed_invoice_count: 37,
+          ...planSummary,
           invoice_groups: {
-            cash_suppressed: { invoice_count: 37, revenue: 244298.87 },
+            cash_hidden_ghost: { invoice_count: 1, revenue: 100 },
+            cash_repriced: { invoice_count: 2, revenue: 200 },
             cash_full_tax: { invoice_count: 0, revenue: 0 },
-            bank_transfer: { invoice_count: 29, revenue: 119599.04 },
-            mixed: { invoice_count: 2, revenue: 4000 },
+            bank_transfer: { invoice_count: 3, revenue: 300 },
+            mixed: { invoice_count: 0, revenue: 0 },
             unclassified: { invoice_count: 0, revenue: 0 },
           },
         },
@@ -241,25 +284,37 @@ test.describe("สิทธิ์และการนำทางสองบ�
       await route.fulfill({
         contentType: "application/json",
         json: {
-          original_revenue: 367897.91,
-          suppressed_revenue: 244298.87,
-          final_revenue: 123599.04,
-          suppressed_invoice_count: 1,
+          ...planSummary,
           suppression_candidates: [{
-            id: "invoice-e2e",
-            branch_name: "MES",
-            invoice_number: "MES-BL2026080100001",
+            id: "invoice-ca002",
+            branch_name: "คณาเภสัช",
+            invoice_number: "CA002",
             customer_name: "ลูกค้าทดสอบ",
-            created_at: "2026-08-01T03:00:00Z",
+            created_at: "2026-06-11T03:00:00Z",
             total_amount: 100,
-            items: [{ id: "item-e2e", product_id: "product-e2e", product_name: "สินค้าทดสอบ", sku: "E2E", quantity: 1 }],
+            final_total: 100,
+            variance_amount: 0,
+            classification: "hidden_ghost",
+            items: [{ id: "item-ca002", product_id: "product-ghost", product_name: "สินค้าสาธิต A", sku: "DEMO-GHOST", quantity: 1, unit_price: 100, line_total: 100, cost_basis: 71.43, new_unit_price: 100, new_line_total: 100, variance_amount: 0, repriced: false, missing_cost: false, ghost_stock_available: 1 }],
+          }],
+          repriced_invoices: [{
+            id: "invoice-ca003",
+            branch_name: "คณาเภสัช",
+            invoice_number: "CA003",
+            customer_name: "ลูกค้าทดสอบ",
+            created_at: "2026-06-12T03:00:00Z",
+            total_amount: 100,
+            final_total: 75,
+            variance_amount: 25,
+            classification: "repriced_cost_markup",
+            items: [{ id: "item-ca003", product_id: "product-none", product_name: "สินค้าสาธิต B", sku: "DEMO-NONE", quantity: 1, unit_price: 100, line_total: 100, cost_basis: 71.43, new_unit_price: 75, new_line_total: 75, variance_amount: 25, repriced: true, missing_cost: false, ghost_stock_available: 0 }],
           }],
           stock_projection: {
             branch_real_returned: 1,
             warehouse_real_received: 1,
             warehouse_ghost_deducted: 1,
-            ghost_deficit_created: 1,
-            products: [{ product_id: "product-e2e", product_name: "สินค้าทดสอบ", quantity: 1, warehouse_ghost_before: 0, warehouse_ghost_after: -1, deficit_created: 1 }],
+            ghost_deficit_created: 0,
+            products: [{ product_id: "product-ghost", product_name: "สินค้าสาธิต A", quantity: 1, warehouse_ghost_before: 1, warehouse_ghost_after: 0, deficit_created: 0 }],
           },
         },
         status: 200,
@@ -271,14 +326,17 @@ test.describe("สิทธิ์และการนำทางสองบ�
     ).toBeVisible();
     await expect(session.page.getByLabel("วันที่เริ่มต้น")).toBeVisible();
     await expect(session.page.getByLabel("วันที่สิ้นสุด")).toBeVisible();
-    await expect(session.page.getByLabel("ยอดขายเป้าหมาย")).toBeDisabled();
-    await expect(session.page.getByLabel("เปอร์เซ็นต์ปรับราคา")).toBeDisabled();
+    await expect(session.page.getByLabel("กำไรเหนือต้นทุน (%)")).toHaveValue("5");
+    await expect(session.page.getByLabel("ยอดเป้าหมาย")).toBeDisabled();
     await session.page
-      .getByRole("button", { name: "ตรวจสอบใบขายและสต๊อก" })
+      .getByRole("button", { name: "ตรวจสอบใบขายและคำนวณยอดเป้าหมาย" })
       .click();
     await expect(session.page.getByText("รายละเอียดกลุ่มบิลและสูตรจากข้อมูลจริง")).toBeVisible();
-    await expect(session.page.getByText("Ghost deficit ที่คาดว่าจะเกิด")).toBeVisible();
-    await expect(session.page.getByText("ปุ่มยืนยันใช้งานได้แม้ Ghost ไม่พอ")).toBeVisible();
+    await expect(session.page.getByLabel("ยอดเป้าหมาย")).toHaveValue("฿450.00");
+    await expect(session.page.getByText("ยอดเป้าหมาย = ฿450.00")).toBeVisible();
+    await expect(session.page.getByText("ใบขายที่จะซ่อน 1 ใบ")).toBeVisible();
+    await expect(session.page.getByText("ใบขายที่จะบันทึกที่ต้นทุน + 5% · 2 ใบ")).toBeVisible();
+    await expect(session.page.getByText("฿100.00 → ฿75.00", { exact: false })).toBeVisible();
     await expect(session.page.getByRole("button", { name: "ยืนยันและสรุปรอบ" })).toBeEnabled();
     await session.page.screenshot({
       path: testInfo.outputPath("month-end-preview.png"),
@@ -358,6 +416,11 @@ test.describe("สิทธิ์และการนำทางสองบ�
       .getByRole("button", { name: /^เพิ่ม .* ลงตะกร้า$/ })
       .first()
       .click();
+    // Selling a tracked product picks a lot first: one cart line, one lot.
+    const lotDialog = session.page.getByRole("dialog");
+    if (await lotDialog.isVisible().catch(() => false)) {
+      await lotDialog.getByRole("button").filter({ hasText: /^Lot / }).first().click();
+    }
     await session.page.getByRole("button", { name: "รับชำระเงิน" }).click();
     const paymentDialog = session.page.getByRole("dialog");
     await expect(paymentDialog).toBeVisible();
@@ -440,23 +503,19 @@ test.describe("สิทธิ์และการนำทางสองบ�
     const requestStatus = session.page.getByRole("heading", {
       name: "สถานะคำขอสินค้า",
     });
-    const stockTable = session.page
-      .getByRole("heading", { name: "เช็กสต๊อก", exact: true })
-      .last();
+    // The stock section is titled by what it shows — reorder-point alerts — so
+    // the page's own h1 is the only "เช็กสต๊อก" heading.
+    const stockSection = session.page.getByRole("heading", {
+      name: "แจ้งเตือนสต๊อกใกล้หมด",
+      exact: true,
+    });
     await expect(requestStatus).toBeVisible();
-    await expect(stockTable).toBeVisible();
-    expect(
-      await requestStatus.evaluate((status) => {
-        const stock = Array.from(document.querySelectorAll("h2")).find(
-          (heading) => heading.textContent?.trim() === "เช็กสต๊อก",
-        );
-        return Boolean(
-          stock &&
-            status.compareDocumentPosition(stock) &
-              Node.DOCUMENT_POSITION_FOLLOWING,
-        );
-      }),
-    ).toBe(true);
+    await expect(stockSection).toBeVisible();
+    const [requestBox, stockBox] = await Promise.all([
+      requestStatus.boundingBox(),
+      stockSection.boundingBox(),
+    ]);
+    expect(requestBox!.y).toBeLessThan(stockBox!.y);
     await session.page
       .getByRole("button", { name: "สร้างใบเบิกสินค้า" })
       .click();

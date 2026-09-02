@@ -37,7 +37,10 @@ func TestIntegrationHarness(t *testing.T) {
 	}
 
 	assertCatalogCount(t, application.DB, "branches", 6)
-	assertCatalogCount(t, application.DB, "product_categories", 12)
+	// The Ocha seed owns exactly twelve categories. Deleting a category moves
+	// its products into a system-created "ยังไม่จัดหมวด" bucket, so that row is
+	// ordinary application state and must not count as a seed regression.
+	assertSeededCategoryCount(t, application.DB, 12)
 	assertCatalogAtLeast(t, application.DB, "products", 694)
 	assertCatalogAtLeast(t, application.DB, "inventory", 1374)
 	assertRoleAbsent(t, application.DB, "branch_admin")
@@ -52,6 +55,17 @@ func assertCatalogAtLeast(t *testing.T, db *sql.DB, table string, expected int) 
 	}
 	if count < expected {
 		t.Fatalf("expected %s to contain at least %d Ocha rows, got %d", table, expected, count)
+	}
+}
+
+func assertSeededCategoryCount(t *testing.T, db *sql.DB, expected int) {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM product_categories WHERE name <> 'ยังไม่จัดหมวด'`).Scan(&count); err != nil {
+		t.Fatalf("count product_categories: %v", err)
+	}
+	if count != expected {
+		t.Fatalf("expected %d seeded Ocha categories, got %d", expected, count)
 	}
 }
 

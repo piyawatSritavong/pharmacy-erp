@@ -147,10 +147,15 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 			"month_end.calculate", "month_end.adjust", "month_end.approve", "month_end.close", "month_end.reopen", "month_end.export", "settings.manage", "users.manage",
 			"audit.view.global", "marketplace.manage.global", "marketplace.view.branch",
 			"suppliers.view.global", "suppliers.manage.global", "purchase_orders.view.global", "purchase_orders.manage.global",
+			"promotion.manage", "promotion.view", "sales.discount.line",
+			"returns.manage", "fda.manage",
+			// Superadmin also opens the two branch-operations pages.
+			"dashboard.view.self", "inventory.view.branch",
 		},
 		"branch_pos": {
 			"dashboard.view.self", "products.view", "inventory.view.branch", "price.override.pos", "government.use",
 			"transfer.request.branch", "invoice.create.pos", "invoice.view", "transfer.receive", "payment.collect",
+			"promotion.view", "sales.discount.line",
 		},
 	}
 
@@ -161,6 +166,11 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 
 	for roleKey, keys := range rolePermissionKeys {
 		for _, permissionKey := range keys {
+			// Some permissions are created by migrations rather than the seed
+			// catalog above; a missing id means the key is misspelled.
+			if permissionByKey[permissionKey] == "" {
+				return fmt.Errorf("seed role %s: unknown permission %q", roleKey, permissionKey)
+			}
 			if _, err = tx.ExecContext(ctx, `
 				INSERT INTO role_permissions (role_id, permission_id, created_at)
 				VALUES ($1, $2, NOW())

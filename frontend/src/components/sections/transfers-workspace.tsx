@@ -58,7 +58,9 @@ export function TransfersWorkspace({
           products={products}
           transfers={transfers}
         />
-        {historySlot}
+        {/* The slot arrives from the server component, so it is the sole child
+            of its own element — React cannot key a sibling it did not create. */}
+        <div>{historySlot}</div>
       </TabsContent>
       <TabsContent value="requests">
         <StockRequestConsole branches={branches} canUseGhost={canUseGhost} mode="admin" products={products} requests={requests} />
