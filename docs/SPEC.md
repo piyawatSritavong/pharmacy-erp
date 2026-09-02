@@ -178,17 +178,17 @@ POS และเอกสาร operational ทุกชนิดตัดได
 16. หน้าพิมพ์สมุดงานเปิดได้และแยกยอดจริงออกจากยอดปรับชัดเจน
 17. สาขาหน้าร้านเลือกคลังหลักต้นสังกัดได้ และการโอนบางส่วนยังทำงานครบวงจร
 18. เมนูสต๊อกจริงและสต๊อกผีแยกหน้าจอ โดยหน้า Ghost เป็น read-only และเปลี่ยนยอดได้เฉพาะ PO/Month-End
-19. สรุปสิ้นเดือนเลือกช่วงวันที่และสาขาขาย โดยซ่อนบิล `issued + paid + cash only + ไม่ขอใบกำกับเต็มรูป + ยังไม่ถูกซ่อน` ทั้งหมด
+19. สรุปสิ้นเดือนเลือกช่วงวันที่และสาขาขาย บิล `issued + paid + cash only + ไม่ขอใบกำกับเต็มรูป + ยังไม่ถูกซ่อน` จะถูกซ่อนเฉพาะเมื่อ Ghost Stock ที่ WH ครอบคลุมทุกบรรทัด ส่วนบิลเงินสดที่ Ghost ไม่พอจะคงอยู่แต่บันทึกที่ต้นทุน × (1 + 5–10%) และยอดเป้าหมาย = บิลไม่เข้าเงื่อนไข (โอน/ผสม/ใบกำกับเต็มรูป) + บิลที่บันทึกใหม่
 20. รอบใหม่ไม่ใช้ยอดเป้าหมายหรือเปอร์เซ็นต์ปรับราคา ช่องเดิมเป็น Legacy disabled; รายงานยังอ่าน price log ของรอบเดิมได้
 21. การยืนยันรอบย้อน Real เดิม, ส่ง Real จากสาขาคืน WH, รับ WH Real และตัด WH Ghost จำนวนเท่ากัน; หาก Ghost ไม่พอให้ติดลบผ่าน immutable deficit ledger
 
 ## 13. สรุปสิ้นเดือนและการควบคุมข้อมูล
 
 1. เฉพาะ `super_admin` เลือกวันเริ่มต้น–สิ้นสุดและหนึ่งหรือหลายสาขาขาย; เลือก WH เป็นสาขาต้นทางไม่ได้
-2. Preview แสดงบิลทุกใบที่จะซ่อนและ projection ของ Branch Real returned, WH Real received, WH Ghost deducted และ deficit
+2. Preview แสดงบิลที่จะซ่อน (เงินสดที่ Ghost Stock ที่ WH ครอบคลุมทุกบรรทัด), บิลที่จะบันทึกที่ต้นทุน × (1 + 5–10%) (เงินสดที่ Ghost ไม่พอ), ยอดเป้าหมายที่คำนวณ และ projection ของ Branch Real returned, WH Real received, WH Ghost deducted และ deficit
 3. ใบกำกับภาษีเต็มรูป, เงินโอน, ชำระผสม, unpaid, cancelled และบิลที่ซ่อนแล้วไม่เข้า candidate
 4. ขั้นยืนยันทำงานใน transaction พร้อม advisory lock และปฏิเสธช่วงวันที่ทับซ้อนต่อสาขา
-5. บิล candidate ถูก soft-delete, snapshot Before ถูกเก็บ, และเลขบิล Active ที่เหลือเรียงใหม่ตาม `created_at, id` โดย timestamp ไม่เปลี่ยนจากการ renumber
+5. บิลที่ซ่อนถูก soft-delete, บิลที่บันทึกที่ต้นทุน + % ถูกแก้ราคาบรรทัด/ยอดบิล/ยอดชำระเงินสดพร้อม log `price_adjusted` และ `invoice_repriced`, snapshot Before ถูกเก็บ, และเลขบิล Active ที่เหลือเรียงใหม่ตาม `created_at, id` โดย timestamp ไม่เปลี่ยนจากการ renumber
 6. แหล่งตัด effective ของบิลที่ซ่อนเป็น Ghost ค่าเดียว ส่วน Real reversal/return/receive เป็น adjustment แยก
 7. รายงานใช้ `reconciliation_id` เป็นตัวกรองหลัก แสดง Before/After, movement detail และผลรวม Real/Ghost/deficit
 8. Ghost Lots และ PO มีได้เฉพาะ WH; Ghost movement ใหม่ต้องอ้างอิง PO หรือ Month-End ส่วน adjustment, receive, rebalance, receipt approval และเอกสารขาย/เสนอราคา/โอน/คืนทั่วไปใช้ Real เท่านั้น

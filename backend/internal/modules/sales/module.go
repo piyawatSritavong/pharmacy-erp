@@ -31,21 +31,21 @@ type LineInput struct {
 }
 
 type QuoteRequest struct {
-	BranchID      string      `json:"branch_id"`
-	CustomerName  string      `json:"customer_name"`
-	CustomerTaxID string      `json:"customer_tax_id"`
-	IsGovernment  bool        `json:"is_government_mode"`
+	BranchID           string      `json:"branch_id"`
+	CustomerName       string      `json:"customer_name"`
+	CustomerTaxID      string      `json:"customer_tax_id"`
+	IsGovernment       bool        `json:"is_government_mode"`
 	Items              []LineInput `json:"items"`
 	BillDiscountAmount float64     `json:"bill_discount_amount"`
 	ExpiresAt          *time.Time  `json:"expires_at"`
 }
 
 type InvoiceRequest struct {
-	BranchID          string      `json:"branch_id"`
-	CustomerName      string      `json:"customer_name"`
-	CustomerTaxID     string      `json:"customer_tax_id"`
-	IsGovernment      bool        `json:"is_government_mode"`
-	FullTaxInvoice    bool        `json:"full_tax_invoice"`
+	BranchID           string      `json:"branch_id"`
+	CustomerName       string      `json:"customer_name"`
+	CustomerTaxID      string      `json:"customer_tax_id"`
+	IsGovernment       bool        `json:"is_government_mode"`
+	FullTaxInvoice     bool        `json:"full_tax_invoice"`
 	Items              []LineInput `json:"items"`
 	BillDiscountAmount float64     `json:"bill_discount_amount"`
 	SourceQuotationID  *string     `json:"source_quotation_id"`
@@ -58,18 +58,18 @@ type PaymentRequest struct {
 }
 
 type CheckoutRequest struct {
-	BranchID       string      `json:"branch_id"`
-	CustomerName   string      `json:"customer_name"`
-	CustomerTaxID  string      `json:"customer_tax_id"`
-	IsGovernment   bool        `json:"is_government_mode"`
-	FullTaxInvoice bool        `json:"full_tax_invoice"`
+	BranchID           string      `json:"branch_id"`
+	CustomerName       string      `json:"customer_name"`
+	CustomerTaxID      string      `json:"customer_tax_id"`
+	IsGovernment       bool        `json:"is_government_mode"`
+	FullTaxInvoice     bool        `json:"full_tax_invoice"`
 	Items              []LineInput `json:"items"`
 	BillDiscountAmount float64     `json:"bill_discount_amount"`
 	PaymentType        string      `json:"payment_type"`
-	TenderedAmount float64     `json:"tendered_amount"`
-	TransferAmount float64     `json:"transfer_amount"`
-	ReferenceCode  string      `json:"reference_code"`
-	Notes          string      `json:"notes"`
+	TenderedAmount     float64     `json:"tendered_amount"`
+	TransferAmount     float64     `json:"transfer_amount"`
+	ReferenceCode      string      `json:"reference_code"`
+	Notes              string      `json:"notes"`
 }
 
 type checkoutSettlement struct {
@@ -934,7 +934,7 @@ func (s *Service) GetInvoice(ctx context.Context, user platform.AuthUser, invoic
 			"line_total":       lineTotal,
 			"price_source":     priceSource,
 			"override_reason":  overrideReason,
-			"discount_amount":  discountAmount,
+			"discount_amount":  platform.Round2(lineDiscount + billDiscountShare),
 			"unit_name":        unitName,
 			"conversion_qty":   conversionQty,
 			"sold_quantity":    soldQuantity,
@@ -953,6 +953,9 @@ func (s *Service) GetInvoice(ctx context.Context, user platform.AuthUser, invoic
 		if user.RoleKey == "super_admin" {
 			item["stock_bucket"] = stockBucket
 			item["cost_snapshot"] = costSnapshot
+			// Month-end repricing detail: superadmin-only, like every other
+			// month-end trace.
+			item["reconciliation_discount_amount"] = discountAmount
 		}
 		if aliasID != "" {
 			item["alias_id"] = aliasID
@@ -1055,6 +1058,7 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 			override_reason,
 			cost_snapshot,
 			reconciliation_discount_amount,
+			discount_amount + bill_discount_share,
 			COALESCE(inventory_lot_id::text,''),
 			COALESCE(lot_number_snapshot,''),
 			lot_received_at_snapshot,
@@ -1077,7 +1081,7 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 			quantity                                    int
 			unitPrice, lineSubtotal, lineTaxRate        float64
 			lineTaxAmount, lineTotal, costSnapshot      float64
-			discountAmount                              float64
+			discountAmount, saleDiscountAmount          float64
 			lotReceivedAt, lotExpiresOn                 sql.NullTime
 		)
 		if err := itemRows.Scan(
@@ -1096,6 +1100,7 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 			&overrideReason,
 			&costSnapshot,
 			&discountAmount,
+			&saleDiscountAmount,
 			&lotID,
 			&lotNumber,
 			&lotReceivedAt,
@@ -1115,7 +1120,7 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 			"line_total":       lineTotal,
 			"price_source":     priceSource,
 			"override_reason":  overrideReason,
-			"discount_amount":  discountAmount,
+			"discount_amount":  platform.Round2(saleDiscountAmount),
 			"is_alias_display": aliasID != "",
 			"inventory_lot_id": lotID,
 			"lot_number":       lotNumber,
@@ -1128,6 +1133,7 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 		if user.RoleKey == "super_admin" {
 			item["stock_bucket"] = stockBucket
 			item["cost_snapshot"] = costSnapshot
+			item["reconciliation_discount_amount"] = discountAmount
 		}
 		if aliasID != "" {
 			item["alias_id"] = aliasID
@@ -1798,13 +1804,13 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 			PriceSource:    priceSource,
 			OverrideReason: strings.TrimSpace(item.OverrideReason),
 
-			UnitID:         unit.ID,
-			UnitName:       unit.Name,
-			ConversionQty:  unit.Conversion,
-			SoldQuantity:   soldQuantity,
-			SoldUnitPrice:  platform.Round2(soldUnitPrice),
-			GrossSubtotal:  grossSubtotal,
-			DiscountAmount: lineDiscount,
+			UnitID:                   unit.ID,
+			UnitName:                 unit.Name,
+			ConversionQty:            unit.Conversion,
+			SoldQuantity:             soldQuantity,
+			SoldUnitPrice:            platform.Round2(soldUnitPrice),
+			GrossSubtotal:            grossSubtotal,
+			DiscountAmount:           lineDiscount,
 			DiscountCeilingRemaining: math.Max(0, platform.Round2(maxDiscountAmount*float64(baseQuantity)-lineDiscount)),
 		})
 	}

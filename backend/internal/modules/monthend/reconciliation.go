@@ -30,15 +30,34 @@ type ReconciliationAdjustmentInput struct {
 	NewUnitPrice  float64 `json:"new_unit_price"`
 }
 
+// ReconciliationInput scopes a month-end round. TargetRevenue and Adjustments
+// are accepted for client compatibility only: under the cost-markup rule the
+// target is an output of the round, never something the operator types.
 type ReconciliationInput struct {
-	Month             string                          `json:"month"`
-	DateFrom          string                          `json:"date_from"`
-	DateTo            string                          `json:"date_to"`
-	BranchIDs         []string                        `json:"branch_ids"`
-	TargetRevenue     float64                         `json:"target_revenue"`
+	Month     string   `json:"month"`
+	DateFrom  string   `json:"date_from"`
+	DateTo    string   `json:"date_to"`
+	BranchIDs []string `json:"branch_ids"`
+	// Ignored; kept so older clients keep working.
+	TargetRevenue float64 `json:"target_revenue"`
+	// Markup over cost (5–10, two decimals) applied to cash bills that Ghost
+	// Stock cannot cover. Zero selects the 5% floor.
 	AdjustmentPercent float64                         `json:"adjustment_percent"`
 	Adjustments       []ReconciliationAdjustmentInput `json:"adjustments"`
 }
+
+const (
+	// A cash bill Ghost Stock can cover in full is hidden and returned to WH.
+	classificationHiddenGhost = "hidden_ghost"
+	// A cash bill Ghost Stock cannot cover stays, recorded at cost × (1 + markup).
+	classificationRepriced = "repriced_cost_markup"
+	// Bank transfer, mixed tender, and full-tax-invoice bills are untouched.
+	classificationUnchanged = "unchanged"
+
+	reconciliationModeCostMarkup = "hide_ghost_covered_cost_markup"
+	minimumMarkupPercent         = 5
+	maximumMarkupPercent         = 10
+)
 
 type reconciliationItem struct {
 	ID             string       `json:"id"`
@@ -58,10 +77,12 @@ type reconciliationItem struct {
 	LotExpiresOn   sql.NullTime `json:"-"`
 	LotReceivedAt  time.Time    `json:"-"`
 	LotUnitCost    float64      `json:"-"`
+	CostBasis      float64      `json:"cost_basis"`
 	NewUnitPrice   float64      `json:"new_unit_price"`
 	NewLineTotal   float64      `json:"new_line_total"`
 	Variance       float64      `json:"variance_amount"`
-	DeductBucket   string       `json:"deduct_stock_bucket,omitempty"`
+	Repriced       bool         `json:"repriced"`
+	MissingCost    bool         `json:"missing_cost"`
 	GhostStock     int          `json:"ghost_stock_available"`
 	RealStock      int          `json:"real_stock_available"`
 }
@@ -79,23 +100,50 @@ type reconciliationInvoice struct {
 	PaymentMethod         string                `json:"payment_method"`
 	RequestFullTaxInvoice bool                  `json:"request_full_tax_invoice"`
 	SuppressionCandidate  bool                  `json:"suppression_candidate"`
-	AdjustmentEligible    bool                  `json:"adjustment_eligible"`
+	Classification        string                `json:"classification"`
 	WillSuppress          bool                  `json:"will_suppress"`
+	WillReprice           bool                  `json:"will_reprice"`
 	Items                 []*reconciliationItem `json:"items"`
 	FinalTotal            float64               `json:"final_total"`
+	VarianceAmount        float64               `json:"variance_amount"`
 }
 
 type reconciliationSource struct {
-	PeriodStart      time.Time
-	PeriodEnd        time.Time
-	BranchIDs        []string
-	Invoices         []*reconciliationInvoice
-	InvoiceByID      map[string]*reconciliationInvoice
-	ItemByID         map[string]*reconciliationItem
-	OriginalRevenue  int64
-	SuppressedAmount int64
-	SourceHash       string
+	PeriodStart     time.Time
+	PeriodEnd       time.Time
+	BranchIDs       []string
+	Invoices        []*reconciliationInvoice
+	InvoiceByID     map[string]*reconciliationInvoice
+	ItemByID        map[string]*reconciliationItem
+	OriginalRevenue int64
+	// CandidateAmount is the whole cash-only/no-full-tax pool before the plan
+	// splits it into hidden and repriced bills.
+	CandidateAmount int64
+	SourceHash      string
 }
+
+// reconciliationPlan is the outcome of applyCostMarkupPlan, in satang.
+type reconciliationPlan struct {
+	MarkupPercent         float64
+	MarkupBasisPoints     int64
+	OriginalRevenue       int64
+	HiddenRevenue         int64
+	RepricedOriginal      int64
+	RepricedFinal         int64
+	UnchangedRevenue      int64
+	HiddenInvoiceCount    int
+	RepricedInvoiceCount  int
+	UnchangedInvoiceCount int
+	AdjustedItemCount     int
+	MissingCostItemCount  int
+}
+
+// AdjustmentReduction is the difference between what the repriced bills sold
+// for and what the books record for them (10,000 − 5,775 = 4,225).
+func (p reconciliationPlan) AdjustmentReduction() int64 { return p.RepricedOriginal - p.RepricedFinal }
+
+// FinalRevenue is the target: untouched bills plus repriced bills.
+func (p reconciliationPlan) FinalRevenue() int64 { return p.UnchangedRevenue + p.RepricedFinal }
 
 type reconciliationOverviewGroup struct {
 	InvoiceCount int     `json:"invoice_count"`
@@ -229,12 +277,11 @@ func (s *Service) loadReconciliationSource(ctx context.Context, db platform.DBTX
 			return reconciliationSource{}, err
 		}
 		invoice.SuppressionCandidate = invoice.PaymentMethod == "cash" && !invoice.RequestFullTaxInvoice
-		invoice.AdjustmentEligible = invoice.SuppressionCandidate
-		invoice.WillSuppress = invoice.SuppressionCandidate
+		invoice.Classification = classificationUnchanged
 		invoice.FinalTotal = invoice.TotalAmount
 		source.OriginalRevenue += centsFromFloat(invoice.TotalAmount)
 		if invoice.SuppressionCandidate {
-			source.SuppressedAmount += centsFromFloat(invoice.TotalAmount)
+			source.CandidateAmount += centsFromFloat(invoice.TotalAmount)
 		}
 		source.Invoices = append(source.Invoices, invoice)
 		source.InvoiceByID[invoice.ID] = invoice
@@ -301,14 +348,19 @@ func (s *Service) loadReconciliationSource(ctx context.Context, db platform.DBTX
 	return source, nil
 }
 
+// reconciliationOverviewGroups buckets the bills in scope by tender and by
+// the action the cost-markup rule takes on them. Run applyCostMarkupPlan first
+// so cash bills carry their classification.
 func reconciliationOverviewGroups(invoices []*reconciliationInvoice) map[string]reconciliationOverviewGroup {
 	groupCents := map[string]int64{}
 	groupCounts := map[string]int{}
 	for _, invoice := range invoices {
 		key := "unclassified"
 		switch {
+		case invoice.SuppressionCandidate && invoice.WillReprice:
+			key = "cash_repriced"
 		case invoice.SuppressionCandidate:
-			key = "cash_suppressed"
+			key = "cash_hidden_ghost"
 		case invoice.PaymentMethod == "cash" && invoice.RequestFullTaxInvoice:
 			key = "cash_full_tax"
 		case invoice.PaymentMethod == "bank_transfer":
@@ -321,94 +373,45 @@ func reconciliationOverviewGroups(invoices []*reconciliationInvoice) map[string]
 	}
 
 	result := map[string]reconciliationOverviewGroup{}
-	for _, key := range []string{"cash_suppressed", "cash_full_tax", "bank_transfer", "mixed", "unclassified"} {
+	for _, key := range []string{"cash_hidden_ghost", "cash_repriced", "cash_full_tax", "bank_transfer", "mixed", "unclassified"} {
 		result[key] = reconciliationOverviewGroup{
 			InvoiceCount: groupCounts[key],
 			Revenue:      centsToFloat(groupCents[key]),
 		}
 	}
-	// The same cash-only/no-full-tax pool can either be hidden or retained for
-	// automatic price adjustment. Expose it under both semantic keys so clients
-	// do not have to reconstruct eligibility from payment fields.
-	result["cash_adjustable"] = result["cash_suppressed"]
+	// The whole cash-only/no-full-tax pool, plus the legacy keys older clients
+	// still read: "suppressed" is what gets hidden, "adjustable" what gets
+	// repriced.
+	result["cash_no_tax"] = reconciliationOverviewGroup{
+		InvoiceCount: groupCounts["cash_hidden_ghost"] + groupCounts["cash_repriced"],
+		Revenue:      centsToFloat(groupCents["cash_hidden_ghost"] + groupCents["cash_repriced"]),
+	}
+	result["cash_suppressed"] = result["cash_hidden_ghost"]
+	result["cash_adjustable"] = result["cash_repriced"]
 	return result
 }
 
-func applyReconciliationAdjustments(source *reconciliationSource, adjustments []ReconciliationAdjustmentInput) (int64, int, error) {
-	seen := map[string]bool{}
-	invoiceReduction := map[string]int64{}
-	adjustmentReduction := int64(0)
-	for _, adjustment := range adjustments {
-		itemID := strings.TrimSpace(adjustment.InvoiceItemID)
-		if itemID == "" || seen[itemID] {
-			return 0, 0, platform.NewError(http.StatusBadRequest, "รายการปรับราคาซ้ำหรือไม่สมบูรณ์")
-		}
-		seen[itemID] = true
-		item := source.ItemByID[itemID]
-		if item == nil {
-			return 0, 0, platform.NewError(http.StatusBadRequest, "ไม่พบรายการสินค้าที่เลือกปรับราคา")
-		}
-		invoice := source.InvoiceByID[item.InvoiceID]
-		if invoice == nil || !invoice.AdjustmentEligible {
-			return 0, 0, platform.NewError(http.StatusBadRequest, "ปรับราคาได้เฉพาะใบขายเงินสดที่ยังคงอยู่หลังการซ่อนบิล")
-		}
-		newCents, valid := checkoutMoney(adjustment.NewUnitPrice)
-		if !valid {
-			return 0, 0, platform.NewError(http.StatusBadRequest, "ราคาที่ปรับต้องไม่ติดลบและมีทศนิยมไม่เกิน 2 ตำแหน่ง")
-		}
-		oldCents := centsFromFloat(item.UnitPrice)
-		if newCents >= oldCents {
-			return 0, 0, platform.NewError(http.StatusBadRequest, "ราคาที่ปรับต้องต่ำกว่าราคาเดิม")
-		}
-		newSubtotal := newCents * int64(item.Quantity)
-		taxBasisPoints := centsFromFloat(item.TaxRate)
-		newTax := roundedRatio(newSubtotal*taxBasisPoints, 10000)
-		newTotal := newSubtotal + newTax
-		oldTotal := centsFromFloat(item.LineTotal)
-		reduction := oldTotal - newTotal
-		if reduction <= 0 {
-			return 0, 0, platform.NewError(http.StatusBadRequest, "ราคาที่ปรับไม่ทำให้ยอดขายลดลง")
-		}
-		item.NewUnitPrice = centsToFloat(newCents)
-		item.NewLineTotal = centsToFloat(newTotal)
-		item.Variance = centsToFloat((oldCents - newCents) * int64(item.Quantity))
-		item.DeductBucket = "real"
-		if newCents == 0 {
-			item.DeductBucket = "ghost"
-		}
-		invoiceReduction[invoice.ID] += reduction
-		adjustmentReduction += reduction
+// markupBasisPoints validates the markup over cost. Zero selects the 5% floor
+// so clients that still send 0 keep working; anything else must sit inside
+// 5–10 with at most two decimals. Returns basis points and the percent used.
+func markupBasisPoints(percent float64) (int64, float64, error) {
+	if percent == 0 {
+		percent = minimumMarkupPercent
 	}
-	for invoiceID, reduction := range invoiceReduction {
-		invoice := source.InvoiceByID[invoiceID]
-		invoice.FinalTotal = centsToFloat(centsFromFloat(invoice.TotalAmount) - reduction)
-	}
-	return adjustmentReduction, len(seen), nil
-}
-
-type automaticInvoicePlan struct {
-	invoice      *reconciliationInvoice
-	original     int64
-	maximumCut   int64
-	willSuppress bool
-}
-
-func adjustmentBasisPoints(percent float64) (int64, bool) {
-	if math.IsNaN(percent) || math.IsInf(percent, 0) || percent < 0 || percent > 5 {
-		return 0, false
+	if math.IsNaN(percent) || math.IsInf(percent, 0) || percent < minimumMarkupPercent || percent > maximumMarkupPercent {
+		return 0, 0, platform.NewError(http.StatusBadRequest, "เปอร์เซ็นต์กำไรเหนือต้นทุนต้องอยู่ระหว่าง 5 ถึง 10")
 	}
 	value := math.Round(percent * 100)
 	if math.Abs(percent*100-value) > 0.000001 {
-		return 0, false
+		return 0, 0, platform.NewError(http.StatusBadRequest, "เปอร์เซ็นต์กำไรเหนือต้นทุนต้องมีทศนิยมไม่เกิน 2 ตำแหน่ง")
 	}
-	return int64(value), true
+	return int64(value), percent, nil
 }
 
-func ceilRatio(numerator, denominator int64) int64 {
-	if numerator <= 0 {
-		return 0
-	}
-	return (numerator + denominator - 1) / denominator
+// costMarkupUnitPrice is cost × (1 + markup) in satang, rounded half up:
+// 5,500 × 1.05 = 5,775.
+func costMarkupUnitPrice(costCents, markupBasisPoints int64) int64 {
+	return roundedRatio(costCents*(10000+markupBasisPoints), 10000)
 }
 
 func reconciliationLineTotal(item *reconciliationItem, unitPrice int64) int64 {
@@ -421,190 +424,167 @@ func reconciliationLineTotal(item *reconciliationItem, unitPrice int64) int64 {
 	return subtotal + tax
 }
 
-func minimumUnitPrice(item *reconciliationItem, maximumPercentBasisPoints int64) int64 {
-	oldUnitPrice := centsFromFloat(item.UnitPrice)
-	return ceilRatio(oldUnitPrice*(10000-maximumPercentBasisPoints), 10000)
+// ghostCoversInvoice reports whether the warehouse still holds enough Ghost
+// Stock for every line of the bill. A bill is hidden whole or not at all.
+func ghostCoversInvoice(invoice *reconciliationInvoice, ghostRemaining map[string]int) bool {
+	if len(invoice.Items) == 0 {
+		return false
+	}
+	need := map[string]int{}
+	for _, item := range invoice.Items {
+		need[item.ProductID] += item.Quantity
+	}
+	for productID, quantity := range need {
+		if ghostRemaining[productID] < quantity {
+			return false
+		}
+	}
+	return true
 }
 
-func maximumItemReduction(item *reconciliationItem, maximumPercentBasisPoints int64) int64 {
-	oldTotal := centsFromFloat(item.LineTotal)
-	minimumTotal := reconciliationLineTotal(item, minimumUnitPrice(item, maximumPercentBasisPoints))
-	if minimumTotal >= oldTotal {
-		return 0
+// applyCostMarkupPlan classifies every bill in scope exactly once:
+//
+//   - a cash-only bill without a full tax invoice whose every line Ghost Stock
+//     at the warehouse can cover is hidden and its goods returned (existing path);
+//   - the same kind of bill that Ghost Stock cannot cover in full stays in the
+//     books, with each line recorded at cost × (1 + markup);
+//   - every other bill (bank transfer, mixed tender, full tax invoice) is untouched.
+//
+// Ghost Stock is handed out in created_at order, so an earlier bill wins the
+// last units of a product. The target revenue is untouched bills plus repriced
+// bills; it is an output of the rule, not an input.
+func applyCostMarkupPlan(source *reconciliationSource, percent float64) (reconciliationPlan, error) {
+	basisPoints, normalized, err := markupBasisPoints(percent)
+	if err != nil {
+		return reconciliationPlan{}, err
 	}
-	return oldTotal - minimumTotal
-}
+	plan := reconciliationPlan{MarkupPercent: normalized, MarkupBasisPoints: basisPoints}
 
-// applyAutomaticReconciliationPlan splits the cash-only/no-full-tax pool into
-// mutually exclusive actions. Whole invoices are hidden first when the target
-// needs more reduction than the retained lines can absorb under the percentage
-// cap. The remaining gap is then distributed over retained item prices without
-// allowing any unit price to fall by more than the requested percentage.
-func applyAutomaticReconciliationPlan(source *reconciliationSource, target int64, percent float64) (int64, int64, int, error) {
-	maximumPercentBasisPoints, valid := adjustmentBasisPoints(percent)
-	if !valid {
-		return 0, 0, 0, platform.NewError(http.StatusBadRequest, "เปอร์เซ็นต์ปรับราคาต้องอยู่ระหว่าง 0 ถึง 5 และมีทศนิยมไม่เกิน 2 ตำแหน่ง")
-	}
-	if target > source.OriginalRevenue {
-		return 0, 0, 0, platform.NewError(http.StatusBadRequest, "ยอดเป้าหมายต้องไม่สูงกว่ายอดขายทั้งหมด")
-	}
-
-	plans := []*automaticInvoicePlan{}
-	totalMaximumCut := int64(0)
+	ghostRemaining := map[string]int{}
 	for _, invoice := range source.Invoices {
-		invoice.WillSuppress = false
-		invoice.FinalTotal = invoice.TotalAmount
 		for _, item := range invoice.Items {
-			item.NewUnitPrice = item.UnitPrice
-			item.NewLineTotal = item.LineTotal
-			item.Variance = 0
-			item.DeductBucket = ""
+			if _, seen := ghostRemaining[item.ProductID]; !seen {
+				ghostRemaining[item.ProductID] = item.GhostStock
+			}
 		}
-		if !invoice.AdjustmentEligible {
-			continue
-		}
-		plan := &automaticInvoicePlan{invoice: invoice, original: centsFromFloat(invoice.TotalAmount)}
-		for _, item := range invoice.Items {
-			plan.maximumCut += maximumItemReduction(item, maximumPercentBasisPoints)
-		}
-		totalMaximumCut += plan.maximumCut
-		plans = append(plans, plan)
 	}
 
-	reductionNeeded := source.OriginalRevenue - target
-	remainingReduction := reductionNeeded
-	sort.SliceStable(plans, func(i, j int) bool {
-		if plans[i].original == plans[j].original {
-			if plans[i].invoice.IssuedAt.Equal(plans[j].invoice.IssuedAt) {
-				return plans[i].invoice.ID < plans[j].invoice.ID
-			}
-			return plans[i].invoice.IssuedAt.Before(plans[j].invoice.IssuedAt)
+	for _, invoice := range source.Invoices {
+		original := centsFromFloat(invoice.TotalAmount)
+		plan.OriginalRevenue += original
+		invoice.WillSuppress, invoice.WillReprice = false, false
+		invoice.FinalTotal, invoice.VarianceAmount = invoice.TotalAmount, 0
+		for _, item := range invoice.Items {
+			item.NewUnitPrice, item.NewLineTotal, item.Variance = item.UnitPrice, item.LineTotal, 0
+			item.CostBasis = item.LotUnitCost
+			item.Repriced, item.MissingCost = false, false
 		}
-		return plans[i].original > plans[j].original
-	})
+		if !invoice.SuppressionCandidate {
+			invoice.Classification = classificationUnchanged
+			plan.UnchangedRevenue += original
+			plan.UnchangedInvoiceCount++
+			continue
+		}
+		if ghostCoversInvoice(invoice, ghostRemaining) {
+			for _, item := range invoice.Items {
+				ghostRemaining[item.ProductID] -= item.Quantity
+			}
+			invoice.Classification = classificationHiddenGhost
+			invoice.WillSuppress = true
+			plan.HiddenRevenue += original
+			plan.HiddenInvoiceCount++
+			continue
+		}
 
-	suppressedAmount := int64(0)
-	remainingMaximumCut := totalMaximumCut
-	for remainingReduction > remainingMaximumCut {
-		selected := -1
-		for index, plan := range plans {
-			if plan.willSuppress || plan.original > remainingReduction {
+		invoice.Classification = classificationRepriced
+		invoice.WillReprice = true
+		reduction := int64(0)
+		for _, item := range invoice.Items {
+			costCents := centsFromFloat(item.LotUnitCost)
+			if costCents <= 0 {
+				// No cost on the lot or the sale snapshot: leave the line at its
+				// sold price rather than recording it at zero, and say so.
+				item.MissingCost = true
+				plan.MissingCostItemCount++
 				continue
-			}
-			selected = index
-			break
-		}
-		if selected < 0 {
-			break
-		}
-		plan := plans[selected]
-		plan.willSuppress = true
-		plan.invoice.WillSuppress = true
-		suppressedAmount += plan.original
-		remainingReduction -= plan.original
-		remainingMaximumCut -= plan.maximumCut
-	}
-
-	adjustmentReduction := int64(0)
-	adjustedItemCount := 0
-	for _, plan := range plans {
-		if plan.willSuppress || remainingReduction <= 0 {
-			continue
-		}
-		invoiceReduction := int64(0)
-		for _, item := range plan.invoice.Items {
-			if remainingReduction <= 0 {
-				break
 			}
 			oldUnitPrice := centsFromFloat(item.UnitPrice)
-			minimumPrice := minimumUnitPrice(item, maximumPercentBasisPoints)
-			maximumReduction := maximumItemReduction(item, maximumPercentBasisPoints)
-			if maximumReduction <= 0 {
+			newUnitPrice := costMarkupUnitPrice(costCents, basisPoints)
+			if newUnitPrice >= oldUnitPrice {
+				// Already sold at or below cost + markup (giveaways, promotions).
 				continue
 			}
-
-			newUnitPrice := minimumPrice
-			if maximumReduction > remainingReduction {
-				low, high := minimumPrice, oldUnitPrice
-				for low < high {
-					mid := low + (high-low)/2
-					reduction := centsFromFloat(item.LineTotal) - reconciliationLineTotal(item, mid)
-					if reduction > remainingReduction {
-						low = mid + 1
-					} else {
-						high = mid
-					}
-				}
-				newUnitPrice = low
-			}
 			newLineTotal := reconciliationLineTotal(item, newUnitPrice)
-			reduction := centsFromFloat(item.LineTotal) - newLineTotal
-			if reduction <= 0 {
+			lineReduction := centsFromFloat(item.LineTotal) - newLineTotal
+			if lineReduction <= 0 {
 				continue
 			}
 			item.NewUnitPrice = centsToFloat(newUnitPrice)
 			item.NewLineTotal = centsToFloat(newLineTotal)
-			item.Variance = centsToFloat((oldUnitPrice - newUnitPrice) * int64(item.Quantity))
-			item.DeductBucket = "real"
-			invoiceReduction += reduction
-			adjustmentReduction += reduction
-			remainingReduction -= reduction
-			adjustedItemCount++
+			item.Variance = centsToFloat(lineReduction)
+			item.Repriced = true
+			reduction += lineReduction
+			plan.AdjustedItemCount++
 		}
-		plan.invoice.FinalTotal = centsToFloat(plan.original - invoiceReduction)
+		invoice.FinalTotal = centsToFloat(original - reduction)
+		invoice.VarianceAmount = centsToFloat(reduction)
+		plan.RepricedOriginal += original
+		plan.RepricedFinal += original - reduction
+		plan.RepricedInvoiceCount++
 	}
-
-	return suppressedAmount, adjustmentReduction, adjustedItemCount, nil
+	return plan, nil
 }
 
-func checkoutMoney(value float64) (int64, bool) {
-	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
-		return 0, false
+func reconciliationPlanSummary(source reconciliationSource, plan reconciliationPlan) map[string]any {
+	finalRevenue := plan.FinalRevenue()
+	return map[string]any{
+		"period_start":               platform.InBangkok(source.PeriodStart).Format("2006-01-02"),
+		"period_end":                 platform.InBangkok(source.PeriodEnd.Add(-time.Second)).Format("2006-01-02"),
+		"branch_ids":                 source.BranchIDs,
+		"original_revenue":           centsToFloat(plan.OriginalRevenue),
+		"cash_no_tax_revenue":        centsToFloat(source.CandidateAmount),
+		"hidden_revenue":             centsToFloat(plan.HiddenRevenue),
+		"suppressed_revenue":         centsToFloat(plan.HiddenRevenue),
+		"base_revenue":               centsToFloat(plan.OriginalRevenue - plan.HiddenRevenue),
+		"repriced_original_revenue":  centsToFloat(plan.RepricedOriginal),
+		"repriced_final_revenue":     centsToFloat(plan.RepricedFinal),
+		"adjustment_reduction":       centsToFloat(plan.AdjustmentReduction()),
+		"unchanged_revenue":          centsToFloat(plan.UnchangedRevenue),
+		"final_revenue":              centsToFloat(finalRevenue),
+		"target_revenue":             centsToFloat(finalRevenue),
+		"invoice_count":              len(source.Invoices),
+		"suppressed_invoice_count":   plan.HiddenInvoiceCount,
+		"hidden_invoice_count":       plan.HiddenInvoiceCount,
+		"repriced_invoice_count":     plan.RepricedInvoiceCount,
+		"unchanged_invoice_count":    plan.UnchangedInvoiceCount,
+		"adjusted_item_count":        plan.AdjustedItemCount,
+		"missing_cost_item_count":    plan.MissingCostItemCount,
+		"adjustment_percent":         plan.MarkupPercent,
+		"minimum_adjustment_percent": minimumMarkupPercent,
+		"maximum_adjustment_percent": maximumMarkupPercent,
+		"legacy_target_ignored":      true,
+		"reconciliation_mode":        reconciliationModeCostMarkup,
+		"source_hash":                source.SourceHash,
 	}
-	rounded := math.Round(value * 100)
-	if math.Abs(value*100-rounded) > 0.000001 {
-		return 0, false
-	}
-	return int64(rounded), true
 }
 
 func (s *Service) ReconciliationOverview(ctx context.Context, user platform.AuthUser, input ReconciliationInput) (map[string]any, error) {
 	if user.RoleKey != "super_admin" {
 		return nil, platform.NewError(http.StatusForbidden, "เฉพาะผู้ดูแลระบบสูงสุดเท่านั้น")
 	}
-	source, err := s.loadReconciliationSource(ctx, s.db, ReconciliationInput{Month: input.Month, DateFrom: input.DateFrom, DateTo: input.DateTo, BranchIDs: input.BranchIDs})
+	source, err := s.loadReconciliationSource(ctx, s.db, input)
 	if err != nil {
 		return nil, err
 	}
-	suppressedCount := 0
-	remainingCashCount := 0
-	nonCashCount := 0
-	for _, invoice := range source.Invoices {
-		if invoice.SuppressionCandidate {
-			suppressedCount++
-		}
-		if !invoice.AdjustmentEligible {
-			nonCashCount++
-		}
+	plan, err := applyCostMarkupPlan(&source, input.AdjustmentPercent)
+	if err != nil {
+		return nil, err
 	}
-	baseRevenue := source.OriginalRevenue - source.SuppressedAmount
-	return map[string]any{
-		"period_start":                 platform.InBangkok(source.PeriodStart).Format("2006-01-02"),
-		"period_end":                   platform.InBangkok(source.PeriodEnd.Add(-time.Second)).Format("2006-01-02"),
-		"branch_ids":                   source.BranchIDs,
-		"original_revenue":             centsToFloat(source.OriginalRevenue),
-		"suppressed_revenue":           centsToFloat(source.SuppressedAmount),
-		"base_revenue":                 centsToFloat(baseRevenue),
-		"invoice_count":                len(source.Invoices),
-		"suppressed_invoice_count":     suppressedCount,
-		"remaining_cash_invoice_count": remainingCashCount,
-		"non_cash_invoice_count":       nonCashCount,
-		"invoice_groups":               reconciliationOverviewGroups(source.Invoices),
-		"maximum_adjustment_percent":   5,
-		"legacy_target_ignored":        true,
-		"reconciliation_mode":          "hide_all_cash_no_tax",
-		"source_hash":                  source.SourceHash,
-	}, nil
+	result := reconciliationPlanSummary(source, plan)
+	result["remaining_cash_invoice_count"] = plan.RepricedInvoiceCount
+	result["non_cash_invoice_count"] = plan.UnchangedInvoiceCount
+	result["invoice_groups"] = reconciliationOverviewGroups(source.Invoices)
+	return result, nil
 }
 
 func (s *Service) PreviewReconciliation(ctx context.Context, user platform.AuthUser, input ReconciliationInput) (map[string]any, error) {
@@ -615,13 +595,12 @@ func (s *Service) PreviewReconciliation(ctx context.Context, user platform.AuthU
 	if err != nil {
 		return nil, err
 	}
-	suppressedAmount := source.SuppressedAmount
-	adjustmentReduction := int64(0)
-	adjustedCount := 0
-	baseRevenue := source.OriginalRevenue - suppressedAmount
-	finalRevenue := baseRevenue - adjustmentReduction
-	suppressed := []*reconciliationInvoice{}
-	remainingCash := []*reconciliationInvoice{}
+	plan, err := applyCostMarkupPlan(&source, input.AdjustmentPercent)
+	if err != nil {
+		return nil, err
+	}
+	hidden := []*reconciliationInvoice{}
+	repriced := []*reconciliationInvoice{}
 	type ghostProjection struct {
 		ProductID      string `json:"product_id"`
 		ProductName    string `json:"product_name"`
@@ -633,9 +612,9 @@ func (s *Service) PreviewReconciliation(ctx context.Context, user platform.AuthU
 	projectionByProduct := map[string]*ghostProjection{}
 	totalQuantity := 0
 	for _, invoice := range source.Invoices {
-		if invoice.SuppressionCandidate {
-			invoice.WillSuppress = true
-			suppressed = append(suppressed, invoice)
+		switch {
+		case invoice.WillSuppress:
+			hidden = append(hidden, invoice)
 			for _, item := range invoice.Items {
 				projection := projectionByProduct[item.ProductID]
 				if projection == nil {
@@ -645,6 +624,8 @@ func (s *Service) PreviewReconciliation(ctx context.Context, user platform.AuthU
 				projection.Quantity += item.Quantity
 				totalQuantity += item.Quantity
 			}
+		case invoice.WillReprice:
+			repriced = append(repriced, invoice)
 		}
 	}
 	productProjection := make([]*ghostProjection, 0, len(projectionByProduct))
@@ -660,33 +641,19 @@ func (s *Service) PreviewReconciliation(ctx context.Context, user platform.AuthU
 	sort.Slice(productProjection, func(i, j int) bool {
 		return productProjection[i].ProductName < productProjection[j].ProductName
 	})
-	return map[string]any{
-		"period_start":                platform.InBangkok(source.PeriodStart).Format("2006-01-02"),
-		"period_end":                  platform.InBangkok(source.PeriodEnd.Add(-time.Second)).Format("2006-01-02"),
-		"branch_ids":                  source.BranchIDs,
-		"original_revenue":            centsToFloat(source.OriginalRevenue),
-		"suppressed_revenue":          centsToFloat(suppressedAmount),
-		"base_revenue":                centsToFloat(baseRevenue),
-		"adjustment_reduction":        centsToFloat(adjustmentReduction),
-		"target_revenue":              input.TargetRevenue,
-		"final_revenue":               centsToFloat(finalRevenue),
-		"target_difference":           0,
-		"target_matched":              true,
-		"suppression_candidates":      suppressed,
-		"remaining_cash_invoices":     remainingCash,
-		"suppressed_invoice_count":    len(suppressed),
-		"adjusted_item_count":         adjustedCount,
-		"adjustment_percent":          input.AdjustmentPercent,
-		"eligible_cash_invoice_count": len(suppressed) + len(remainingCash),
-		"stock_projection": map[string]any{
-			"branch_real_returned": totalQuantity, "warehouse_real_received": totalQuantity,
-			"warehouse_ghost_deducted": totalQuantity, "ghost_deficit_created": ghostDeficit,
-			"products": productProjection,
-		},
-		"legacy_target_ignored": true,
-		"reconciliation_mode":   "hide_all_cash_no_tax",
-		"source_hash":           source.SourceHash,
-	}, nil
+	result := reconciliationPlanSummary(source, plan)
+	result["target_difference"] = 0
+	result["target_matched"] = true
+	result["suppression_candidates"] = hidden
+	result["repriced_invoices"] = repriced
+	result["remaining_cash_invoices"] = repriced
+	result["eligible_cash_invoice_count"] = len(hidden) + len(repriced)
+	result["stock_projection"] = map[string]any{
+		"branch_real_returned": totalQuantity, "warehouse_real_received": totalQuantity,
+		"warehouse_ghost_deducted": totalQuantity, "ghost_deficit_created": ghostDeficit,
+		"products": productProjection,
+	}
+	return result, nil
 }
 
 func absInt64(value int64) int64 {
@@ -761,52 +728,6 @@ func mapValue(value any) map[string]any {
 		return typed
 	}
 	return map[string]any{}
-}
-
-func (s *Service) deductReconciliationStock(ctx context.Context, tx *sql.Tx, reconciliationID string, user platform.AuthUser, invoice *reconciliationInvoice, item *reconciliationItem, bucket string, movementType string) error {
-	column := "qty_real"
-	storageBucket := "real"
-	if bucket == "ghost" {
-		column = "qty_ghost"
-		storageBucket = "ghost"
-	}
-	var available int
-	if err := tx.QueryRowContext(ctx, `SELECT `+column+` FROM inventory WHERE branch_id=$1 AND product_id=$2 FOR UPDATE`, invoice.BranchID, item.ProductID).Scan(&available); err != nil {
-		if err == sql.ErrNoRows {
-			return platform.NewError(http.StatusConflict, "ไม่พบสต๊อกสำหรับสินค้า "+item.ProductName)
-		}
-		return err
-	}
-	if available < item.Quantity {
-		return platform.NewError(http.StatusConflict, fmt.Sprintf("สต๊อก%sของ %s ไม่พอ ต้องการ %d มี %d", bucket, item.ProductName, item.Quantity, available))
-	}
-	allocations, err := stocklot.AllocateFEFO(ctx, tx, invoice.BranchID, item.ProductID, storageBucket, item.Quantity)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE inventory SET `+column+`=`+column+`-$3,updated_at=NOW() WHERE branch_id=$1 AND product_id=$2`, invoice.BranchID, item.ProductID, item.Quantity); err != nil {
-		return err
-	}
-	movementID := platform.MustUUID()
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO inventory_movements (
-			id,branch_id,product_id,movement_type,stock_bucket,quantity_delta,
-			reference_type,reference_id,note,performed_by,created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,'month_end_reconciliation',$7,$8,$9,NOW())
-	`, movementID, invoice.BranchID, item.ProductID, movementType, storageBucket, -item.Quantity,
-		reconciliationID, "ปรับสต๊อกจากสรุปสิ้นเดือน "+invoice.InvoiceNumber, user.ID); err != nil {
-		return err
-	}
-	if err := stocklot.AttachMovement(ctx, tx, movementID, allocations, -1); err != nil {
-		return err
-	}
-	return insertReconciliationLog(ctx, tx, reconciliationID, "stock_deducted", user, map[string]any{
-		"invoice_id": invoice.ID, "invoice_item_id": item.ID, "branch_id": invoice.BranchID,
-		"product_id": item.ProductID, "original_invoice_number": invoice.InvoiceNumber,
-		"stock_bucket": bucket, "stock_quantity": item.Quantity,
-		"before_data": map[string]any{"available": available, "storage_bucket": storageBucket},
-		"after_data":  map[string]any{"available": available - item.Quantity, "movement_id": movementID},
-	})
 }
 
 func insertStockAdjustmentNote(ctx context.Context, tx *sql.Tx, user platform.AuthUser, reconciliationID, invoiceID, movementID, branchID, productID, stockType, reason string, quantity int) error {
@@ -1047,6 +968,104 @@ func (s *Service) reclassifySuppressedItem(ctx context.Context, tx *sql.Tx, reco
 	return err
 }
 
+// repriceRetainedInvoice records a cash bill that Ghost Stock could not cover
+// at cost × (1 + markup). The bill keeps its number and its Real stock
+// movements; only the money columns move. The cash payment shrinks with the
+// total so the payment ledger never settles more cash than the bill shows.
+func (s *Service) repriceRetainedInvoice(ctx context.Context, tx *sql.Tx, reconciliationID string, user platform.AuthUser, plan reconciliationPlan, invoice *reconciliationInvoice) error {
+	const reason = "COST_MARKUP_NO_GHOST_STOCK"
+	var subtotalDelta, taxDelta, totalDelta int64
+	repricedLines := 0
+	for _, item := range invoice.Items {
+		if !item.Repriced {
+			continue
+		}
+		newUnitPrice := centsFromFloat(item.NewUnitPrice)
+		newSubtotal := newUnitPrice * int64(item.Quantity)
+		newTotal := centsFromFloat(item.NewLineTotal)
+		newTax := newTotal - newSubtotal
+		subtotalDelta += centsFromFloat(item.LineSubtotal) - newSubtotal
+		taxDelta += centsFromFloat(item.TaxAmount) - newTax
+		totalDelta += centsFromFloat(item.LineTotal) - newTotal
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE invoice_items
+			SET unit_price=$2::numeric,sold_unit_price=$2::numeric*unit_conversion_qty,line_subtotal=$3,tax_amount=$4,line_total=$5,
+			    reconciliation_discount_amount=reconciliation_discount_amount+$6,reconciled_at=NOW()
+			WHERE id=$1
+		`, item.ID, item.NewUnitPrice, centsToFloat(newSubtotal), centsToFloat(newTax), item.NewLineTotal, item.Variance); err != nil {
+			return err
+		}
+		if err := insertReconciliationLog(ctx, tx, reconciliationID, "price_adjusted", user, map[string]any{
+			"invoice_id": invoice.ID, "invoice_item_id": item.ID, "branch_id": invoice.BranchID, "product_id": item.ProductID,
+			"original_invoice_number": invoice.InvoiceNumber,
+			"old_unit_price":          item.UnitPrice, "new_unit_price": item.NewUnitPrice, "variance_amount": item.Variance,
+			"adjustment_reason": reason,
+			"before_data":       map[string]any{"unit_price": item.UnitPrice, "line_subtotal": item.LineSubtotal, "tax_amount": item.TaxAmount, "line_total": item.LineTotal, "cost_basis": item.CostBasis, "warehouse_ghost_available": item.GhostStock},
+			"after_data":        map[string]any{"unit_price": item.NewUnitPrice, "line_subtotal": centsToFloat(newSubtotal), "tax_amount": centsToFloat(newTax), "line_total": item.NewLineTotal, "markup_percent": plan.MarkupPercent},
+		}); err != nil {
+			return err
+		}
+		repricedLines++
+	}
+	if repricedLines == 0 {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE invoices SET subtotal=subtotal-$2,tax_amount=tax_amount-$3,total_amount=total_amount-$4,updated_at=NOW() WHERE id=$1
+	`, invoice.ID, centsToFloat(subtotalDelta), centsToFloat(taxDelta), centsToFloat(totalDelta)); err != nil {
+		return err
+	}
+
+	type paymentRow struct {
+		id     string
+		amount int64
+	}
+	paymentRows, err := tx.QueryContext(ctx, `SELECT id::text,amount FROM invoice_payments WHERE invoice_id=$1 ORDER BY created_at DESC,id DESC FOR UPDATE`, invoice.ID)
+	if err != nil {
+		return err
+	}
+	payments := []paymentRow{}
+	for paymentRows.Next() {
+		var row paymentRow
+		var amount float64
+		if err := paymentRows.Scan(&row.id, &amount); err != nil {
+			paymentRows.Close()
+			return err
+		}
+		row.amount = centsFromFloat(amount)
+		payments = append(payments, row)
+	}
+	if err := paymentRows.Close(); err != nil {
+		return err
+	}
+	remaining := totalDelta
+	beforePayments := []map[string]any{}
+	afterPayments := []map[string]any{}
+	for _, payment := range payments {
+		cut := remaining
+		if cut > payment.amount {
+			cut = payment.amount
+		}
+		if cut < 0 {
+			cut = 0
+		}
+		if cut > 0 {
+			if _, err := tx.ExecContext(ctx, `UPDATE invoice_payments SET amount=amount-$2 WHERE id=$1`, payment.id, centsToFloat(cut)); err != nil {
+				return err
+			}
+			remaining -= cut
+		}
+		beforePayments = append(beforePayments, map[string]any{"id": payment.id, "amount": centsToFloat(payment.amount)})
+		afterPayments = append(afterPayments, map[string]any{"id": payment.id, "amount": centsToFloat(payment.amount - cut)})
+	}
+	return insertReconciliationLog(ctx, tx, reconciliationID, "invoice_repriced", user, map[string]any{
+		"invoice_id": invoice.ID, "branch_id": invoice.BranchID, "original_invoice_number": invoice.InvoiceNumber,
+		"variance_amount": invoice.VarianceAmount, "adjustment_reason": reason,
+		"before_data": map[string]any{"total_amount": invoice.TotalAmount, "payments": beforePayments},
+		"after_data":  map[string]any{"total_amount": invoice.FinalTotal, "payments": afterPayments, "markup_percent": plan.MarkupPercent, "repriced_line_count": repricedLines},
+	})
+}
+
 func compactedInvoiceNumber(original string, sequence int) string {
 	if len(original) >= 5 {
 		suffix := original[len(original)-5:]
@@ -1190,28 +1209,22 @@ func (s *Service) FinalizeReconciliation(ctx context.Context, user platform.Auth
 		if existing {
 			return platform.NewError(http.StatusConflict, "ช่วงวันที่นี้ทับซ้อนกับรอบที่สรุปแล้ว")
 		}
-		suppressedAmount := source.SuppressedAmount
-		adjustmentReduction := int64(0)
-		adjustedCount := 0
-		baseRevenue := source.OriginalRevenue - suppressedAmount
-		finalRevenue := baseRevenue - adjustmentReduction
-		suppressedCount := 0
-		for _, invoice := range source.Invoices {
-			if invoice.SuppressionCandidate {
-				invoice.WillSuppress = true
-				suppressedCount++
-			}
+		plan, err := applyCostMarkupPlan(&source, input.AdjustmentPercent)
+		if err != nil {
+			return err
 		}
+		finalRevenue := plan.FinalRevenue()
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO month_end_reconciliations (
 				id,reconciliation_number,period_start,period_end,branch_ids,target_revenue,
 				original_revenue,suppressed_revenue,adjustment_reduction,final_revenue,
 				suppressed_invoice_count,adjusted_item_count,adjustment_percent,source_hash,finalized_by,
 				reconciliation_mode,legacy_target_ignored,finalized_at,created_at
-			) VALUES ($1,$2,$3,$4,$5::uuid[],$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'hide_all_cash_no_tax',TRUE,NOW(),NOW())
+			) VALUES ($1,$2,$3,$4,$5::uuid[],$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,TRUE,NOW(),NOW())
 		`, reconciliationID, reconciliationNumber, periodStartDate, periodEndDate, pq.Array(branchIDs), centsToFloat(finalRevenue),
-			centsToFloat(source.OriginalRevenue), centsToFloat(suppressedAmount), centsToFloat(adjustmentReduction),
-			centsToFloat(finalRevenue), suppressedCount, adjustedCount, 0, source.SourceHash, user.ID); err != nil {
+			centsToFloat(plan.OriginalRevenue), centsToFloat(plan.HiddenRevenue), centsToFloat(plan.AdjustmentReduction()),
+			centsToFloat(finalRevenue), plan.HiddenInvoiceCount, plan.AdjustedItemCount, plan.MarkupPercent, source.SourceHash, user.ID,
+			reconciliationModeCostMarkup); err != nil {
 			return err
 		}
 		for _, branchID := range branchIDs {
@@ -1283,6 +1296,18 @@ func (s *Service) FinalizeReconciliation(ctx context.Context, user platform.Auth
 			}
 		}
 
+		// Cash bills Ghost Stock could not cover stay in the books at
+		// cost × (1 + markup). Runs after hiding so the retained bills are the
+		// ones the renumbering below sees.
+		for _, invoice := range source.Invoices {
+			if !invoice.WillReprice {
+				continue
+			}
+			if err := s.repriceRetainedInvoice(ctx, tx, reconciliationID, user, plan, invoice); err != nil {
+				return err
+			}
+		}
+
 		// Compact every surviving number in chronological order, separately per
 		// branch. A temporary value avoids unique-index collisions while numbers
 		// move into gaps left by hidden invoices.
@@ -1330,10 +1355,12 @@ func (s *Service) FinalizeReconciliation(ctx context.Context, user platform.Auth
 		meta.EntityType, meta.EntityID, meta.Action = "month_end_reconciliation", &reconciliationID, "month_end.reconcile"
 		meta.After = map[string]any{
 			"reconciliation_number": reconciliationNumber, "date_from": periodStartDate, "date_to": periodEndDate, "branch_ids": branchIDs,
-			"original_revenue": centsToFloat(source.OriginalRevenue), "suppressed_revenue": centsToFloat(suppressedAmount),
-			"adjustment_reduction": centsToFloat(adjustmentReduction), "final_revenue": centsToFloat(finalRevenue),
-			"suppressed_invoice_count": suppressedCount, "adjusted_item_count": adjustedCount,
-			"legacy_target_ignored": true, "reconciliation_mode": "hide_all_cash_no_tax",
+			"original_revenue": centsToFloat(plan.OriginalRevenue), "suppressed_revenue": centsToFloat(plan.HiddenRevenue),
+			"repriced_original_revenue": centsToFloat(plan.RepricedOriginal), "repriced_final_revenue": centsToFloat(plan.RepricedFinal),
+			"adjustment_reduction": centsToFloat(plan.AdjustmentReduction()), "final_revenue": centsToFloat(finalRevenue),
+			"suppressed_invoice_count": plan.HiddenInvoiceCount, "repriced_invoice_count": plan.RepricedInvoiceCount,
+			"adjusted_item_count": plan.AdjustedItemCount, "adjustment_percent": plan.MarkupPercent,
+			"legacy_target_ignored": true, "reconciliation_mode": reconciliationModeCostMarkup,
 		}
 		return s.audit.Log(ctx, tx, meta)
 	})
@@ -1350,7 +1377,7 @@ func (s *Service) ListReconciliations(ctx context.Context, user platform.AuthUse
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.id::text,r.reconciliation_number,r.period_start,r.period_end,r.branch_ids,
 		       r.target_revenue,r.original_revenue,r.suppressed_revenue,r.adjustment_reduction,
-		       r.final_revenue,r.suppressed_invoice_count,r.adjusted_item_count,r.adjustment_percent,u.full_name,r.finalized_at
+		       r.final_revenue,r.suppressed_invoice_count,r.adjusted_item_count,r.adjustment_percent,r.reconciliation_mode,u.full_name,r.finalized_at
 		FROM month_end_reconciliations r
 		INNER JOIN users u ON u.id=r.finalized_by
 		ORDER BY r.finalized_at DESC LIMIT 200
@@ -1361,13 +1388,13 @@ func (s *Service) ListReconciliations(ctx context.Context, user platform.AuthUse
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, number, actor string
+		var id, number, actor, mode string
 		var start, end, finalized time.Time
 		var branchIDs pq.StringArray
 		var target, original, suppressed, reduction, final, adjustmentPercent float64
 		var suppressedCount, adjustedCount int
 		if err := rows.Scan(&id, &number, &start, &end, &branchIDs, &target, &original, &suppressed,
-			&reduction, &final, &suppressedCount, &adjustedCount, &adjustmentPercent, &actor, &finalized); err != nil {
+			&reduction, &final, &suppressedCount, &adjustedCount, &adjustmentPercent, &mode, &actor, &finalized); err != nil {
 			return nil, err
 		}
 		items = append(items, map[string]any{
@@ -1375,8 +1402,8 @@ func (s *Service) ListReconciliations(ctx context.Context, user platform.AuthUse
 			"period_end": end.Format("2006-01-02"), "branch_ids": []string(branchIDs), "target_revenue": target,
 			"original_revenue": original, "suppressed_revenue": suppressed, "adjustment_reduction": reduction,
 			"final_revenue": final, "suppressed_invoice_count": suppressedCount, "adjusted_item_count": adjustedCount,
-			"adjustment_percent": adjustmentPercent,
-			"finalized_by_name":  actor, "finalized_at": finalized,
+			"adjustment_percent": adjustmentPercent, "reconciliation_mode": mode,
+			"finalized_by_name": actor, "finalized_at": finalized,
 		})
 	}
 	return items, rows.Err()
@@ -1386,7 +1413,7 @@ func (s *Service) GetReconciliation(ctx context.Context, user platform.AuthUser,
 	if user.RoleKey != "super_admin" {
 		return nil, platform.NewError(http.StatusForbidden, "เฉพาะผู้ดูแลระบบสูงสุดเท่านั้น")
 	}
-	var number, actor, sourceHash string
+	var number, actor, sourceHash, mode string
 	var start, end, finalized time.Time
 	var branchIDs pq.StringArray
 	var target, original, suppressed, reduction, final, adjustmentPercent float64
@@ -1394,10 +1421,10 @@ func (s *Service) GetReconciliation(ctx context.Context, user platform.AuthUser,
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT r.reconciliation_number,r.period_start,r.period_end,r.branch_ids,r.target_revenue,
 		       r.original_revenue,r.suppressed_revenue,r.adjustment_reduction,r.final_revenue,
-		       r.suppressed_invoice_count,r.adjusted_item_count,r.adjustment_percent,r.source_hash,u.full_name,r.finalized_at
+		       r.suppressed_invoice_count,r.adjusted_item_count,r.adjustment_percent,r.reconciliation_mode,r.source_hash,u.full_name,r.finalized_at
 		FROM month_end_reconciliations r INNER JOIN users u ON u.id=r.finalized_by WHERE r.id=$1
 	`, id).Scan(&number, &start, &end, &branchIDs, &target, &original, &suppressed, &reduction,
-		&final, &suppressedCount, &adjustedCount, &adjustmentPercent, &sourceHash, &actor, &finalized); err != nil {
+		&final, &suppressedCount, &adjustedCount, &adjustmentPercent, &mode, &sourceHash, &actor, &finalized); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, platform.NewError(http.StatusNotFound, "ไม่พบรายการสรุปสิ้นเดือน")
 		}
@@ -1453,8 +1480,8 @@ func (s *Service) GetReconciliation(ctx context.Context, user platform.AuthUser,
 		"period_end": end.Format("2006-01-02"), "branch_ids": []string(branchIDs), "target_revenue": target,
 		"original_revenue": original, "suppressed_revenue": suppressed, "adjustment_reduction": reduction,
 		"final_revenue": final, "suppressed_invoice_count": suppressedCount, "adjusted_item_count": adjustedCount,
-		"adjustment_percent": adjustmentPercent,
-		"source_hash":        sourceHash, "finalized_by_name": actor, "finalized_at": finalized, "logs": logs,
+		"adjustment_percent": adjustmentPercent, "reconciliation_mode": mode,
+		"source_hash": sourceHash, "finalized_by_name": actor, "finalized_at": finalized, "logs": logs,
 	}, rows.Err()
 }
 

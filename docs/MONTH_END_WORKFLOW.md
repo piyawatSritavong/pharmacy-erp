@@ -9,9 +9,9 @@
 - เลือก `date_from`, `date_to` ตามเขตเวลา Asia/Bangkok และเลือกได้เฉพาะสาขาขาย; โกดัง `WH` ไม่เป็นสาขาต้นทาง
 - ตาราง `month_end_reconciliation_scopes` ป้องกันช่วงวันที่ทับซ้อนกันต่อสาขา
 
-## เกณฑ์บิลและผลของรอบใหม่
+## เกณฑ์บิลและผลของรอบใหม่ (กติกาต้นทุน + กำไร)
 
-บิลที่จะซ่อนต้องตรงทุกข้อ:
+บิลเงินสดที่เข้าเงื่อนไข (cash no-tax) ต้องตรงทุกข้อ:
 
 1. `invoice_status = issued`
 2. `payment_status = paid`
@@ -20,7 +20,29 @@
 5. ยังไม่ถูก soft-delete
 6. `created_at` อยู่ในช่วงวันที่ที่เลือก
 
-ระบบซ่อนบิลที่เข้าเงื่อนไขทั้งหมด ยอดเป้าหมายและเปอร์เซ็นต์ยังอยู่ใน payload/UI เพื่อ compatibility กับ client เดิม แต่ถูก disabled และไม่มีผลต่อรอบใหม่ ไม่มีการปรับราคาใน flow ใหม่นี้ ส่วนรายงานยังอ่าน `price_adjusted` ของรอบเก่าได้
+ระบบแบ่งบิลทุกใบในขอบเขตออกเป็น 3 กลุ่ม (บิลหนึ่งใบอยู่ได้กลุ่มเดียว):
+
+| กลุ่ม (`classification`) | เงื่อนไข | ผล |
+|---|---|---|
+| ซ่อน (`hidden_ghost`) | บิลเงินสดเข้าเงื่อนไข และ Ghost Stock ที่ `WH` มีพอ **ทุกบรรทัด** ของบิล | ส่งคืนโกดัง ตัด Ghost แล้วซ่อนบิล (ขั้นตอนเดิมด้านล่าง) |
+| บันทึกที่ต้นทุน + % (`repriced_cost_markup`) | บิลเงินสดเข้าเงื่อนไข แต่ Ghost Stock ไม่พอ (แม้เพียงบรรทัดเดียว) | บิลยังอยู่ ไม่แตะสต๊อก บันทึกราคาต่อหน่วยใหม่ = ต้นทุน × (1 + %) |
+| ไม่เข้าเงื่อนไข (`unchanged`) | โอนเงิน, ชำระผสม, ขอใบกำกับเต็มรูป | ไม่แตะต้อง |
+
+- Ghost Stock จัดสรรเรียงตาม `created_at` บิลที่มาก่อนได้ก่อน บิลที่ Ghost เหลือไม่พอจึงตกไปกลุ่มบันทึกที่ต้นทุน + % (จึงไม่เกิด Ghost deficit ในรอบปกติ; ledger deficit ยังคงไว้เป็น safety net)
+- `adjustment_percent` รับค่า 5–10 ทศนิยมไม่เกิน 2 ตำแหน่ง ส่ง 0 หรือไม่ส่ง = 5
+- 5% หมายถึง 105% (× 1.05): ยอดเต็ม 10,000 ต้นทุน 5,500 → บันทึก 5,500 × 1.05 = 5,775 ส่วนต่าง 10,000 − 5,775 = 4,225
+- ต้นทุนใช้ `inventory_lots.unit_cost` ของ lot ที่ตัดขาย (fallback `invoice_items.cost_snapshot`) ถ้าไม่มีต้นทุน (0) บรรทัดนั้นคงราคาเดิมและนับใน `missing_cost_item_count`
+- ราคาใหม่ต้องต่ำกว่าราคาที่ขายเท่านั้น บรรทัดที่ขายต่ำกว่าต้นทุน + % อยู่แล้ว (ของแถม/โปรโมชั่น) คงเดิม
+- **ยอดเป้าหมาย** (`target_revenue` = `final_revenue`) = บิลไม่เข้าเงื่อนไข + บิลที่บันทึกที่ต้นทุน + % ระบบคำนวณให้ ไม่รับจากผู้ใช้ (`target_revenue` ใน payload ถูกละเว้น) ส่วน `adjustment_reduction` = ส่วนต่างรวมของบิลที่บันทึกใหม่
+
+ตัวอย่าง: สาขา A มี TA001 โอน 100, CA002 เงินสด 100 (มีในสต๊อกผี), CA003 เงินสด 100 (ไม่มีในสต๊อกผี) สาขา B มี CB001 เงินสด 100 (ไม่มีในสต๊อกผี), TB002 โอน 100, TB003 โอน 100 → ยอดทั้งหมด 600, ซ่อน CA002, CA003 และ CB001 บันทึกที่ 75 + 75 = 150, บิลโอน 300 → ยอดเป้าหมาย 450
+
+สำหรับบิลกลุ่มบันทึกที่ต้นทุน + % transaction จะ:
+
+1. อัปเดต `invoice_items.unit_price`, `sold_unit_price`, `line_subtotal`, `tax_amount`, `line_total` และสะสมส่วนต่างใน `reconciliation_discount_amount` พร้อม `reconciled_at`
+2. ลด `invoices.subtotal / tax_amount / total_amount` เท่าส่วนต่าง (เลขบิล, `created_at`, สต๊อก และ movement เดิมไม่เปลี่ยน)
+3. ลดยอด `invoice_payments` (เงินสด) ให้เท่ายอดใหม่ เพื่อไม่ให้บัญชีรับเงินสูงกว่าบิล
+4. บันทึก log `price_adjusted` ต่อบรรทัด (ราคาเดิม/ใหม่/ส่วนต่าง) และ `invoice_repriced` ต่อบิล (before/after รวมยอดชำระ)
 
 สำหรับสินค้าแต่ละบรรทัดของบิลที่ซ่อน transaction จะทำตามลำดับ:
 
@@ -41,7 +63,8 @@
 - `month_end_reconciliation_scopes`: ขอบเขตต่อสาขาพร้อม exclusion constraint กันช่วงทับซ้อน
 - `reconciliation_invoice_snapshots`: invoice Before state และ `invoice_created_at`
 - `reconciliation_item_snapshots`: item Before state และ `effective_stock_bucket`
-- `reconciliation_logs`: invoice hide/renumber และ movement roles ของ Real/Ghost/deficit
+- `reconciliation_logs`: invoice hide/renumber, `price_adjusted` (ราคาบรรทัดเดิม → ต้นทุน + %), `invoice_repriced` (ยอดบิลและยอดชำระ before/after) และ movement roles ของ Real/Ghost/deficit
+- `invoice_items.reconciliation_discount_amount` / `reconciled_at`: ส่วนต่างสะสมและเวลาที่บรรทัดถูกบันทึกใหม่ที่ต้นทุน + %
 - `stock_adjustment_notes`: signed quantity, stock type, invoice/reconciliation/movement reference และ reason
 - `inventory_ghost_deficits`: immutable ledger ของ Ghost ที่ตัดเกิน lot
 - `transfers` และ `transfer_item_lot_allocations`: หลักฐาน Real return จากสาขาไป `WH`
@@ -69,10 +92,11 @@ Migration `045_ghost_po_month_end_only.sql` เก็บ Ghost history เดิ
   "date_from": "2026-08-01",
   "date_to": "2026-08-31",
   "branch_ids": ["branch-uuid"],
-  "target_revenue": 0,
-  "adjustment_percent": 0
+  "adjustment_percent": 5
 }
 ```
+
+`adjustment_percent` คือกำไรเหนือต้นทุน 5–10 (ไม่ส่ง = 5) ส่วน `target_revenue` ถูกละเว้น response ของ overview/preview/finalize คืน `final_revenue` (= ยอดเป้าหมายที่คำนวณ), `hidden_revenue`, `repriced_original_revenue`, `repriced_final_revenue`, `adjustment_reduction`, `unchanged_revenue`, `missing_cost_item_count` และ preview คืนรายการ `suppression_candidates` (ซ่อน) กับ `repriced_invoices` (บันทึกที่ต้นทุน + %) แยกกัน
 
 `period=YYYY-MM` ยังรองรับเป็น fallback สำหรับ client เดิม รายงานควรใช้ `reconciliation_id` เป็นตัวเลือกหลัก และรองรับ `date_from`, `date_to`, `branch_id`, `page`, `page_size`
 

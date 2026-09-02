@@ -18,7 +18,12 @@ import (
 	_ "github.com/lib/pq"
 )
 
-func TestMonthEndCreatesImmutableGhostDeficit(t *testing.T) {
+// TestMonthEndRecordsCashBillWithoutGhostStockAtCostMarkup runs the fixture
+// whose warehouse holds no Ghost Stock at all. Under the cost-markup rule the
+// cash bill is neither hidden nor written as a deficit: it stays in the books
+// at cost × 1.05 (10 → 10.50) and no stock moves. The deficit ledger itself
+// stays append-only.
+func TestMonthEndRecordsCashBillWithoutGhostStockAtCostMarkup(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
@@ -53,11 +58,17 @@ func TestMonthEndCreatesImmutableGhostDeficit(t *testing.T) {
 		t.Fatalf("create deficit fixture: %v", err)
 	}
 
+	const actorID = "20000000-0000-4000-8000-000000000001"
+	const warehouseID = "30000000-0000-4000-8000-000000000001"
+	const branchID = "30000000-0000-4000-8000-000000000002"
+	const productID = "40000000-0000-4000-8000-000000000001"
+	const invoiceID = "70000000-0000-4000-8000-000000000001"
+	const itemID = "71000000-0000-4000-8000-000000000001"
 	service := NewService(db, audit.NewService(db))
 	result, err := service.FinalizeReconciliation(ctx, platform.AuthUser{
-		ID: "20000000-0000-4000-8000-000000000001", RoleKey: "super_admin", Portal: "backoffice", Scope: "global",
+		ID: actorID, RoleKey: "super_admin", Portal: "backoffice", Scope: "global",
 	}, audit.LogEntry{}, ReconciliationInput{
-		DateFrom: "2097-03-01", DateTo: "2097-03-31", BranchIDs: []string{"30000000-0000-4000-8000-000000000002"},
+		DateFrom: "2097-03-01", DateTo: "2097-03-31", BranchIDs: []string{branchID}, AdjustmentPercent: 5,
 	})
 	if err != nil {
 		t.Fatalf("finalize zero-Ghost reconciliation: %v", err)
@@ -66,39 +77,64 @@ func TestMonthEndCreatesImmutableGhostDeficit(t *testing.T) {
 	if !ok || reconciliationID == "" {
 		t.Fatalf("missing reconciliation ID: %+v", result)
 	}
+	if result["suppressed_invoice_count"] != 0 || result["adjusted_item_count"] != 1 || result["final_revenue"] != 10.5 || result["adjustment_reduction"] != 9.5 || result["reconciliation_mode"] != reconciliationModeCostMarkup {
+		t.Fatalf("unexpected reconciliation record: %+v", result)
+	}
 
 	var warehouseReal, warehouseGhost int
-	if err := db.QueryRowContext(ctx, `
-		SELECT qty_real,qty_ghost FROM inventory
-		WHERE branch_id='30000000-0000-4000-8000-000000000001'
-		  AND product_id='40000000-0000-4000-8000-000000000001'
-	`).Scan(&warehouseReal, &warehouseGhost); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT qty_real,qty_ghost FROM inventory WHERE branch_id=$1 AND product_id=$2`, warehouseID, productID).Scan(&warehouseReal, &warehouseGhost); err != nil {
 		t.Fatal(err)
 	}
-	if warehouseReal != 1 || warehouseGhost != -1 {
-		t.Fatalf("warehouse inventory = real %d / Ghost %d, want 1 / -1", warehouseReal, warehouseGhost)
+	if warehouseReal != 0 || warehouseGhost != 0 {
+		t.Fatalf("warehouse inventory = real %d / Ghost %d, want 0 / 0 (nothing returned, no deficit)", warehouseReal, warehouseGhost)
+	}
+	var deleted *time.Time
+	var total, paid, unitPrice float64
+	if err := db.QueryRowContext(ctx, `
+		SELECT i.deleted_at,i.total_amount,(SELECT COALESCE(SUM(amount),0) FROM invoice_payments WHERE invoice_id=i.id),ii.unit_price
+		FROM invoices i INNER JOIN invoice_items ii ON ii.id=$2 WHERE i.id=$1
+	`, invoiceID, itemID).Scan(&deleted, &total, &paid, &unitPrice); err != nil {
+		t.Fatal(err)
+	}
+	if deleted != nil || total != 10.5 || paid != 10.5 || unitPrice != 10.5 {
+		t.Fatalf("cash bill should stay at cost × 1.05: deleted=%v total=%.2f paid=%.2f unit=%.2f", deleted, total, paid, unitPrice)
 	}
 
-	var deficitQuantity, deficitCount int
-	if err := db.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(quantity),0)::integer,COUNT(*)::integer
-		FROM inventory_ghost_deficits WHERE reconciliation_id=$1
-	`, reconciliationID).Scan(&deficitQuantity, &deficitCount); err != nil {
+	var deficitCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*)::integer FROM inventory_ghost_deficits WHERE reconciliation_id=$1`, reconciliationID).Scan(&deficitCount); err != nil {
 		t.Fatal(err)
 	}
-	if deficitQuantity != 1 || deficitCount != 1 {
-		t.Fatalf("deficit ledger = quantity %d / rows %d, want 1 / 1", deficitQuantity, deficitCount)
+	if deficitCount != 0 {
+		t.Fatalf("deficit ledger rows = %d, want 0", deficitCount)
+	}
+
+	// The ledger stays append-only for rounds that do write it.
+	movementID := platform.MustUUID()
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO inventory_movements (id,branch_id,product_id,movement_type,stock_bucket,quantity_delta,reference_type,reference_id,performed_by,created_at)
+		VALUES ($1,$2,$3,'month_end_ghost_deduction','ghost',-1,'month_end_reconciliation',$4,$5,NOW())
+	`, movementID, warehouseID, productID, reconciliationID, actorID); err != nil {
+		t.Fatalf("insert ledger movement: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO inventory_ghost_deficits (id,branch_id,product_id,quantity,reconciliation_id,invoice_id,invoice_item_id,inventory_movement_id,created_by,created_at)
+		VALUES ($1,$2,$3,1,$4,$5,$6,$7,$8,NOW())
+	`, platform.MustUUID(), warehouseID, productID, reconciliationID, invoiceID, itemID, movementID, actorID); err != nil {
+		t.Fatalf("insert ledger row: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE inventory_ghost_deficits SET quantity=2 WHERE reconciliation_id=$1`, reconciliationID); err == nil {
 		t.Fatal("expected immutable deficit ledger to reject updates")
 	}
 
-	report, err := service.MonthEndReport(ctx, platform.AuthUser{ID: "20000000-0000-4000-8000-000000000001", RoleKey: "super_admin"}, reconciliationID, "", "", "", "30000000-0000-4000-8000-000000000002", 1, 50)
+	report, err := service.MonthEndReport(ctx, platform.AuthUser{ID: actorID, RoleKey: "super_admin"}, reconciliationID, "", "", "", branchID, 1, 50)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Summary.GhostQuantityDeducted != 1 || report.Summary.GhostDeficitQuantity != 1 || report.Summary.WarehouseRealReceived != 1 {
-		t.Fatalf("unexpected deficit report summary: %+v", report.Summary)
+	if report.Summary.GhostQuantityDeducted != 0 || report.Summary.GhostDeficitQuantity != 0 || report.Summary.WarehouseRealReceived != 0 || report.Summary.RevenueBefore != 20 || report.Summary.RevenueAfter != 10.5 {
+		t.Fatalf("unexpected cost-markup report summary: %+v", report.Summary)
+	}
+	if len(report.Rows) != 1 || report.Rows[0].Status != "adjusted" || report.Rows[0].AdjustedPrice == nil || *report.Rows[0].AdjustedPrice != 10.5 || report.Rows[0].DiscountAmount != 9.5 {
+		t.Fatalf("unexpected report rows: %+v", report.Rows)
 	}
 }
 
