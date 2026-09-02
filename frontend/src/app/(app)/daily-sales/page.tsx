@@ -1,4 +1,5 @@
-import { DataTable, MetricGrid, PageIntro, SectionCard } from "@/components/sections/common";
+import { MetricGrid, PageIntro, SectionCard } from "@/components/sections/common";
+import { SalesSummaryInvoices } from "@/components/sections/sales-summary-invoices";
 import { Download, FileSpreadsheet } from "lucide-react";
 import { Button, Input } from "@/components/ui/primitives";
 import { requirePermission } from "@/lib/rbac";
@@ -52,18 +53,7 @@ export default async function DailySalesPage({
         </form>
       </SectionCard>
       <MetricGrid items={metrics} />
-      <SectionCard title="ใบขายของคุณ" description="แสดงเฉพาะใบขายที่พนักงานคนปัจจุบันสร้างในช่วงวันที่เลือก">
-        <DataTable
-          columns={[
-            { key: "invoice_number", label: "เลขที่ใบขาย" },
-            { key: "customer_name", label: "ลูกค้า" },
-            { key: "payment_status", label: "สถานะ" },
-            { key: "total_amount", label: "ยอดรวม", type: "currency" },
-            { key: "issued_at", label: "วันที่ออก", type: "datetime" }
-          ]}
-          rows={recentInvoices}
-        />
-      </SectionCard>
+      <SalesSummaryInvoices invoices={recentInvoices} />
     </div>
   );
 }

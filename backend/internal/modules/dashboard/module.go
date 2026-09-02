@@ -186,10 +186,17 @@ func bangkokDateRange(startInput, endInput string) (time.Time, time.Time, string
 }
 
 func (s *Service) listSalesInvoices(ctx context.Context, userID string, start, end time.Time) ([]map[string]any, error) {
+	// The month-end round a bill belongs to, so the summary can group bills by
+	// round instead of listing years of them flat. A branch cannot have two
+	// rounds over the same dates, so a bill belongs to at most one.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT i.id, i.invoice_number, i.customer_name, i.total_amount, i.payment_status, i.is_government_mode, b.name, i.issued_at
+		SELECT i.id, i.invoice_number, i.customer_name, i.total_amount, i.payment_status, i.is_government_mode, b.name, i.issued_at,
+		       COALESCE(mer.reconciliation_number, ''), COALESCE(mer.id::text, ''),
+		       COALESCE(mer.period_start::text, ''), COALESCE(mer.period_end::text, '')
 		FROM invoices i
 		INNER JOIN branches b ON b.id = i.branch_id
+		LEFT JOIN reconciliation_invoice_snapshots ris ON ris.invoice_id = i.id
+		LEFT JOIN month_end_reconciliations mer ON mer.id = ris.reconciliation_id
 		WHERE i.invoice_status = 'issued' AND i.deleted_at IS NULL AND i.created_by = $1 AND i.issued_at >= $2 AND i.issued_at < $3
 		ORDER BY i.issued_at DESC
 	`, userID, start, end)
@@ -200,16 +207,20 @@ func (s *Service) listSalesInvoices(ctx context.Context, userID string, start, e
 	items := []map[string]any{}
 	for rows.Next() {
 		var id, invoiceNumber, customerName, paymentStatus, branchName string
+		var reconciliationNumber, reconciliationID, periodStart, periodEnd string
 		var totalAmount float64
 		var isGovernment bool
 		var issuedAt time.Time
-		if err := rows.Scan(&id, &invoiceNumber, &customerName, &totalAmount, &paymentStatus, &isGovernment, &branchName, &issuedAt); err != nil {
+		if err := rows.Scan(&id, &invoiceNumber, &customerName, &totalAmount, &paymentStatus, &isGovernment, &branchName, &issuedAt,
+			&reconciliationNumber, &reconciliationID, &periodStart, &periodEnd); err != nil {
 			return nil, err
 		}
 		items = append(items, map[string]any{
 			"id": id, "invoice_number": invoiceNumber, "customer_name": customerName,
 			"total_amount": totalAmount, "payment_status": paymentStatus,
 			"branch_name": branchName, "issued_at": issuedAt,
+			"reconciliation_number": reconciliationNumber, "reconciliation_id": reconciliationID,
+			"reconciliation_period_start": periodStart, "reconciliation_period_end": periodEnd,
 		})
 	}
 	return items, rows.Err()

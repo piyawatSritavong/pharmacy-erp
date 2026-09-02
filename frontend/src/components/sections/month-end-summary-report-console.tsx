@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { SectionCard } from "@/components/sections/common";
 import { Button, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/primitives";
 import { currency } from "@/lib/utils";
+import { byPeriodDesc, groupByPeriod, periodLabel, shortDate } from "@/lib/month-end-groups";
 import { proxyClient } from "@/services/api";
 
 type Branch = { id: string; name: string };
@@ -94,13 +95,17 @@ function dateTime(value: string) {
 }
 
 export function MonthEndSummaryReportConsole({ branches, reconciliations }: { branches: Branch[]; reconciliations: Reconciliation[] }) {
-  const [reconciliationID, setReconciliationID] = useState(reconciliations[0]?.id || "");
+  // Open on the newest period, not the newest confirmation: closing an old
+  // month today should not hide the current one behind an empty report.
+  const newest = byPeriodDesc(reconciliations)[0];
+  const [reconciliationID, setReconciliationID] = useState(newest?.id || "");
   const selectedReconciliation = useMemo(() => reconciliations.find((item) => item.id === reconciliationID), [reconciliationID, reconciliations]);
-  const [dateFrom, setDateFrom] = useState(reconciliations[0]?.period_start || "");
-  const [dateTo, setDateTo] = useState(reconciliations[0]?.period_end || "");
+  const [dateFrom, setDateFrom] = useState(newest?.period_start || "");
+  const [dateTo, setDateTo] = useState(newest?.period_end || "");
   const [branchID, setBranchID] = useState("");
   const [report, setReport] = useState<Report | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [foldedRounds, setFoldedRounds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -124,6 +129,7 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
       const response = await proxyClient<Report>(`/admin/month-end-report?${query.toString()}`);
       setReport(response);
       setExpanded(null);
+      setFoldedRounds({});
     } catch (error) {
       setReport(null);
       toast.error(error instanceof Error ? error.message : "โหลดรายงานสรุปสิ้นเดือนไม่สำเร็จ");
@@ -135,6 +141,27 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
   useEffect(() => {
     void loadReport(1);
   }, [loadReport]);
+
+  // Rows arrive flat but may span several rounds when filtering by date range:
+  // fold them under the round that produced them so a year of closes stays
+  // readable, and so one month holding several rounds reads as several groups.
+  const roundGroups = useMemo(() => {
+    const meta = new Map(reconciliations.map((item) => [item.id, item]));
+    const buckets = new Map<string, { id: string; label: string; period: string; rows: ReportRow[] }>();
+    for (const row of report?.rows || []) {
+      if (!buckets.has(row.reconciliation_id)) {
+        const round = meta.get(row.reconciliation_id);
+        buckets.set(row.reconciliation_id, {
+          id: row.reconciliation_id,
+          label: round?.reconciliation_number || row.reconciliation_id,
+          period: round ? `${periodLabel(round.period_start)} · ${shortDate(round.period_start)} ถึง ${shortDate(round.period_end)}` : "",
+          rows: []
+        });
+      }
+      buckets.get(row.reconciliation_id)!.rows.push(row);
+    }
+    return [...buckets.values()];
+  }, [reconciliations, report]);
 
   if (reconciliations.length === 0) {
     return <SectionCard title="ยังไม่มีรอบสรุปสิ้นเดือน" description="เมื่อยืนยันการสรุปแล้ว รายงาน Before/After และ movement จะปรากฏที่นี่"><div /></SectionCard>;
@@ -148,7 +175,7 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
     <div className="space-y-6">
       <SectionCard title="ตัวกรองรายงาน" description="เลือก reconciliation โดยตรงเป็นหลัก หรือเลือกค้นด้วยช่วงวันที่">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.5fr_1fr_1fr_1fr_auto] xl:items-end">
-          <label className="space-y-2 text-sm font-medium"><span>รอบ reconciliation</span><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" onChange={(event) => setReconciliationID(event.target.value)} value={reconciliationID}><option value="">ค้นด้วยช่วงวันที่</option>{reconciliations.map((item) => <option key={item.id} value={item.id}>{item.reconciliation_number} · {item.period_start} ถึง {item.period_end}</option>)}</select></label>
+          <label className="space-y-2 text-sm font-medium"><span>รอบ reconciliation</span><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" onChange={(event) => setReconciliationID(event.target.value)} value={reconciliationID}><option value="">ค้นด้วยช่วงวันที่</option>{groupByPeriod(reconciliations).map((bucket) => <optgroup key={bucket.key} label={bucket.label}>{bucket.rounds.map((item) => <option key={item.id} value={item.id}>{item.reconciliation_number} · {shortDate(item.period_start)} ถึง {shortDate(item.period_end)}</option>)}</optgroup>)}</select></label>
           <label className="space-y-2 text-sm font-medium"><span>วันที่เริ่มต้น</span><input className="h-10 w-full rounded-md border bg-white px-3 text-sm" disabled={Boolean(reconciliationID)} onChange={(event) => setDateFrom(event.target.value)} type="date" value={dateFrom} /></label>
           <label className="space-y-2 text-sm font-medium"><span>วันที่สิ้นสุด</span><input className="h-10 w-full rounded-md border bg-white px-3 text-sm" disabled={Boolean(reconciliationID)} min={dateFrom} onChange={(event) => setDateTo(event.target.value)} type="date" value={dateTo} /></label>
           <label className="space-y-2 text-sm font-medium"><span>สาขาขาย</span><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" onChange={(event) => setBranchID(event.target.value)} value={branchID}><option value="">ทุกสาขาในรอบ</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
@@ -175,7 +202,30 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
             <TableBody>
               {loading && !report ? <TableRow><TableCell className="py-12 text-center" colSpan={12}><Loader2 className="mx-auto h-5 w-5 animate-spin" /></TableCell></TableRow> : null}
               {!loading && report?.rows.length === 0 ? <TableRow><TableCell className="py-12 text-center text-muted-foreground" colSpan={12}>ไม่พบรายการในรอบและสาขาที่เลือก</TableCell></TableRow> : null}
-              {report?.rows.map((row) => {
+              {roundGroups.flatMap((group, groupIndex) => {
+                // A single round needs no fold; several rounds open the newest only.
+                const folded = foldedRounds[group.id] ?? (roundGroups.length > 1 && groupIndex > 0);
+                const header = (
+                  <TableRow className="bg-muted/40" key={`group:${group.id}`}>
+                    <TableCell colSpan={12}>
+                      <button
+                        aria-expanded={!folded}
+                        className="flex w-full items-center gap-3 text-left"
+                        onClick={() => setFoldedRounds((current) => ({ ...current, [group.id]: !folded }))}
+                        type="button"
+                      >
+                        {folded ? <ChevronRight className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-semibold">{group.label}</span>
+                          {group.period ? <span className="block text-xs text-muted-foreground">{group.period}</span> : null}
+                        </span>
+                        <span className="shrink-0 text-xs text-muted-foreground">{group.rows.length.toLocaleString("th-TH")} รายการ</span>
+                      </button>
+                    </TableCell>
+                  </TableRow>
+                );
+                if (folded) return [header];
+                return [header, ...group.rows.flatMap((row) => {
                 const key = `${row.reconciliation_id}:${row.invoice_item_id}`;
                 const isExpanded = expanded === key;
                 return [
@@ -185,6 +235,7 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
                   </TableRow>,
                   isExpanded ? <TableRow key={`${key}:movements`}><TableCell colSpan={12}><div className="m-2 rounded-lg border bg-muted/30 p-4"><p className="text-sm font-semibold">Movement details</p>{row.movements.length === 0 ? <p className="mt-2 text-sm text-muted-foreground">ไม่มี movement เพิ่มเติมในรอบนี้</p> : <div className="mt-2 grid gap-2 lg:grid-cols-2">{row.movements.map((movement, index) => <div className="rounded-md border bg-white p-3 text-sm" key={`${movement.role}:${index}`}><p className="font-medium">{movementLabels[movement.role] || movement.role}</p><p className="mt-1 text-muted-foreground">{movement.branch_name} · {movement.stock_type || "-"} · <span className={movement.quantity < 0 ? "text-red-700" : "text-emerald-700"}>{movement.quantity > 0 ? "+" : ""}{movement.quantity.toLocaleString("th-TH")}</span></p>{movement.reason ? <p className="mt-1 text-xs text-muted-foreground">Reason: {movement.reason}</p> : null}</div>)}</div>}</div></TableCell></TableRow> : null
                 ];
+                })];
               })}
             </TableBody>
           </Table>

@@ -62,7 +62,10 @@ test.describe("Supply Chain Management", () => {
     const supplierResponse = await supplierResponsePromise;
     expect(supplierResponse.status()).toBe(201);
     supplierID = String((await supplierResponse.json()).id);
-    await expect(page.getByText(supplierName, { exact: true })).toBeVisible();
+    // The list is paged, so find the new supplier through search rather than
+    // assuming it lands on the first page.
+    await page.getByLabel("ค้นหาบริษัทคู่ค้า").fill(supplierName);
+    await expect(page.getByText(supplierName, { exact: true }).first()).toBeVisible();
 
     await openFromSidebar(page, "ใบเอกสาร", "ใบสั่งซื้อเข้า");
     await expect(

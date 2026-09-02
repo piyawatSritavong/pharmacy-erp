@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Eye, FileClock, Loader2, LockKeyhole, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Eye, FileClock, Loader2, LockKeyhole, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageIntro, SectionCard } from "@/components/sections/common";
@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/primitives";
+import { groupByPeriod, shortDate } from "@/lib/month-end-groups";
 import { currency } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
 
@@ -201,6 +202,7 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
   const [preview, setPreview] = useState<Preview | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [audit, setAudit] = useState<Row | null>(null);
+  const [foldedMonths, setFoldedMonths] = useState<Record<string, boolean>>({});
   const [confirmation, setConfirmation] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -213,6 +215,9 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
     () => sellingBranches.filter((branch) => branchIDs.includes(text(branch.id))),
     [branchIDs, sellingBranches]
   );
+  // History is grouped by the month a round covers: rounds accumulate for years,
+  // and one month can hold several of them because the range is user-chosen.
+  const historyMonths = useMemo(() => groupByPeriod(history), [history]);
   const markup = parseMarkup(markupPercent);
   const markupFactor = markup == null ? null : (1 + markup / 100).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 
@@ -430,15 +435,47 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
         </>
       ) : null}
 
-      <SectionCard title="ประวัติการสรุป" description="Superadmin เห็นช่วงวันที่และเวลาเต็ม พร้อม Audit Log ทุกขั้น">
-        <TableContainer>
-          <Table>
-            <TableHeader><TableRow><TableHead>เลขรายการ</TableHead><TableHead>ช่วงวันที่</TableHead><TableHead className="text-right">ยอดเดิม</TableHead><TableHead className="text-right">ยอดซ่อน</TableHead><TableHead className="text-right">ส่วนต่างต้นทุน + %</TableHead><TableHead className="text-right">ยอดเป้าหมาย</TableHead><TableHead>ผู้ยืนยัน / เวลา</TableHead><TableHead /></TableRow></TableHeader>
-            <TableBody>
-              {history.length === 0 ? <TableRow><TableCell className="py-10 text-center text-muted-foreground" colSpan={8}>ยังไม่มีประวัติการสรุป</TableCell></TableRow> : history.map((item) => <TableRow key={item.id}><TableCell className="font-medium">{item.reconciliation_number}</TableCell><TableCell>{item.period_start} ถึง {item.period_end}</TableCell><TableCell className="text-right">{currency(item.original_revenue)}</TableCell><TableCell className="text-right">{currency(item.suppressed_revenue)}</TableCell><TableCell className="text-right">{currency(item.adjustment_reduction)}{item.adjustment_percent > 0 ? <span className="block text-xs text-muted-foreground">{item.adjustment_percent}%</span> : null}</TableCell><TableCell className="text-right font-semibold">{currency(item.final_revenue)}</TableCell><TableCell><p>{item.finalized_by_name}</p><p className="text-xs text-muted-foreground">{dateTime(item.finalized_at)}</p></TableCell><TableCell className="text-right"><Button onClick={() => void openAudit(item.id)} variant="secondary"><Eye className="h-4 w-4" />Audit</Button></TableCell></TableRow>)}
-            </TableBody>
-          </Table>
-        </TableContainer>
+      <SectionCard title="ประวัติการสรุป" description="ยุบเป็นกลุ่มตามเดือนของรอบ · Superadmin เห็นช่วงวันที่และเวลาเต็ม พร้อม Audit Log ทุกขั้น">
+        {historyMonths.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">ยังไม่มีประวัติการสรุป</p>
+        ) : (
+          <div className="space-y-3">
+            {historyMonths.map((bucket, index) => {
+              const folded = foldedMonths[bucket.key] ?? index > 0;
+              const monthTotal = bucket.rounds.reduce((sum, item) => sum + Number(item.final_revenue || 0), 0);
+              return (
+                <div className="overflow-hidden rounded-lg border" key={bucket.key}>
+                  <button
+                    aria-expanded={!folded}
+                    className="flex w-full items-center gap-3 bg-muted/40 px-4 py-3 text-left transition hover:bg-muted"
+                    onClick={() => setFoldedMonths((current) => ({ ...current, [bucket.key]: !folded }))}
+                    type="button"
+                  >
+                    {folded ? <ChevronRight className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold">{bucket.label}</span>
+                      <span className="block text-xs text-muted-foreground">{bucket.rounds.map((item) => item.reconciliation_number).join(" · ")}</span>
+                    </span>
+                    <span className="shrink-0 text-right text-sm">
+                      <span className="block font-semibold tabular-nums">{currency(monthTotal)}</span>
+                      <span className="block text-xs text-muted-foreground">{count(bucket.rounds.length)} รอบ</span>
+                    </span>
+                  </button>
+                  {folded ? null : (
+                    <TableContainer>
+                      <Table>
+                        <TableHeader><TableRow><TableHead>เลขรายการ</TableHead><TableHead>ช่วงวันที่</TableHead><TableHead className="text-right">ยอดเดิม</TableHead><TableHead className="text-right">ยอดซ่อน</TableHead><TableHead className="text-right">ส่วนต่างต้นทุน + %</TableHead><TableHead className="text-right">ยอดเป้าหมาย</TableHead><TableHead>ผู้ยืนยัน / เวลา</TableHead><TableHead /></TableRow></TableHeader>
+                        <TableBody>
+                          {bucket.rounds.map((item) => <TableRow key={item.id}><TableCell className="font-medium">{item.reconciliation_number}</TableCell><TableCell className="whitespace-nowrap">{shortDate(item.period_start)} ถึง {shortDate(item.period_end)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.original_revenue)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.suppressed_revenue)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.adjustment_reduction)}{item.adjustment_percent > 0 ? <span className="block text-xs text-muted-foreground">{item.adjustment_percent}%</span> : null}</TableCell><TableCell className="text-right font-semibold tabular-nums">{currency(item.final_revenue)}</TableCell><TableCell><p>{item.finalized_by_name}</p><p className="text-xs text-muted-foreground">{dateTime(item.finalized_at)}</p></TableCell><TableCell className="text-right"><Button onClick={() => void openAudit(item.id)} variant="secondary"><Eye className="h-4 w-4" />Audit</Button></TableCell></TableRow>)}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </SectionCard>
 
       <Dialog onOpenChange={setConfirmOpen} open={confirmOpen}>

@@ -9,7 +9,7 @@ node_modules
 dist
 coverage
 backend/pharmacy-erp
-frontend/test-results
+test-results/
 frontend/playwright-report
 *.tsbuildinfo
 .claude/
