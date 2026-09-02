@@ -4,7 +4,6 @@ import { FormEvent, startTransition, useEffect, useMemo, useState } from "react"
 import { Pencil, Plus, Search, Tags, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-import { ReportPinSlot } from "@/components/sections/report-pin-slot";
 import { Field } from "@/components/ui/field";
 import {
   Button,
@@ -101,7 +100,6 @@ export function ProductCategoryConsole({ initialItems }: { initialItems: Categor
 
   return (
     <div className="space-y-6">
-      <ReportPinSlot pageKey="product_categories" />
       <section className="overflow-hidden rounded-3xl border bg-white shadow-card">
         <div className="flex flex-col gap-3 border-b bg-surface-warm p-5 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-wrap items-center gap-3">

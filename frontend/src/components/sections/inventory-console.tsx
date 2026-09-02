@@ -8,7 +8,6 @@ import { DataTable, SectionCard } from "@/components/sections/common";
 import { ProductSearchPicker } from "@/components/sections/product-search-picker";
 import { ProductThumbnail } from "@/components/sections/product-thumbnail";
 import { ProductImageSwiper } from "@/components/sections/product-image-gallery";
-import { ReportPinSlot } from "@/components/sections/report-pin-slot";
 import { Field } from "@/components/ui/field";
 import {
   Button,
@@ -567,7 +566,6 @@ export function InventoryConsole({
 
   return (
     <div className="space-y-6">
-      <ReportPinSlot pageKey={manageBucket === "ghost" ? "ghost_inventory" : "real_inventory"} />
       <section className="overflow-hidden rounded-3xl border bg-white shadow-card lg:grid lg:min-h-[690px] lg:grid-cols-[440px_minmax(0,1fr)]">
       <aside className="flex min-h-[560px] flex-col border-b lg:border-b-0 lg:border-r">
         <h2 className="sr-only">

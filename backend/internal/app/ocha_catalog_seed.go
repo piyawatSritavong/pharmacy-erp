@@ -21,28 +21,14 @@ type branchAccount struct {
 	FullName   string
 }
 
-// One till per branch — including the warehouse, where reps and delivery
-// agents collect and pay for stock in person.
+// One till per selling branch. The warehouse is a distribution hub, not a
+// storefront, so it has no POS account.
 var ochaPOSAccounts = []branchAccount{
 	{BranchCode: "MES", Email: "pos.mes@erp.local", FullName: "พนักงานขายสาขา MES"},
 	{BranchCode: "PHH", Email: "pos.phahol@erp.local", FullName: "พนักงานขายสาขาหน้ารพ.พหลฯ"},
 	{BranchCode: "PHS", Email: "pos.phasuk@erp.local", FullName: "พนักงานขายสาขาหน้าตลาดผาสุก"},
 	{BranchCode: "NPT", Email: "pos.nakhonpathom@erp.local", FullName: "พนักงานขายสาขาจังหวัดนครปฐม"},
 	{BranchCode: "KNP", Email: "pos.knp@erp.local", FullName: "พนักงานขาย คณาเภสัช"},
-	{BranchCode: "WH", Email: "pos.warehouse@erp.local", FullName: "พนักงานขายสาขา โกดัง"},
-}
-
-// One administrator per branch, on the branch-scoped `admin` role
-// (migration 036) — each administers only its own branch. Seeded alongside the
-// POS accounts so a fresh database comes up with the same thirteen accounts a
-// migrated one has.
-var ochaBranchAdminAccounts = []branchAccount{
-	{BranchCode: "MES", Email: "admin.mes@erp.local", FullName: "แอดมินระบบสาขา MES"},
-	{BranchCode: "PHH", Email: "admin.phahol@erp.local", FullName: "แอดมินระบบสาขา หน้ารพ.พหลฯ"},
-	{BranchCode: "PHS", Email: "admin.phasuk@erp.local", FullName: "แอดมินระบบ สาขา หน้าตลาดผาสุก"},
-	{BranchCode: "NPT", Email: "admin.nakhonpathom@erp.local", FullName: "แอดมินระบบสาขา จังหวัดนครปฐม"},
-	{BranchCode: "KNP", Email: "admin.knp@erp.local", FullName: "แอดมินระบบสาขา คณาเภสัช"},
-	{BranchCode: "WH", Email: "admin.warehouse@erp.local", FullName: "แอดมินระบบสาขา โกดัง"},
 }
 
 func seedFreshOchaCatalogTx(ctx context.Context, tx *sql.Tx, cfg config.Config, roleByKey map[string]string) error {
@@ -308,22 +294,6 @@ func replacePOSAccountsTx(ctx context.Context, tx *sql.Tx, roleID string, passwo
 		}
 	}
 
-	var branchAdminRoleID string
-	if err := tx.QueryRowContext(ctx, `SELECT id::text FROM roles WHERE role_key='admin'`).Scan(&branchAdminRoleID); err != nil {
-		return fmt.Errorf("look up admin role: %w", err)
-	}
-	for _, account := range ochaBranchAdminAccounts {
-		branchID, ok := branchIDs[account.BranchCode]
-		if !ok {
-			return fmt.Errorf("missing branch %s for branch admin account", account.BranchCode)
-		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO users (id, role_id, branch_id, full_name, email, password_hash, active, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,TRUE,NOW(),NOW())
-		`, platform.MustUUID(), branchAdminRoleID, branchID, account.FullName, account.Email, passwordHash); err != nil {
-			return fmt.Errorf("insert branch admin account %s: %w", account.Email, err)
-		}
-	}
 	return nil
 }
 
@@ -393,9 +363,8 @@ func verifyOchaCatalogTx(ctx context.Context, tx *sql.Tx, manifest OchaCatalogMa
 		{"products", `SELECT COUNT(*) FROM products`, len(manifest.Products)},
 		{"inventory", `SELECT COUNT(*) FROM inventory`, len(manifest.Inventory)},
 		{"POS accounts", `SELECT COUNT(*) FROM users u INNER JOIN roles r ON r.id=u.role_id WHERE r.role_key='branch_pos'`, len(ochaPOSAccounts)},
-		{"branch admin accounts", `SELECT COUNT(*) FROM users u INNER JOIN roles r ON r.id=u.role_id WHERE r.role_key='admin'`, len(ochaBranchAdminAccounts)},
-		{"roles", `SELECT COUNT(*) FROM roles`, 4},
-		{"user accounts", `SELECT COUNT(*) FROM users`, len(ochaPOSAccounts) + len(ochaBranchAdminAccounts) + 2},
+		{"roles", `SELECT COUNT(*) FROM roles`, 3},
+		{"user accounts", `SELECT COUNT(*) FROM users`, len(ochaPOSAccounts) + 2},
 	}
 	for _, check := range checks {
 		var count int

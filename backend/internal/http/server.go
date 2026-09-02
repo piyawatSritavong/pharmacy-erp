@@ -18,7 +18,6 @@ import (
 	"pharmacy-erp/backend/internal/modules/products"
 	"pharmacy-erp/backend/internal/modules/promotions"
 	"pharmacy-erp/backend/internal/modules/purchasing"
-	"pharmacy-erp/backend/internal/modules/reportbuilder"
 	"pharmacy-erp/backend/internal/modules/reports"
 	"pharmacy-erp/backend/internal/modules/returns"
 	"pharmacy-erp/backend/internal/modules/sales"
@@ -58,7 +57,6 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	salesHandler := sales.NewHandler(sales.NewService(db, auditService))
 	transferHandler := transfers.NewHandler(transfers.NewService(db, auditService))
 	reportHandler := reports.NewHandler(reports.NewService(db))
-	reportBuilderHandler := reportbuilder.NewHandler(reportbuilder.NewService(db, auditService))
 	marketplaceHandler := marketplace.NewHandler(marketplace.NewService(db, auditService))
 	monthEndHandler := monthend.NewHandler(monthend.NewService(db, auditService))
 	fdaHandler := fda.NewHandler(fda.NewService(db))
@@ -85,6 +83,9 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.GET("/me", authHandler.Me)
 	protected.GET("/dashboard", dashboardHandler.Summary, appMiddleware.RequireAnyPermission("dashboard.view.global", "dashboard.view.self"))
 	protected.GET("/dashboard/branch-sales", dashboardHandler.BranchSales, appMiddleware.RequireAnyPermission("dashboard.view.global"))
+	protected.GET("/dashboard/today-branch-sales", dashboardHandler.TodayBranchSales, appMiddleware.RequireAnyPermission("dashboard.view.global"))
+	protected.GET("/dashboard/low-stock", dashboardHandler.LowStock, appMiddleware.RequireAnyPermission("dashboard.view.global"))
+	protected.GET("/notifications", dashboardHandler.Notifications, appMiddleware.RequireAnyPermission("dashboard.view.global"))
 	protected.GET("/dashboard/daily-sales", dashboardHandler.DailySales, appMiddleware.RequireAnyPermission("dashboard.view.self"))
 	protected.GET("/dashboard/sales-export", dashboardHandler.ExportSales, appMiddleware.RequireAnyPermission("dashboard.view.self"))
 
@@ -156,7 +157,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.POST("/inventory/adjust", inventoryHandler.Adjust, appMiddleware.RequireAnyPermission("inventory.manage.global"))
 	protected.POST("/inventory/receive", inventoryHandler.Receive, appMiddleware.RequireAnyPermission("inventory.receive"))
 	protected.GET("/stock-transfer-requests", inventoryHandler.ListTransferRequests, appMiddleware.RequireAnyPermission("transfer.request.branch", "transfer.approve"))
-	protected.POST("/stock-transfer-requests", inventoryHandler.CreateTransferRequest, appMiddleware.RequireAnyPermission("transfer.request.branch"))
+	protected.POST("/stock-transfer-requests", inventoryHandler.CreateTransferRequest, appMiddleware.RequireAnyPermission("transfer.request.branch", "transfer.approve"))
 	protected.POST("/stock-transfer-requests/:requestID/review", inventoryHandler.ReviewTransferRequest, appMiddleware.RequireAnyPermission("transfer.approve"))
 
 	protected.POST("/quotations/preview", salesHandler.PreviewQuotation, appMiddleware.RequireAnyPermission("quotation.manage"))
@@ -177,6 +178,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.GET("/invoices/:invoiceID/deletion-impact", salesHandler.InvoiceDeletionImpact, appMiddleware.RequireAnyPermission("quotation.manage"))
 	protected.DELETE("/invoices/:invoiceID", salesHandler.DeleteInvoice, appMiddleware.RequireAnyPermission("quotation.manage"))
 	protected.POST("/pos/preview", salesHandler.PreviewCheckout, appMiddleware.RequireAnyPermission("invoice.create.pos"))
+	protected.POST("/admin/pos/preview", salesHandler.PreviewCheckout, appMiddleware.RequireAnyPermission("invoice.create.remote"))
 	// พักบิล — intentionally has NO RequireAnyPermission gate: parking is
 	// plain POS counter behaviour, not a privileged action, and branch_pos
 	// holds no document permissions. Access is bounded instead by the
@@ -187,6 +189,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.GET("/parked-bills/:parkedBillID", parkedBillHandler.Get)
 	protected.DELETE("/parked-bills/:parkedBillID", parkedBillHandler.Delete)
 	protected.POST("/pos/checkout", salesHandler.Checkout, appMiddleware.RequireAnyPermission("invoice.create.pos", "payment.collect"))
+	protected.POST("/admin/pos/checkout", salesHandler.Checkout, appMiddleware.RequireAnyPermission("invoice.create.remote"))
 
 	protected.GET("/transfers", transferHandler.List, appMiddleware.RequireAnyPermission("transfer.request", "transfer.receive", "transfer.approve"))
 	protected.POST("/transfers", transferHandler.Create, appMiddleware.RequireAnyPermission("transfer.request"))
@@ -224,17 +227,6 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.GET("/reports/tax", reportHandler.Tax, appMiddleware.RequireAnyPermission("reports.view.global"))
 	protected.GET("/reports/profit-loss", reportHandler.ProfitLoss, appMiddleware.RequireAnyPermission("reports.view.global"))
 
-	protected.GET("/report-builder/catalog", reportBuilderHandler.Catalog, appMiddleware.RequireAnyPermission("reports.generate.global"))
-	protected.GET("/report-builder/field-values", reportBuilderHandler.FieldValues, appMiddleware.RequireAnyPermission("reports.generate.global"))
-	protected.POST("/report-builder/execute", reportBuilderHandler.Execute, appMiddleware.RequireAnyPermission("reports.generate.global"))
-	protected.GET("/report-builder/reports", reportBuilderHandler.List, appMiddleware.RequireAnyPermission("reports.generate.global"))
-	protected.POST("/report-builder/reports", reportBuilderHandler.Create, appMiddleware.RequireAnyPermission("reports.generate.global"))
-	protected.GET("/report-builder/reports/:reportID", reportBuilderHandler.Get, appMiddleware.RequireAnyPermission("reports.generate.global"))
-	protected.PUT("/report-builder/reports/:reportID", reportBuilderHandler.Update, appMiddleware.RequireAnyPermission("reports.generate.global"))
-	protected.DELETE("/report-builder/reports/:reportID", reportBuilderHandler.Delete, appMiddleware.RequireAnyPermission("reports.generate.global"))
-	protected.PATCH("/report-builder/reports/:reportID/pin", reportBuilderHandler.Pin, appMiddleware.RequireAnyPermission("reports.generate.global"))
-	protected.PUT("/report-builder/pins/order", reportBuilderHandler.ReorderPins, appMiddleware.RequireAnyPermission("reports.generate.global"))
-
 	protected.GET("/marketplace/providers", marketplaceHandler.ListProviders, appMiddleware.RequireAnyPermission("marketplace.manage.global", "marketplace.view.branch"))
 	protected.GET("/marketplace/orders", marketplaceHandler.ListOrders, appMiddleware.RequireAnyPermission("marketplace.manage.global", "marketplace.view.branch"))
 	protected.POST("/marketplace/connections", marketplaceHandler.UpsertConnection, appMiddleware.RequireAnyPermission("marketplace.manage.global"))
@@ -245,7 +237,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.GET("/fda-reports/summary", fdaHandler.Summary, appMiddleware.RequireAnyPermission("fda.manage"))
 
 	protected.POST("/product-returns", returnsHandler.Initiate, appMiddleware.RequireAnyPermission("invoice.create.pos"))
-	protected.GET("/product-returns", returnsHandler.List, appMiddleware.RequireAnyPermission("returns.manage"))
+	protected.GET("/product-returns", returnsHandler.List, appMiddleware.RequireAnyPermission("returns.manage", "invoice.view"))
 	protected.POST("/product-returns/:returnID/send-to-supplier", returnsHandler.SendToSupplier, appMiddleware.RequireAnyPermission("returns.manage"))
 	protected.POST("/product-returns/:returnID/resolve-case-a", returnsHandler.ResolveCaseA, appMiddleware.RequireAnyPermission("returns.manage"))
 	protected.POST("/product-returns/:returnID/resolve-case-b", returnsHandler.ResolveCaseB, appMiddleware.RequireAnyPermission("returns.manage"))

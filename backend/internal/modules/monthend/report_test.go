@@ -20,7 +20,7 @@ func TestNormalizeMonthEndReportPage(t *testing.T) {
 
 func TestMonthEndReportRejectsNonSuperadminBeforeDatabaseAccess(t *testing.T) {
 	service := &Service{}
-	_, err := service.MonthEndReport(context.Background(), platform.AuthUser{RoleKey: "admin"}, "", "2026-01", "", "", "", 1, 50)
+	_, err := service.MonthEndReport(context.Background(), platform.AuthUser{RoleKey: "central_admin"}, "", "2026-01", "", "", "", 1, 50)
 	if err == nil {
 		t.Fatal("expected non-superadmin report access to be rejected")
 	}

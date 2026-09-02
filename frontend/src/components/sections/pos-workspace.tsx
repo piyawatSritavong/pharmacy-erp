@@ -75,11 +75,15 @@ export function PosWorkspace({
   branchName,
   products,
   inventory,
+  // The POS portal sells its own branch through /pos/*; head office sells in a
+  // branch's name through /admin/pos/*. Same cart, same bill, different door.
+  endpointBase = "/pos",
 }: {
   branchId: string;
   branchName: string;
   products: Option[];
   inventory: Option[];
+  endpointBase?: string;
 }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -423,7 +427,7 @@ export function PosWorkspace({
     setPaymentChecking(true);
     setPaymentError("");
     const timer = window.setTimeout(() => {
-      void proxyClient<Preview>("/pos/preview", {
+      void proxyClient<Preview>(`${endpointBase}/preview`, {
         method: "POST",
         body: JSON.stringify(payload())
       })
@@ -462,7 +466,7 @@ export function PosWorkspace({
     setSubmitting(true);
     setMessage("");
     try {
-      const result = await proxyClient<Option>("/pos/checkout", {
+      const result = await proxyClient<Option>(`${endpointBase}/checkout`, {
         method: "POST",
         body: JSON.stringify(payload())
       });

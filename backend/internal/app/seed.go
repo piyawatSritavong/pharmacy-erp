@@ -67,6 +67,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		{platform.MustUUID(), "government.use", "ใช้โหมดราชการ", "ขายสินค้าโดยใช้ชื่อสำหรับเอกสารราชการ"},
 		{platform.MustUUID(), "invoice.sequence.manage", "จัดการเลขที่เอกสาร", "กำหนดคำนำหน้าและเลขถัดไป"},
 		{platform.MustUUID(), "invoice.create.pos", "สร้างใบขายหน้าร้าน", "สร้างใบขายจากจุดขาย"},
+		{platform.MustUUID(), "invoice.create.remote", "ขายหน้าร้านแทนสาขา", "สำนักงานใหญ่เปิดการขายในนามสาขาที่เลือก"},
 		{platform.MustUUID(), "invoice.view", "ดูใบขาย", "ดูใบขายที่มีสิทธิ์เข้าถึง"},
 		{platform.MustUUID(), "invoice.reprint", "พิมพ์ใบขายซ้ำ", "เปิดและพิมพ์ใบขายย้อนหลัง"},
 		{platform.MustUUID(), "quotation.manage", "จัดการใบเสนอราคา", "สร้าง แปลง และลบใบเสนอราคา"},
@@ -76,7 +77,6 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		{platform.MustUUID(), "transfer.receive", "รับสินค้าโอน", "ยืนยันรับสินค้าที่ปลายทาง"},
 		{platform.MustUUID(), "payment.collect", "รับชำระเงิน", "รับเงินสดและเงินโอน"},
 		{platform.MustUUID(), "reports.view.global", "ดูรายงานส่วนกลาง", "ดูรายงานภาษีและกำไรขาดทุน"},
-		{platform.MustUUID(), "reports.generate.global", "สร้างรายงานแบบกำหนดเอง", "สร้าง บันทึก และปักหมุดรายงานแบบกำหนดเองจากข้อมูลทุกสาขา"},
 		{platform.MustUUID(), "suppliers.view.global", "ดูบริษัทคู่ค้า", "ดูบริษัทคู่ค้าส่วนกลาง"},
 		{platform.MustUUID(), "suppliers.manage.global", "จัดการบริษัทคู่ค้า", "สร้าง แก้ไข และเก็บบริษัทคู่ค้า"},
 		{platform.MustUUID(), "purchase_orders.view.global", "ดูใบสั่งซื้อเข้า", "ดูประวัติใบสั่งซื้อเข้าทุกสาขา"},
@@ -143,7 +143,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 			"inventory.receive", "inventory.ghost.manage", "price.override.global", "government.manage_alias", "government.use", "invoice.sequence.manage", "invoice.view",
 			"invoice.reprint", "quotation.manage",
 			"transfer.approve", "transfer.request", "transfer.dispatch", "transfer.receive",
-			"payment.collect", "reports.view.global", "reports.generate.global", "month_end.manage", "month_end.view", "month_end.create",
+			"payment.collect", "reports.view.global", "invoice.create.remote", "month_end.manage", "month_end.view", "month_end.create",
 			"month_end.calculate", "month_end.adjust", "month_end.approve", "month_end.close", "month_end.reopen", "month_end.export", "settings.manage", "users.manage",
 			"audit.view.global", "marketplace.manage.global", "marketplace.view.branch",
 			"suppliers.view.global", "suppliers.manage.global", "purchase_orders.view.global", "purchase_orders.manage.global",
@@ -189,7 +189,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		INSERT INTO role_permissions (role_id,permission_id,created_at)
 		SELECT role.id,permission.id,NOW()
 		FROM roles role CROSS JOIN permissions permission
-		WHERE role.role_key IN ('admin','central_admin')
+		WHERE role.role_key = 'central_admin'
 		  AND permission.permission_key NOT IN (
 			'users.manage','settings.manage','invoice.sequence.manage',
 			'marketplace.manage.global','invoice.create.pos','price.override.pos',

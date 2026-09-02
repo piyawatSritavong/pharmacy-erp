@@ -226,15 +226,15 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 		// behaviour, and branch_pos deliberately holds no document rights.
 		items = appendItem(items, "parked_bills", "พักบิล", "/parked-bills", "บิลที่พักไว้ รอกลับมาชำระเงิน")
 		items = appendItemIf(items, has("invoice.view"), "sales_history", "ประวัติ", "/sales-history", "ดูและพิมพ์ใบขายย้อนหลัง")
-		items = appendItemIf(items, has("inventory.view.branch"), "inventory_check", "เช็กสต๊อก", "/inventory-check", "ค้นหาสต๊อกของสาขา")
+		items = appendItemIf(items, has("inventory.view.branch"), "requisitions", "เบิกสินค้า", "/requisitions", "ขอเติมสต๊อกจากผู้ดูแลและติดตามสถานะ")
 		items = appendItemIf(items, has("transfer.receive"), "goods_transfer_receipt", "รับโอนสินค้า", "/transfer-receipts", "ตรวจจำนวนที่ส่งและยืนยันจำนวนสินค้าที่ได้รับจริง")
+		items = appendItem(items, "pos_claims", "เคลม/คืนสินค้า", "/claims", "แจ้งคืนหรือเคลมสินค้าที่ขายไปแล้ว")
 		items = appendItemIf(items, has("dashboard.view.self"), "daily_sales_summary", "สรุปยอดขาย", "/daily-sales", "ยอดขายและยอดรับชำระประจำวัน")
 		return items
 	}
 
 	var reportsChildren []map[string]any
 	reportsChildren = appendItemIf(reportsChildren, has("dashboard.view.global"), "dashboard", "Dashboard", "/dashboard", "ภาพรวมยอดขายและสต๊อกทุกสาขา")
-	reportsChildren = appendItemIf(reportsChildren, has("reports.generate.global"), "generate_report", "Generate Report", "/generate-report", "สร้างและปักหมุดรายงานแบบกำหนดเองจากข้อมูลทุกสาขา")
 	reportsChildren = appendItemIf(reportsChildren, user.RoleKey == "super_admin" && has("month_end.view", "month_end.manage"), "month_end", "สรุปสิ้นเดือน", "/month-end", "ซ่อนบิลที่เข้าเงื่อนไข ส่ง Real คืน WH และตัด Ghost แบบตรวจสอบย้อนหลังได้")
 	// This comparison exposes hidden invoices and Ghost Stock deductions, so the
 	// literal superadmin role is required in addition to the report permission.
@@ -249,7 +249,7 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	inventoryChildren = appendItemIf(inventoryChildren, user.RoleKey == "super_admin" && has("inventory.ghost.manage"), "ghost_inventory", "สต๊อกผี", "/ghost-inventory", "ดู รับเข้า และปรับยอดสต๊อกผี")
 	inventoryChildren = appendItemIf(inventoryChildren, has("products.manage"), "product_categories", "หมวดสินค้า", "/product-categories", "จัดกลุ่มสินค้าและกำหนดสีสำหรับการค้นหา")
 	inventoryChildren = appendItemIf(inventoryChildren, has("promotion.manage"), "promotions", "โปรโมชั่น", "/promotions", "ส่วนลด ของแถม และราคาชุดที่หน้าร้านใช้อัตโนมัติ")
-	inventoryChildren = appendItemIf(inventoryChildren, user.Scope == "global" && has("inventory.view.branch"), "inventory_check", "เช็กสต๊อก", "/inventory-check", "ค้นหาสต๊อกและดูสินค้าที่ถึงจุดแจ้งเตือน")
+	inventoryChildren = appendItemIf(inventoryChildren, has("inventory.view.branch"), "requisitions", "เบิกสินค้า", "/requisitions", "ตรวจคำขอเบิกจากสาขาและออกใบเบิกแทนสาขา")
 	inventoryChildren = appendItemIf(inventoryChildren, has("transfer.approve"), "stock_transfers", "โอนสินค้า", "/transfers", "สร้างใบโอนและตรวจสอบคำขอสินค้าจากสาขา")
 
 	var documentsChildren []map[string]any
@@ -260,6 +260,8 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	documentsChildren = appendItemIf(documentsChildren, has("returns.manage"), "claims", "เคลม/คืนสินค้า", "/claims", "ส่งเคลมให้คู่ค้าและปิดเคลมรับรุ่นเดิมหรือรุ่นทดแทน")
 	documentsChildren = appendItemIf(documentsChildren, has("fda.manage"), "fda_reports", "อย.", "/fda-reports", "เลือกสินค้าและสร้างเอกสารนำส่ง อย.")
 
+	// ขายหน้าร้าน for head office: a single top-level action, not a group.
+	items = appendItemIf(items, has("invoice.create.remote"), "admin_sales", "ขายหน้าร้าน", "/admin-sales", "เปิดการขายในนามสาขาที่เลือก")
 	items = appendGroup(items, "reports_group", "รายงาน", "รายงานสรุปและแดชบอร์ด", reportsChildren)
 	items = appendGroup(items, "inventory_group", "คลังสินค้า", "สต๊อกจริง สต๊อกผี หมวดสินค้า และการโอนสินค้า", inventoryChildren)
 	items = appendGroup(items, "documents_group", "ใบเอกสาร", "ใบสั่งซื้อ บริษัทคู่ค้า รพ.สต. ใบขาย และเอกสาร อย.", documentsChildren)
@@ -274,7 +276,7 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 		var branchOpsChildren []map[string]any
 		branchOpsChildren = appendItemIf(branchOpsChildren, has("dashboard.view.self"), "daily_sales_summary", "สรุปยอดขาย", "/daily-sales", "ยอดขายและยอดรับชำระประจำวันของสาขา")
 		// ประวัติการขาย lives in the ระบบ group now — not repeated here.
-		branchOpsChildren = appendItemIf(branchOpsChildren, has("inventory.view.branch"), "inventory_check", "เช็กสต๊อก", "/inventory-check", "ค้นหาสต๊อกของสาขา")
+		branchOpsChildren = appendItemIf(branchOpsChildren, has("inventory.view.branch"), "requisitions", "เบิกสินค้า", "/requisitions", "ขอเติมสต๊อกและติดตามสถานะ")
 		branchOpsChildren = appendItemIf(branchOpsChildren, has("transfer.receive"), "goods_transfer_receipt", "รับโอนสินค้า", "/transfer-receipts", "ตรวจจำนวนที่ส่งและยืนยันจำนวนสินค้าที่ได้รับจริง")
 		items = appendGroup(items, "branch_ops_group", "สาขาของฉัน", "ยอดขาย สต๊อก และการโอนสินค้าของสาขาที่ดูแล", branchOpsChildren)
 	}
@@ -303,12 +305,10 @@ func homePathFor(user platform.AuthUser) string {
 		return "/dashboard"
 	case platform.HasPermission(user, "dashboard.view.self"):
 		return "/daily-sales"
-	case platform.HasPermission(user, "reports.generate.global"):
-		return "/generate-report"
 	case platform.HasPermission(user, "invoice.view"):
 		return "/sales-history"
 	case platform.HasPermission(user, "inventory.view.branch"):
-		return "/inventory-check"
+		return "/requisitions"
 	default:
 		// No permission-appropriate landing page found (misconfigured role) —
 		// fall back to the previous default rather than leaving this unset.

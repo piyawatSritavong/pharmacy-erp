@@ -17,6 +17,9 @@ import (
 type CreateTransferRequestInput struct {
 	ProductID string `json:"product_id"`
 	Quantity  int    `json:"quantity"`
+	// Set only when head office raises a requisition on a branch's behalf; a
+	// branch POS leaves it empty and the request lands at its own branch.
+	DestinationBranchID string `json:"destination_branch_id"`
 }
 
 type ReviewTransferRequestInput struct {
@@ -26,7 +29,18 @@ type ReviewTransferRequestInput struct {
 }
 
 func (s *Service) CreateStockTransferRequest(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, input CreateTransferRequestInput) (string, error) {
-	if !platform.HasPermission(user, "transfer.request.branch") || user.BranchID == nil {
+	// Two callers: a branch POS requisitions for its own branch; head office
+	// (transfer.approve) requisitions for a branch it names.
+	destinationBranchID := ""
+	switch {
+	case strings.TrimSpace(input.DestinationBranchID) != "":
+		if !platform.HasPermission(user, "transfer.approve") {
+			return "", platform.NewError(http.StatusForbidden, "ไม่มีสิทธิ์สร้างใบเบิกแทนสาขา")
+		}
+		destinationBranchID = strings.TrimSpace(input.DestinationBranchID)
+	case platform.HasPermission(user, "transfer.request.branch") && user.BranchID != nil:
+		destinationBranchID = *user.BranchID
+	default:
 		return "", platform.NewError(http.StatusForbidden, "ไม่มีสิทธิ์ส่งคำขอสินค้า")
 	}
 	if strings.TrimSpace(input.ProductID) == "" || input.Quantity <= 0 {
@@ -49,7 +63,7 @@ func (s *Service) CreateStockTransferRequest(ctx context.Context, user platform.
 				id, destination_branch_id, product_id, requested_quantity, status,
 				requested_by, created_at, updated_at
 			) VALUES ($1, $2, $3, $4, 'pending', $5, NOW(), NOW())
-		`, requestID, *user.BranchID, input.ProductID, input.Quantity, user.ID); err != nil {
+		`, requestID, destinationBranchID, input.ProductID, input.Quantity, user.ID); err != nil {
 			if strings.Contains(err.Error(), "idx_stock_transfer_requests_pending_product") {
 				return platform.NewError(http.StatusConflict, "สินค้านี้มีคำขอที่รอตรวจสอบอยู่แล้ว")
 			}
@@ -58,7 +72,7 @@ func (s *Service) CreateStockTransferRequest(ctx context.Context, user platform.
 		meta.EntityType = "stock_transfer_request"
 		meta.EntityID = &requestID
 		meta.Action = "stock_transfer_request.create"
-		meta.After = map[string]any{"product_id": input.ProductID, "quantity": input.Quantity, "destination_branch_id": *user.BranchID}
+		meta.After = map[string]any{"product_id": input.ProductID, "quantity": input.Quantity, "destination_branch_id": destinationBranchID}
 		return s.audit.Log(ctx, tx, meta)
 	})
 	return requestID, err

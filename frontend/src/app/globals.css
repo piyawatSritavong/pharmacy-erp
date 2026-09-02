@@ -114,9 +114,3 @@ textarea:disabled {
 .btn-neutral {
   @apply bg-neutral-100 text-neutral-dark transition-colors hover:bg-neutral-200 active:bg-neutral-300 disabled:cursor-not-allowed disabled:opacity-40;
 }
-
-@media (min-width: 1024px) {
-  .report-builder-workspace {
-    grid-template-columns: var(--field-sidebar-width, 288px) minmax(0, 1fr);
-  }
-}

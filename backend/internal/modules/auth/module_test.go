@@ -61,7 +61,7 @@ var superAdminPermissions = []string{
 	"inventory.receive", "price.override.global", "government.manage_alias", "government.use", "invoice.sequence.manage", "invoice.view",
 	"invoice.reprint", "quotation.manage",
 	"transfer.approve", "transfer.request", "transfer.dispatch", "transfer.receive",
-	"payment.collect", "reports.view.global", "reports.generate.global", "month_end.manage", "month_end.view", "month_end.create",
+	"payment.collect", "reports.view.global", "month_end.manage", "month_end.view", "month_end.create",
 	"month_end.calculate", "month_end.adjust", "month_end.approve", "month_end.close", "month_end.reopen", "month_end.export", "settings.manage", "users.manage",
 	"audit.view.global", "marketplace.manage.global", "marketplace.view.branch",
 	"suppliers.view.global", "suppliers.manage.global", "purchase_orders.view.global", "purchase_orders.manage.global",
@@ -71,8 +71,8 @@ func TestNavigationForPOS(t *testing.T) {
 	user := platform.AuthUser{RoleKey: "branch_pos", Portal: "pos", Scope: "branch", Permissions: branchPOSPermissions}
 
 	items := navigationFor(user)
-	if len(items) != 6 {
-		t.Fatalf("expected 6 POS navigation items, got %d: %v", len(items), navigationHrefs(items))
+	if len(items) != 7 {
+		t.Fatalf("expected 7 POS navigation items, got %d: %v", len(items), navigationHrefs(items))
 	}
 	if items[0]["href"] != "/sales" {
 		t.Fatalf("expected POS first navigation item to be /sales, got %#v", items[0]["href"])
@@ -87,6 +87,12 @@ func TestNavigationForPOS(t *testing.T) {
 	}
 	if !containsHref(items, "/sales-history") {
 		t.Fatalf("expected POS sales history menu, got %v", navigationHrefs(items))
+	}
+	if !containsHref(items, "/requisitions") {
+		t.Fatalf("expected POS เบิกสินค้า menu, got %v", navigationHrefs(items))
+	}
+	if !containsHref(items, "/claims") {
+		t.Fatalf("expected POS เคลม/คืนสินค้า menu, got %v", navigationHrefs(items))
 	}
 	if items[len(items)-1]["href"] != "/daily-sales" {
 		t.Fatalf("expected POS summary navigation item last, got %v", navigationHrefs(items))
@@ -132,7 +138,7 @@ func TestNavigationForSuperAdmin(t *testing.T) {
 		t.Fatalf("expected transferred sales management (ใบขาย) menu, got %v", all)
 	}
 	for _, href := range []string{
-		"/generate-report", "/month-end", "/dashboard",
+		"/month-end", "/dashboard",
 		"/real-inventory", "/ghost-inventory", "/product-categories", "/transfers",
 		"/purchase-orders", "/suppliers", "/government-sales",
 	} {
@@ -150,7 +156,7 @@ func TestNavigationForSuperAdmin(t *testing.T) {
 var officePermissions = []string{
 	"dashboard.view.global", "products.view", "invoice.view", "invoice.reprint", "invoice.sequence.manage",
 	"quotation.manage", "payment.collect", "government.use", "government.manage_alias",
-	"reports.view.global", "reports.generate.global",
+	"reports.view.global",
 	"month_end.view", "month_end.create", "month_end.calculate", "month_end.adjust", "month_end.export",
 	"suppliers.view.global", "suppliers.manage.global", "purchase_orders.view.global", "purchase_orders.manage.global",
 	"marketplace.view.branch", "audit.view.global",
@@ -176,7 +182,7 @@ func TestNavigationForOffice(t *testing.T) {
 	if containsAny(all, "/settings") {
 		t.Fatalf("did not expect settings for office, got %v", all)
 	}
-	for _, href := range []string{"/generate-report", "/dashboard", "/purchase-orders", "/suppliers", "/government-sales", "/sales-management"} {
+	for _, href := range []string{"/dashboard", "/purchase-orders", "/suppliers", "/government-sales", "/sales-management"} {
 		if !containsAny(all, href) {
 			t.Fatalf("expected %s menu for office, got %v", href, all)
 		}
@@ -200,7 +206,7 @@ func TestNavigationForBranchHead(t *testing.T) {
 	}
 	// scope=="branch" gets its own branch_ops_group instead, reusing the POS
 	// pages under back-office-appropriate permissions.
-	for _, href := range []string{"/daily-sales", "/sales-history", "/inventory-check", "/transfer-receipts"} {
+	for _, href := range []string{"/daily-sales", "/sales-history", "/requisitions", "/transfer-receipts"} {
 		if !containsAny(all, href) {
 			t.Fatalf("expected %s menu for branch_head, got %v", href, all)
 		}

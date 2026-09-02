@@ -10,7 +10,7 @@ import (
 
 func TestReconciliationOverviewRejectsNonSuperadminBeforeDatabaseAccess(t *testing.T) {
 	service := &Service{}
-	if _, err := service.ReconciliationOverview(context.Background(), platform.AuthUser{RoleKey: "admin"}, ReconciliationInput{Month: "2026-08"}); err == nil {
+	if _, err := service.ReconciliationOverview(context.Background(), platform.AuthUser{RoleKey: "central_admin"}, ReconciliationInput{Month: "2026-08"}); err == nil {
 		t.Fatal("expected non-superadmin overview access to be rejected")
 	}
 }

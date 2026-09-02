@@ -23,6 +23,23 @@ export async function getBranchSales() {
   return apiServer<{ items: Array<Record<string, unknown>> }>("/dashboard/branch-sales");
 }
 
+export async function getTodayBranchSales() {
+  return apiServer<{
+    date: string;
+    total_amount: number;
+    invoice_count: number;
+    branches: Array<{ branch_code: string; branch_name: string; invoice_count: number; total_amount: number }>;
+  }>("/dashboard/today-branch-sales");
+}
+
+export async function getLowStock() {
+  return apiServer<{ items: Array<Record<string, unknown>> }>("/dashboard/low-stock");
+}
+
+export async function getNotifications() {
+  return apiServer<{ items: Array<{ type: string; label: string; detail: string; count: number; href: string }> }>("/notifications");
+}
+
 export async function getDailySales(startDate?: string, endDate?: string) {
   const query = new URLSearchParams();
   if (startDate) query.set("start_date", startDate);
@@ -204,19 +221,6 @@ export async function getMarketplaceOrders() {
   return apiServer<{ items: Array<Record<string, unknown>> }>("/marketplace/orders");
 }
 
-/** Server-side report execution. The report-builder service is browser-only
- *  (proxyClient), so a server component has to go through apiServer instead —
- *  calling the client helper from the server silently returns nothing. */
-export async function executeReportServer(definition: Record<string, unknown>, page = 1) {
-  return apiServer<{
-    columns: Array<Record<string, unknown>>;
-    rows: Array<Record<string, unknown>>;
-    pagination: { page: number; page_size: number; total: number; total_pages: number };
-  }>("/report-builder/execute", {
-    method: "POST",
-    body: JSON.stringify({ definition, page })
-  });
-}
 
 export async function getAuditLogs(filters?: Record<string, string | undefined>) {
   const query = new URLSearchParams();

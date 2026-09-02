@@ -13,7 +13,6 @@ import {
   FileText,
   History,
   LayoutDashboard,
-  LogOut,
   PackageCheck,
 	PackagePlus,
   PackageSearch,
@@ -33,7 +32,6 @@ import {
 import { LogoutButton } from "@/components/layout/logout-button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { proxyClient } from "@/services/api";
 import type { NavigationItem, Session } from "@/types";
 
 const iconByKey: Record<string, LucideIcon> = {
@@ -98,12 +96,10 @@ export function MobileNav({ navigation }: { navigation: NavigationItem[] }) {
 
 export function Sidebar({
   navigation,
-  user,
   collapsed,
   onToggle
 }: {
   navigation: NavigationItem[];
-  user: Session["user"];
   collapsed: boolean;
   onToggle: () => void;
 }) {
@@ -244,58 +240,8 @@ export function Sidebar({
           );
         })}
       </nav>
-
-      {/* C3: a single non-floating footer section, part of the sidebar's normal flow. */}
-      <div className={cn("mt-3 shrink-0 border-t", collapsed ? "pt-3" : "pt-3")}>
-        {collapsed ? (
-          <div className="flex justify-center">
-            <CollapsedUserControl user={user} />
-          </div>
-        ) : (
-          <div className="flex items-center gap-3 px-1">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-foreground text-sm font-bold text-white">
-              {user.name.slice(0, 1).toUpperCase()}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-bold">{user.name}</span>
-              <span className="block truncate text-xs text-muted-foreground">{user.role_name}</span>
-            </span>
-            <LogoutButton compact />
-          </div>
-        )}
-      </div>
+      {/* Account and logout live in the sticky header now, not here. */}
     </aside>
-  );
-}
-
-/** C2: default state shows the user's avatar initial; hover swaps to a logout icon; click logs out — one control instead of two stacked pills. */
-function CollapsedUserControl({ user }: { user: Session["user"] }) {
-  const router = useRouter();
-  const [loading, setLoading] = useState(false);
-
-  async function logout() {
-    setLoading(true);
-    try {
-      await proxyClient("/auth/logout", { method: "POST" });
-    } finally {
-      router.replace("/login");
-      router.refresh();
-      setLoading(false);
-    }
-  }
-
-  return (
-    <button
-      aria-label="ออกจากระบบ"
-      className="group relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-foreground text-sm font-bold text-white transition hover:bg-primary disabled:opacity-50"
-      disabled={loading}
-      onClick={() => void logout()}
-      title={`${user.name} · ออกจากระบบ`}
-      type="button"
-    >
-      <span className="transition-opacity group-hover:opacity-0">{user.name.slice(0, 1).toUpperCase()}</span>
-      <LogOut className="absolute h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
-    </button>
   );
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Clock3, PackagePlus, Search, XCircle } from "lucide-react";
+import { CheckCircle2, Clock3, PackagePlus, Plus, Search, Trash2, XCircle } from "lucide-react";
 import { startTransition, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -10,6 +10,11 @@ import { Field } from "@/components/ui/field";
 import { proxyClient } from "@/services/api";
 
 type Option = Record<string, unknown>;
+type RequisitionLine = { key: string; productId: string; quantity: string };
+
+function newLine(): RequisitionLine {
+  return { key: Math.random().toString(36).slice(2), productId: "", quantity: "1" };
+}
 
 export function StockRequestConsole({
   products,
@@ -25,36 +30,77 @@ export function StockRequestConsole({
   canUseGhost?: boolean;
 }) {
   const router = useRouter();
-  const [productId, setProductId] = useState("");
-  const [quantity, setQuantity] = useState("1");
+  // The requisition is a table of lines now, so a single trip to the counter
+  // can ask for everything the shelf is short of at once.
+  const [lines, setLines] = useState<RequisitionLine[]>([newLine()]);
+  const [destBranchId, setDestBranchId] = useState("");
   const [sourceBranches, setSourceBranches] = useState<Record<string, string>>({});
   const [reviewBuckets, setReviewBuckets] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState("");
   const [message, setMessage] = useState("");
   const [requestOpen, setRequestOpen] = useState(false);
-  // ประวัติคำขอ filters — the pending queue above stays unfiltered, since it is
-  // a to-do list you work through rather than an archive you search.
   const [historySearch, setHistorySearch] = useState("");
   const [historyBranch, setHistoryBranch] = useState("");
   const [historyStatus, setHistoryStatus] = useState("");
 
-  async function createRequest() {
-    setBusyId("create");
-    try {
-      const response = await proxyClient<{ message: string }>("/stock-transfer-requests", {
-        method: "POST",
-        body: JSON.stringify({ product_id: productId, quantity: Number(quantity) })
-      });
-      setMessage(response.message);
-      setProductId("");
-      setQuantity("1");
-      setRequestOpen(false);
-      startTransition(() => router.refresh());
-    } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "ส่งคำขอโอนสินค้าไม่สำเร็จ");
-    } finally {
-      setBusyId("");
+  const activeProducts = useMemo(() => products.filter((product) => Boolean(product.active)), [products]);
+  const sellingBranches = useMemo(
+    () => branches.filter((branch) => Boolean(branch.active ?? true) && Boolean(branch.sales_enabled ?? true) && String(branch.branch_type) !== "main_warehouse"),
+    [branches]
+  );
+
+  function updateLine(key: string, patch: Partial<RequisitionLine>) {
+    setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
+  }
+  function removeLine(key: string) {
+    setLines((current) => (current.length > 1 ? current.filter((line) => line.key !== key) : current));
+  }
+  function resetDialog() {
+    setLines([newLine()]);
+    setDestBranchId("");
+  }
+
+  async function submitRequisition() {
+    const valid = lines.filter((line) => line.productId && Number(line.quantity) > 0);
+    if (valid.length === 0) {
+      setMessage("เพิ่มสินค้าอย่างน้อยหนึ่งรายการ");
+      return;
     }
+    if (mode === "admin" && !destBranchId) {
+      setMessage("เลือกสาขาที่ขอเบิก");
+      return;
+    }
+    setBusyId("create");
+    let created = 0;
+    const failures: string[] = [];
+    // One request per line: each product is reviewed and sourced on its own.
+    for (const line of valid) {
+      try {
+        await proxyClient<{ message: string }>("/stock-transfer-requests", {
+          method: "POST",
+          body: JSON.stringify({
+            product_id: line.productId,
+            quantity: Number(line.quantity),
+            ...(mode === "admin" ? { destination_branch_id: destBranchId } : {})
+          })
+        });
+        created += 1;
+      } catch (caught) {
+        const name = String(activeProducts.find((product) => String(product.id) === line.productId)?.name || "สินค้า");
+        failures.push(`${name}: ${caught instanceof Error ? caught.message : "ไม่สำเร็จ"}`);
+      }
+    }
+    setBusyId("");
+    if (created > 0) {
+      setRequestOpen(false);
+      resetDialog();
+      startTransition(() => router.refresh());
+    }
+    setMessage(
+      failures.length === 0
+        ? `สร้างใบเบิก ${created.toLocaleString("th-TH")} รายการแล้ว`
+        : `สร้างสำเร็จ ${created} รายการ · ไม่สำเร็จ ${failures.length}: ${failures.slice(0, 3).join(" | ")}`
+    );
   }
 
   async function review(request: Option, decision: "approve" | "reject") {
@@ -80,9 +126,6 @@ export function StockRequestConsole({
 
   const pending = requests.filter((request) => String(request.status) === "pending");
   const reviewed = requests.filter((request) => String(request.status) !== "pending");
-
-  // Destination branches come from the reviewed rows themselves, so the filter
-  // never offers a branch with no history behind it.
   const historyBranches = useMemo(
     () => Array.from(new Set(reviewed.map((row) => String(row.destination_branch_name || "")).filter(Boolean))).sort(),
     [reviewed]
@@ -92,32 +135,81 @@ export function StockRequestConsole({
     return reviewed.filter((row) => {
       if (historyBranch && String(row.destination_branch_name) !== historyBranch) return false;
       if (historyStatus && String(row.status) !== historyStatus) return false;
-      if (
-        keyword &&
-        ![row.product_name, row.transfer_code, row.source_branch_name].some((value) =>
-          String(value || "").toLocaleLowerCase("th").includes(keyword)
-        )
-      ) {
-        return false;
-      }
+      if (keyword && ![row.product_name, row.transfer_code, row.source_branch_name].some((value) => String(value || "").toLocaleLowerCase("th").includes(keyword))) return false;
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyBranch, historySearch, historyStatus, reviewed]);
   const history = usePagedRows(visibleHistory);
 
+  const requisitionDialog = (
+    <Dialog onOpenChange={(open) => { setRequestOpen(open); if (!open) resetDialog(); }} open={requestOpen}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader
+          title="สร้างใบเบิกสินค้า"
+          description={mode === "admin" ? "เลือกสาขาที่ขอเบิก แล้วเพิ่มรายการสินค้าและจำนวน" : "เพิ่มรายการสินค้าและจำนวนที่ต้องการ ผู้ดูแลจะเลือกสาขาต้นทางและประเภทสต๊อกให้"}
+        />
+        {mode === "admin" ? (
+          <Field className="mb-4" label="สาขาที่ขอเบิก (ปลายทาง)">
+            <Select aria-label="สาขาที่ขอเบิก" onChange={(event) => setDestBranchId(event.target.value)} value={destBranchId}>
+              <option value="">เลือกสาขา</option>
+              {sellingBranches.map((branch) => <option key={String(branch.id)} value={String(branch.id)}>{String(branch.name)}</option>)}
+            </Select>
+          </Field>
+        ) : null}
+        <div className="overflow-hidden rounded-xl border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted text-xs text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium">สินค้า</th>
+                <th className="w-32 px-3 py-2 text-left font-medium">จำนวน</th>
+                <th className="w-12 px-3 py-2" />
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {lines.map((line) => (
+                <tr key={line.key}>
+                  <td className="px-3 py-2">
+                    <Select aria-label="เลือกสินค้าที่ต้องการเบิก" onChange={(event) => updateLine(line.key, { productId: event.target.value })} value={line.productId}>
+                      <option value="">เลือกสินค้า</option>
+                      {activeProducts.map((product) => (
+                        <option key={String(product.id)} value={String(product.id)}>{String(product.name)} · {String(product.sku)}</option>
+                      ))}
+                    </Select>
+                  </td>
+                  <td className="px-3 py-2">
+                    <Input aria-label="จำนวนที่ต้องการ" min="1" onChange={(event) => updateLine(line.key, { quantity: event.target.value })} type="number" value={line.quantity} />
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <button aria-label="ลบรายการ" className="rounded p-1.5 text-muted-foreground transition hover:bg-red-50 hover:text-red-600 disabled:opacity-30" disabled={lines.length <= 1} onClick={() => removeLine(line.key)} type="button">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <Button className="mt-3" onClick={() => setLines((current) => [...current, newLine()])} type="button" variant="secondary">
+          <Plus className="h-4 w-4" />เพิ่มรายการ
+        </Button>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button onClick={() => { setRequestOpen(false); resetDialog(); }} type="button" variant="ghost">ยกเลิก</Button>
+          <Button disabled={busyId === "create"} onClick={() => void submitRequisition()} type="button">
+            <PackagePlus className="h-4 w-4" />{busyId === "create" ? "กำลังส่ง..." : "ส่งใบเบิก"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (mode === "pos") {
     return (
       <div className="space-y-6">
         <SectionCard
-          title="สถานะคำขอสินค้า"
-          description="ติดตามคำขอและใบโอนที่ผู้ดูแลสร้างให้"
-          actions={
-            <Button onClick={() => setRequestOpen(true)} type="button">
-              <PackagePlus className="h-4 w-4" />
-              สร้างใบเบิกสินค้า
-            </Button>
-          }
+          title="ใบเบิกสินค้าของสาขา"
+          description="ขอเติมสต๊อกจากผู้ดูแล และติดตามสถานะใบโอนที่สร้างให้"
+          actions={<Button onClick={() => setRequestOpen(true)} type="button"><PackagePlus className="h-4 w-4" />สร้างใบเบิกสินค้า</Button>}
         >
           <DataTable
             columns={[
@@ -130,39 +222,7 @@ export function StockRequestConsole({
           />
           {message ? <p className="mt-4 rounded-xl bg-surface-warm p-3 text-sm">{message}</p> : null}
         </SectionCard>
-
-        <Dialog onOpenChange={setRequestOpen} open={requestOpen}>
-          <DialogContent>
-            <DialogHeader
-              title="สร้างใบเบิกสินค้า"
-              description="ระบุสินค้าและจำนวนที่ต้องการ ผู้ดูแลจะเลือกสาขาต้นทางและประเภทสต๊อกให้"
-            />
-            <div className="grid gap-4">
-              <label className="space-y-2">
-                <span className="text-sm font-medium">สินค้า</span>
-                <Select aria-label="สินค้าที่ต้องการเบิก" onChange={(event) => setProductId(event.target.value)} value={productId}>
-                  <option value="">เลือกสินค้า</option>
-                  {products.filter((product) => Boolean(product.active)).map((product) => (
-                    <option key={String(product.id)} value={String(product.id)}>
-                      {String(product.name)} · {String(product.sku)}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">จำนวนที่ต้องการ</span>
-                <Input aria-label="จำนวนสินค้าที่ต้องการ" min="1" onChange={(event) => setQuantity(event.target.value)} type="number" value={quantity} />
-              </label>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button onClick={() => setRequestOpen(false)} type="button" variant="ghost">ยกเลิก</Button>
-              <Button disabled={!productId || Number(quantity) <= 0 || busyId === "create"} onClick={() => void createRequest()} type="button">
-                <PackagePlus className="h-4 w-4" />
-                {busyId === "create" ? "กำลังส่ง..." : "ส่งคำขอ"}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        {requisitionDialog}
       </div>
     );
   }
@@ -172,6 +232,7 @@ export function StockRequestConsole({
       <SectionCard
         title={`คำขอสินค้ารอตรวจสอบ (${pending.length.toLocaleString("th-TH")})`}
         description="เลือกสาขาต้นทางและสต๊อกที่จะส่ง ระบบจะสร้างใบโอนตามจำนวนที่สาขาขอ"
+        actions={<Button onClick={() => setRequestOpen(true)} type="button"><PackagePlus className="h-4 w-4" />สร้างใบเบิกแทนสาขา</Button>}
       >
         <div className="space-y-4">
           {pending.map((request) => {
@@ -189,30 +250,18 @@ export function StockRequestConsole({
                   <Badge><Clock3 className="mr-1 h-3 w-3" />{statusLabel(request.status)}</Badge>
                 </div>
                 <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_190px_auto_auto]">
-                  <Select
-                    aria-label={`สาขาต้นทาง ${id}`}
-                    onChange={(event) => setSourceBranches((current) => ({ ...current, [id]: event.target.value }))}
-                    value={sourceBranches[id] || ""}
-                  >
+                  <Select aria-label={`สาขาต้นทาง ${id}`} onChange={(event) => setSourceBranches((current) => ({ ...current, [id]: event.target.value }))} value={sourceBranches[id] || ""}>
                     <option value="">เลือกสาขาต้นทาง</option>
                     {branches.filter((branch) => String(branch.id) !== destinationId).map((branch) => (
                       <option key={String(branch.id)} value={String(branch.id)}>{String(branch.name)}</option>
                     ))}
                   </Select>
-                  <Select
-                    aria-label={`ประเภทสต๊อก ${id}`}
-                    onChange={(event) => setReviewBuckets((current) => ({ ...current, [id]: event.target.value }))}
-                    value={reviewBuckets[id] || "real"}
-                  >
+                  <Select aria-label={`ประเภทสต๊อก ${id}`} onChange={(event) => setReviewBuckets((current) => ({ ...current, [id]: event.target.value }))} value={reviewBuckets[id] || "real"}>
                     <option value="real">สต๊อกจริง</option>
                     {canUseGhost ? <option value="ghost">สต๊อกผี</option> : null}
                   </Select>
-                  <Button disabled={busyId === id || !sourceBranches[id]} onClick={() => void review(request, "approve")} type="button">
-                    <CheckCircle2 className="h-4 w-4" />สร้างใบโอน
-                  </Button>
-                  <Button disabled={busyId === id} onClick={() => void review(request, "reject")} type="button" variant="secondary">
-                    <XCircle className="h-4 w-4" />ปฏิเสธ
-                  </Button>
+                  <Button disabled={busyId === id || !sourceBranches[id]} onClick={() => void review(request, "approve")} type="button"><CheckCircle2 className="h-4 w-4" />สร้างใบโอน</Button>
+                  <Button disabled={busyId === id} onClick={() => void review(request, "reject")} type="button" variant="secondary"><XCircle className="h-4 w-4" />ปฏิเสธ</Button>
                 </div>
               </article>
             );
@@ -227,34 +276,18 @@ export function StockRequestConsole({
           <Field className="w-64" label="ค้นหา">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                aria-label="ค้นหาประวัติคำขอ"
-                className="pl-9"
-                onChange={(event) => { setHistorySearch(event.target.value); history.resetPage(); }}
-                placeholder="ชื่อสินค้า, เลขใบโอน, สาขาต้นทาง"
-                value={historySearch}
-              />
+              <Input aria-label="ค้นหาประวัติคำขอ" className="pl-9" onChange={(event) => { setHistorySearch(event.target.value); history.resetPage(); }} placeholder="ชื่อสินค้า, เลขใบโอน, สาขาต้นทาง" value={historySearch} />
             </div>
           </Field>
           <Field className="w-52" label="สาขาปลายทาง">
-            <Select
-              aria-label="กรองประวัติคำขอตามสาขาปลายทาง"
-              onChange={(event) => { setHistoryBranch(event.target.value); history.resetPage(); }}
-              value={historyBranch}
-            >
+            <Select aria-label="กรองประวัติคำขอตามสาขาปลายทาง" onChange={(event) => { setHistoryBranch(event.target.value); history.resetPage(); }} value={historyBranch}>
               <option value="">ทุกสาขา</option>
               {historyBranches.map((name) => <option key={name} value={name}>{name}</option>)}
             </Select>
           </Field>
           <Field className="w-44" label="สถานะคำขอ">
-            <Select
-              aria-label="กรองประวัติคำขอตามสถานะ"
-              onChange={(event) => { setHistoryStatus(event.target.value); history.resetPage(); }}
-              value={historyStatus}
-            >
+            <Select aria-label="กรองประวัติคำขอตามสถานะ" onChange={(event) => { setHistoryStatus(event.target.value); history.resetPage(); }} value={historyStatus}>
               <option value="">ทุกสถานะ</option>
-              {/* Labels mirror statusLabel() in common.tsx, so the filter and
-                  the สถานะคำขอ column never disagree on wording. */}
               <option value="approved">อนุมัติแล้ว</option>
               <option value="rejected">ไม่อนุมัติ</option>
             </Select>
@@ -277,6 +310,7 @@ export function StockRequestConsole({
         />
         <Pagination className="mt-4" {...history.pager} />
       </SectionCard>
+      {requisitionDialog}
     </div>
   );
 }

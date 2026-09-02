@@ -480,8 +480,11 @@ func validateCheckoutPayment(input CheckoutRequest, totalAmount float64) (checko
 }
 
 func (s *Service) PreviewCheckout(ctx context.Context, user platform.AuthUser, input CheckoutRequest) (map[string]any, error) {
-	if user.Portal != "pos" {
-		return nil, platform.NewError(http.StatusForbidden, "เฉพาะพนักงานขายหน้าร้านเท่านั้น")
+	// The POS portal sells at its own branch; head office (central_admin) may
+	// also sell in the name of a branch it picks, which carries the remote
+	// permission. Both produce an ordinary bill of the target branch.
+	if user.Portal != "pos" && !platform.HasPermission(user, "invoice.create.remote") {
+		return nil, platform.NewError(http.StatusForbidden, "เฉพาะพนักงานขายหน้าร้านหรือสำนักงานใหญ่เท่านั้น")
 	}
 	if input.FullTaxInvoice && strings.TrimSpace(input.CustomerTaxID) == "" {
 		return nil, platform.NewError(http.StatusBadRequest, "ใบกำกับภาษีเต็มรูปต้องระบุเลขประจำตัวผู้เสียภาษี")
@@ -505,8 +508,11 @@ func (s *Service) PreviewCheckout(ctx context.Context, user platform.AuthUser, i
 }
 
 func (s *Service) Checkout(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, input CheckoutRequest) (map[string]any, error) {
-	if user.Portal != "pos" {
-		return nil, platform.NewError(http.StatusForbidden, "เฉพาะพนักงานขายหน้าร้านเท่านั้น")
+	// The POS portal sells at its own branch; head office (central_admin) may
+	// also sell in the name of a branch it picks, which carries the remote
+	// permission. Both produce an ordinary bill of the target branch.
+	if user.Portal != "pos" && !platform.HasPermission(user, "invoice.create.remote") {
+		return nil, platform.NewError(http.StatusForbidden, "เฉพาะพนักงานขายหน้าร้านหรือสำนักงานใหญ่เท่านั้น")
 	}
 	if err := validateBranchScope(user, input.BranchID); err != nil {
 		return nil, err

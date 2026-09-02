@@ -3,6 +3,7 @@
 import type { PropsWithChildren } from "react";
 import { useState } from "react";
 
+import { AppHeader } from "@/components/layout/app-header";
 import { MobileNav, PosBottomNav, Sidebar } from "@/components/layout/sidebar";
 import { cn } from "@/lib/utils";
 import type { Session } from "@/types";
@@ -34,12 +35,13 @@ export function AppShell({
 			    own in-page print button too, so only the sidebar/nav is hidden
 			    here, not all of <main>). */}
 			<div className="hidden lg:block print:hidden">
-				<Sidebar collapsed={sidebarCollapsed} navigation={session.navigation} onToggle={() => setSidebarCollapsed((current) => !current)} user={session.user} />
+				<Sidebar collapsed={sidebarCollapsed} navigation={session.navigation} onToggle={() => setSidebarCollapsed((current) => !current)} />
       </div>
       {/* Every back-office page shares this padded template — no route gets a
           full-bleed, non-scrolling workspace of its own (สรุปสิ้นเดือน used
           to, and its content was simply clipped once it outgrew the viewport). */}
       <main className="min-w-0 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
+        <AppHeader user={session.user} />
         <MobileNav navigation={session.navigation} />
         {children}
       </main>
