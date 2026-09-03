@@ -8,7 +8,7 @@ import { z } from "zod";
 import { DataTable, SectionCard } from "@/components/sections/common";
 import { MarketplaceConsole } from "@/components/sections/marketplace-console";
 import { Field } from "@/components/ui/field";
-import { AutoResizeTextarea, Badge, Button, Checkbox, Dialog, DialogContent, DialogHeader, EmptyState, Input, Pagination, Select, Switch, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/primitives";
+import { AutoResizeTextarea, Badge, Button, Checkbox, CheckboxField, Dialog, DialogContent, DialogHeader, EmptyState, Input, Pagination, Select, Switch, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
 import { cn, generateReadableCode } from "@/lib/utils";
 import { rules, useFormErrors } from "@/lib/validation";
@@ -698,7 +698,7 @@ export function SettingsConsole({
                           <Input aria-label={`เลขถัดไป ${String(sequence.doc_type)} ${String(sequence.branch_code)}`} defaultValue={String(sequence.next_number)} min="1" name="next_number" required type="number" />
                         </Field>
                         <Field label="สถานะการแก้ไข" hint="ล็อกเพื่อป้องกันเลขเปลี่ยน">
-                          <span className="flex h-11 items-center gap-2 rounded-xl border bg-white px-3 text-sm"><Checkbox aria-label={`ล็อกเลขที่ ${String(sequence.doc_type)} ${String(sequence.branch_code)}`} defaultChecked={Boolean(sequence.is_locked)} name="is_locked" />ล็อกเลขที่เอกสาร</span>
+                          <CheckboxField aria-label={`ล็อกเลขที่ ${String(sequence.doc_type)} ${String(sequence.branch_code)}`} defaultChecked={Boolean(sequence.is_locked)} label="ล็อกเลขที่เอกสาร" name="is_locked" />
                         </Field>
                         <Button className="self-end" type="submit">บันทึก</Button>
                         <p className="text-sm text-muted-foreground md:col-span-4">ตัวอย่างเลขถัดไป <strong>{String(sequence.example_number)}</strong></p>
@@ -848,10 +848,12 @@ export function SettingsConsole({
                     {branchOptionsFor(createRoleId).map((branch) => <option key={String(branch.id)} value={String(branch.id)}>{String(branch.name)}</option>)}
                   </Select>
                 </Field>
-                <label className="flex h-11 items-center gap-2 self-end rounded-xl border px-3 text-sm">
-                  <Checkbox defaultChecked={userEditor.mode === "create" ? true : Boolean(userEditor.record?.active)} name="active" />
-                  เปิดใช้งาน
-                </label>
+                <CheckboxField
+                  className="self-end"
+                  defaultChecked={userEditor.mode === "create" ? true : Boolean(userEditor.record?.active)}
+                  label="เปิดใช้งาน"
+                  name="active"
+                />
                 <div className="flex justify-end gap-2 md:col-span-2">
                   <Button onClick={() => setUserEditor(null)} type="button" variant="secondary">ยกเลิก</Button>
                   <Button type="submit">{userEditor.mode === "create" ? "เพิ่มผู้ใช้" : "บันทึกผู้ใช้"}</Button>

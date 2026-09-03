@@ -7,7 +7,7 @@ import { startTransition, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Field } from "@/components/ui/field";
-import { Button, Dialog, DialogContent, DialogHeader, EmptyState, Input, Notice, Select } from "@/components/ui/primitives";
+import { Button, CheckboxField, Dialog, DialogContent, DialogHeader, EmptyState, Input, Notice, Select } from "@/components/ui/primitives";
 import { cn, currency } from "@/lib/utils";
 import { RESUME_KEY } from "@/components/sections/parked-bills-console";
 import { proxyClient } from "@/services/api";
@@ -682,21 +682,18 @@ export function PosWorkspace({
           </div>
 
           <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-            <label className="flex min-h-11 items-center gap-3 rounded-2xl border px-4 text-sm font-semibold">
-              <input
-                checked={fullTaxInvoice}
-                onChange={(event) => {
-                  const checked = event.target.checked;
-                  setFullTaxInvoice(checked);
-                  if (!checked) {
-                    setCustomerName("");
-                    setCustomerTaxId("");
-                  }
-                }}
-                type="checkbox"
-              />
-              ออกใบกำกับภาษีเต็มรูป
-            </label>
+            <CheckboxField
+              checked={fullTaxInvoice}
+              label="ออกใบกำกับภาษีเต็มรูป"
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setFullTaxInvoice(checked);
+                if (!checked) {
+                  setCustomerName("");
+                  setCustomerTaxId("");
+                }
+              }}
+            />
             {fullTaxInvoice ? (
               <>
                 <Input

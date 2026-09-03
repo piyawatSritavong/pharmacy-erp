@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { Field } from "@/components/ui/field";
 import {
   Button,
+  CheckboxField,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -15,7 +16,7 @@ import {
   Notice,
   Pagination,
   Select,
-  usePagedRows,
+  usePagedRows
 } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
 
@@ -212,14 +213,11 @@ export function ProductCategoryConsole({ initialItems }: { initialItems: Categor
                 />
               </div>
             </Field>
-            <label className="flex items-center gap-2 text-sm font-semibold">
-              <input
-                checked={Boolean(editing.active)}
-                onChange={(event) => setEditing((current) => ({ ...current, active: event.target.checked }))}
-                type="checkbox"
-              />
-              เปิดใช้งานหมวดนี้
-            </label>
+            <CheckboxField
+              checked={Boolean(editing.active)}
+              label="เปิดใช้งานหมวดนี้"
+              onChange={(event) => setEditing((current) => ({ ...current, active: event.target.checked }))}
+            />
             {message ? <p className="text-sm text-primary">{message}</p> : null}
             <div className="flex justify-end gap-2">
               <Button onClick={() => setDialogOpen(false)} type="button" variant="secondary">ยกเลิก</Button>

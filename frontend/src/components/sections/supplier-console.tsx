@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { Field } from "@/components/ui/field";
 import {
   Button,
+  CheckboxField,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -22,7 +23,7 @@ import {
   Pagination,
   Select,
   Textarea,
-  usePagedRows,
+  usePagedRows
 } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
 
@@ -410,14 +411,11 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
               />
             </Field>
             {editing.id ? (
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  checked={Boolean(editing.active)}
-                  onChange={(e) => update("active", e.target.checked)}
-                  type="checkbox"
-                />
-                เปิดใช้งาน
-              </label>
+              <CheckboxField
+                checked={Boolean(editing.active)}
+                label="เปิดใช้งาน"
+                onChange={(e) => update("active", e.target.checked)}
+              />
             ) : null}
             {message ? (
               <p className="md:col-span-2 text-sm text-primary">{message}</p>

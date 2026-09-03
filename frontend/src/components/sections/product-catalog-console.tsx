@@ -9,7 +9,7 @@ import { DataTable, SectionCard } from "@/components/sections/common";
 import { Field } from "@/components/ui/field";
 import {
   Button,
-  Checkbox,
+  CheckboxField,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -287,17 +287,16 @@ export function ProductCatalogConsole({
                 <option value="both">หน้าร้าน + ออนไลน์</option>
               </Select>
             </Field>
-            {/* Full-height rows that line up with the inputs beside them — these
-                used to collapse to the checkbox's own height and read as thin,
-                cramped pills. */}
-            <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm font-medium transition hover:bg-muted">
-              <Checkbox checked={Boolean(editing.tax_exempt)} onChange={(event) => setEditing((current) => ({ ...current, tax_exempt: event.target.checked }))} />
-              ยกเว้นภาษีมูลค่าเพิ่ม
-            </label>
-            <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm font-medium transition hover:bg-muted">
-              <Checkbox checked={Boolean(editing.active)} onChange={(event) => setEditing((current) => ({ ...current, active: event.target.checked }))} />
-              เปิดใช้งาน
-            </label>
+            <CheckboxField
+              checked={Boolean(editing.tax_exempt)}
+              label="ยกเว้นภาษีมูลค่าเพิ่ม"
+              onChange={(event) => setEditing((current) => ({ ...current, tax_exempt: event.target.checked }))}
+            />
+            <CheckboxField
+              checked={Boolean(editing.active)}
+              label="เปิดใช้งาน"
+              onChange={(event) => setEditing((current) => ({ ...current, active: event.target.checked }))}
+            />
             {/* The อย. flag + registration number moved out with the FDA (อย.)
                 feature into PharmaPOS Pro; the product still carries the fields
                 (kept on save) so nothing is lost when that feature returns. */}

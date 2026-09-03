@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { SectionCard, InvoiceSummary } from "@/components/sections/common";
 import { ProductSearchPicker } from "@/components/sections/product-search-picker";
-import { Button, Input, Select } from "@/components/ui/primitives";
+import { Button, CheckboxField, Input, Select } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
 
 type Option = Record<string, unknown>;
@@ -322,26 +322,20 @@ export function DocumentComposer({
 
         <div className="grid gap-4 md:grid-cols-2">
           {governmentMode === undefined ? (
-            <label className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm">
-              <input
-                aria-label="โหมดราชการ"
-                checked={isGovernmentMode}
-                onChange={(event) => setGovernmentMode(event.target.checked)}
-                type="checkbox"
-              />
-              โหมดราชการ
-            </label>
+            <CheckboxField
+              aria-label="โหมดราชการ"
+              checked={isGovernmentMode}
+              label="โหมดราชการ"
+              onChange={(event) => setGovernmentMode(event.target.checked)}
+            />
           ) : null}
           {kind === "invoice" ? (
-            <label className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm">
-              <input
-                aria-label="ใบกำกับภาษีเต็มรูป"
-                checked={fullTaxInvoice}
-                onChange={(event) => setFullTaxInvoice(event.target.checked)}
-                type="checkbox"
-              />
-              ออกใบกำกับภาษีเต็มรูป
-            </label>
+            <CheckboxField
+              aria-label="ใบกำกับภาษีเต็มรูป"
+              checked={fullTaxInvoice}
+              label="ออกใบกำกับภาษีเต็มรูป"
+              onChange={(event) => setFullTaxInvoice(event.target.checked)}
+            />
           ) : null}
         </div>
 

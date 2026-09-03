@@ -2,6 +2,7 @@ export { Badge } from "@/components/ui/badge";
 export { Button } from "@/components/ui/button";
 export { Card, CardBody, CardHeader } from "@/components/ui/card";
 export { Checkbox } from "@/components/ui/checkbox";
+export { CheckboxField } from "@/components/ui/checkbox-field";
 export { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog";
 export { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 export { EmptyState, TableEmptyState } from "@/components/ui/empty-state";
