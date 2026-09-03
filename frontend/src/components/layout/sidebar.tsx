@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import {
   BarChart3,
   ArrowLeftRight,
+  Banknote,
   Building2,
   CalendarClock,
   ChevronDown,
@@ -37,6 +38,7 @@ import { cn } from "@/lib/utils";
 import type { NavigationItem, Session } from "@/types";
 
 const iconByKey: Record<string, LucideIcon> = {
+  admin_sales: Banknote,
   dashboard: LayoutDashboard,
   reports_group: BarChart3,
   inventory_group: Warehouse,

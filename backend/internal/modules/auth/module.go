@@ -272,8 +272,6 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	documentsChildren = appendProItemIf(documentsChildren, has("quotation.manage"), "sales_management", "ใบขาย", "/sales-management", "ใบเสนอราคา ใบขาย และประวัติเอกสาร")
 	documentsChildren = appendProItemIf(documentsChildren, has("fda.manage"), "fda_reports", "อย.", "/fda-reports", "เลือกสินค้าและสร้างเอกสารนำส่ง อย.")
 
-	// ขายหน้าร้าน for head office: a single top-level action, not a group.
-	items = appendItemIf(items, has("invoice.create.remote"), "admin_sales", "ขายหน้าร้าน", "/admin-sales", "เปิดการขายในนามสาขาที่เลือก")
 	items = appendGroup(items, "reports_group", "รายงาน", "รายงานสรุปและแดชบอร์ด", reportsChildren)
 	items = appendGroup(items, "inventory_group", "คลังสินค้า", "สต๊อกจริง สต๊อกผี หมวดสินค้า และการโอนสินค้า", inventoryChildren)
 	items = appendGroup(items, "documents_group", "ใบเอกสาร", "ใบสั่งซื้อ บริษัทคู่ค้า รพ.สต. ใบขาย และเอกสาร อย.", documentsChildren)
@@ -305,6 +303,10 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	systemChildren = appendItemIf(systemChildren, has("audit.view.global"), "audit", "ประวัติระบบ", "/audit", "ประวัติการทำงานทุกอย่างของระบบ")
 	systemChildren = appendItemIf(systemChildren, has("invoice.view"), "sales_history", "ประวัติการขาย", "/sales-history", "บิลใบเสร็จและบิลคืนสินค้าย้อนหลัง")
 	items = appendGroup(items, "system_group", "ระบบ", "ตั้งค่าระบบ ประวัติการทำงาน และประวัติการขาย", systemChildren)
+
+	// ขายหน้าร้าน for head office: a single top-level action (not a group),
+	// kept at the very bottom of the nav, under ระบบ.
+	items = appendItemIf(items, has("invoice.create.remote"), "admin_sales", "ขายหน้าร้าน", "/admin-sales", "เปิดการขายในนามสาขาที่เลือก")
 
 	return items
 }

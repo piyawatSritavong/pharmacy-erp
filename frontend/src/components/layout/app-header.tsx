@@ -35,8 +35,12 @@ export function AppHeader({ user, navigation }: { user: Session["user"]; navigat
   const title = context?.header?.title ?? fallback?.title ?? "";
   const description = context?.header?.description ?? fallback?.description;
 
+  // -mt on the header cancels <main>'s top padding so the bar sits flush at the
+  // very top (y=0) whether or not the page is scrolled — otherwise it starts
+  // lower when unscrolled and jumps up on scroll, which shifted anything
+  // anchored to its bottom edge (e.g. the notification panel).
   return (
-    <header className="sticky top-0 z-30 -mx-4 mb-6 flex items-center justify-between gap-4 border-b bg-background/80 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10 print:hidden">
+    <header className="sticky top-0 z-30 -mx-4 -mt-6 mb-6 flex items-center justify-between gap-4 border-b bg-background/80 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-10 lg:-mt-8 lg:px-10 print:hidden">
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
         <h1 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">{title}</h1>
         {description ? (

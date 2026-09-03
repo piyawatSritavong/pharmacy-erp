@@ -108,7 +108,10 @@ export function NotificationBell() {
               const Icon = ICONS[item.type] || Bell;
               return (
                 <li key={item.type}>
-                  <Link className="flex items-start gap-3 px-4 py-3 transition hover:bg-muted" href={item.href}>
+                  {/* Opening the bell marks the badge seen; clicking through to
+                      act on an item does too, so the count is gone when you
+                      come back. */}
+                  <Link className="flex items-start gap-3 px-4 py-3 transition hover:bg-muted" href={item.href} onClick={markRead}>
                     <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700"><Icon className="h-4 w-4" /></span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-2">
