@@ -10,7 +10,6 @@ import { Field } from "@/components/ui/field";
 import { Button, CheckboxField, Dialog, DialogContent, DialogHeader, EmptyState, Input, Notice, Select } from "@/components/ui/primitives";
 import { cn, currency } from "@/lib/utils";
 import { RESUME_KEY } from "@/components/sections/parked-bills-console";
-import { RemoteSalePanel } from "@/components/sections/remote-sale-panel";
 import { proxyClient } from "@/services/api";
 
 /** The grid pages in from the server rather than shipping the whole catalogue
@@ -146,6 +145,12 @@ export function PosWorkspace({
   // The branch till's side of a remote sale, as head office sees it.
   const [remoteSession, setRemoteSession] = useState<Option | null>(null);
   const remoteStatus = String(remoteSession?.status || "");
+  // The till's side: when head office has a cart open here, it fills this very
+  // cart (so the screen reads exactly as an ordinary sale) and locks editing —
+  // the server settles the cart it holds, so the two screens cannot disagree.
+  const [remoteLock, setRemoteLock] = useState<{ id: string; operator: string } | null>(null);
+  const remoteLockRef = useRef("");
+  const remoteCartSignature = useRef("");
   // พักบิล — suspend the cart without touching stock, resume it later.
   const [parking, setParking] = useState(false);
   const [parkNote, setParkNote] = useState("");
@@ -274,6 +279,58 @@ export function PosWorkspace({
     setBillDiscount("");
     setMessage(`สาขารับชำระแล้ว · ${String(remoteSession?.invoice_number || "")}`);
   }, [remoteSession?.invoice_number, remoteStatus]);
+
+  useEffect(() => {
+    if (!watchRemote) return;
+    const load = () =>
+      void proxyClient<{ item: Option | null }>("/pos/remote-session")
+        .then((response) => {
+          const item = response.item;
+          const openSession = item && String(item.status) === "open" ? item : null;
+          if (!openSession) {
+            // Head office withdrew it, or the sale is paid: hand the till back.
+            if (remoteLockRef.current) {
+              remoteLockRef.current = "";
+              remoteCartSignature.current = "";
+              setRemoteLock(null);
+              setCart([]);
+              setBillDiscount("");
+            }
+            return;
+          }
+          const cartData = (openSession.cart as Option) || {};
+          const lines = (cartData.lines as Option[]) || [];
+          const signature = JSON.stringify(lines) + String(cartData.bill_discount_amount || "");
+          remoteLockRef.current = String(openSession.id);
+          setRemoteLock({ id: String(openSession.id), operator: String(openSession.operator_name || "") });
+          // Only rewrite the cart when it actually changed, so a three-second
+          // poll does not restart the row animations under the cashier.
+          if (signature === remoteCartSignature.current) return;
+          remoteCartSignature.current = signature;
+          setCart(
+            lines.map((line) => ({
+              product: {
+                id: String(line.product_id),
+                name: String(line.product_name || ""),
+                sku: String(line.sku || ""),
+                effective_price: Number(line.unit_price || 0)
+              },
+              lot: { id: String(line.inventory_lot_id), lot_number: String(line.lot_number || "") },
+              quantity: Number(line.quantity || 0),
+              unitId: "",
+              discount: Number(line.discount_amount || 0) ? String(line.discount_amount) : ""
+            }))
+          );
+          setBillDiscount(Number(cartData.bill_discount_amount || 0) ? String(cartData.bill_discount_amount) : "");
+          setFullTaxInvoice(Boolean(cartData.full_tax_invoice));
+        })
+        .catch(() => {
+          /* the next tick retries */
+        });
+    load();
+    const timer = window.setInterval(load, 3000);
+    return () => window.clearInterval(timer);
+  }, [watchRemote]);
 
   const filteredProducts = gridItems;
 
@@ -623,10 +680,20 @@ export function PosWorkspace({
     setSubmitting(true);
     setMessage("");
     try {
-      const result = await proxyClient<Option>(`${endpointBase}/checkout`, {
-        method: "POST",
-        body: JSON.stringify(payload())
-      });
+      const result = remoteLock
+        ? // The cart lives on the server; the till supplies only the payment.
+          await proxyClient<Option>("/pos/remote-session/checkout", {
+            method: "POST",
+            body: JSON.stringify({
+              payment_type: paymentType,
+              tendered_amount: Number(tendered || 0),
+              transfer_amount: Number(transferAmount || 0)
+            })
+          })
+        : await proxyClient<Option>(`${endpointBase}/checkout`, {
+            method: "POST",
+            body: JSON.stringify(payload())
+          });
       setReceipt(result);
       setCartOpen(false);
       setCart([]);
@@ -857,12 +924,20 @@ export function PosWorkspace({
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold" title={String(line.product.name)}>{String(line.product.name)}</p>
                       <p className="truncate text-[11px] text-muted-foreground">
-                        Lot {String(line.lot.lot_number)} · หมดอายุ {line.lot.expires_on ? new Date(String(line.lot.expires_on)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" }) : "ไม่กำหนด"}
+                        {String(line.product.sku || "")} · Lot {String(line.lot.lot_number)} × {line.quantity}
+                        {line.lot.expires_on ? ` · หมดอายุ ${new Date(String(line.lot.expires_on)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}` : ""}
                       </p>
                     </div>
                     {/* Bigger, bolder line price — the number a cashier scans down the cart to check. */}
+                    {/* Before tax: ราคาต่อหน่วย × จำนวน (less any line discount),
+                        so the lines foot to ยอดก่อนภาษี below rather than each
+                        carrying VAT of their own. */}
                     <p className="shrink-0 text-lg font-bold tabular-nums text-foreground">
-                      {currency(Number(priced?.line_total || line.product.effective_price || 0))}
+                      {currency(
+                        priced?.line_subtotal == null
+                          ? Number(line.product.effective_price || 0) * line.quantity - Number(line.discount || 0)
+                          : Number(priced.line_subtotal)
+                      )}
                     </p>
                   </div>
                   {units.length > 1 ? (
@@ -886,6 +961,7 @@ export function PosWorkspace({
                       aria-label={`ส่วนลด ${String(line.product.name)}`}
                       className="h-9 min-w-0 flex-1 text-xs"
                       inputMode="decimal"
+                      disabled={Boolean(remoteLock)}
                       onChange={(event) => updateLine(key, { discount: event.target.value })}
                       placeholder="ส่วนลด (บาท)"
                       value={line.discount}
@@ -893,7 +969,8 @@ export function PosWorkspace({
                     <div className="flex shrink-0 items-center rounded-full bg-white">
                       <button
                         aria-label={`ลดจำนวน ${String(line.product.name)}`}
-                        className="p-2"
+                        className="p-2 disabled:opacity-30"
+                        disabled={Boolean(remoteLock)}
                         onClick={() => line.quantity === 1
                           ? setCart((current) => current.filter((item) => cartLineKey(item) !== key))
                           : updateLine(key, { quantity: line.quantity - 1 })}
@@ -904,7 +981,8 @@ export function PosWorkspace({
                       <span className="w-7 text-center text-sm font-bold">{line.quantity}</span>
                       <button
                         aria-label={`เพิ่มจำนวน ${String(line.product.name)}`}
-                        className="p-2"
+                        className="p-2 disabled:opacity-30"
+                        disabled={Boolean(remoteLock)}
                         onClick={() => updateLine(key, { quantity: line.quantity + 1 })}
                         type="button"
                       >
@@ -913,7 +991,8 @@ export function PosWorkspace({
                     </div>
                     <button
                       aria-label={`ลบ ${String(line.product.name)}`}
-                      className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-white hover:text-destructive"
+                      className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-white hover:text-destructive disabled:opacity-30"
+                      disabled={Boolean(remoteLock)}
                       onClick={() => setCart((current) => current.filter((item) => cartLineKey(item) !== key))}
                       type="button"
                     >
@@ -974,6 +1053,11 @@ export function PosWorkspace({
               พิมพ์ใบเสร็จ {String(receipt.invoice_number)}
             </Link>
           ) : null}
+          {remoteLock ? (
+            <p className="mt-3 rounded-xl bg-info-50 px-3 py-2 text-xs text-info-800" role="status">
+              บิลนี้ {remoteLock.operator || "สำนักงานใหญ่"} เป็นผู้เปิด · รับชำระได้เลย แก้ไขรายการที่นี่ไม่ได้
+            </p>
+          ) : null}
           {remoteBranchId ? (
             <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-info-50 px-3 py-2 text-xs text-info-800">
               <p role="status">
@@ -1001,7 +1085,7 @@ export function PosWorkspace({
           <div className="mt-4 grid grid-cols-[auto_auto_1fr] gap-2">
             <Button
               aria-label="ล้างรายการขาย"
-              disabled={!cart.length}
+              disabled={!cart.length || Boolean(remoteLock)}
               onClick={() => setCart([])}
               type="button"
               variant="secondary"
@@ -1010,7 +1094,7 @@ export function PosWorkspace({
             </Button>
             <Button
               aria-label="พักบิลนี้ไว้"
-              disabled={!cart.length || parking}
+              disabled={!cart.length || parking || Boolean(remoteLock)}
               onClick={() => setParkOpen(true)}
               type="button"
               variant="secondary"
@@ -1023,7 +1107,6 @@ export function PosWorkspace({
             </Button>
           </div>
         </aside>
-        {watchRemote ? <RemoteSalePanel /> : null}
       </section>
 
       <Dialog onOpenChange={setParkOpen} open={parkOpen}>
