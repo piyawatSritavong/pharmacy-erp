@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, Eye, FileClock, Loader2, LockKeyhole, RefreshCw, ShieldCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, ChevronDown, ChevronRight, Eye, Loader2, LockKeyhole, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageIntro, SectionCard } from "@/components/sections/common";
@@ -146,11 +147,6 @@ function text(value: unknown) {
   return value == null ? "" : String(value);
 }
 
-function num(value: unknown) {
-  const parsed = Number(value || 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 function count(value: number) {
   return value.toLocaleString("th-TH");
 }
@@ -162,17 +158,6 @@ function parseMarkup(value: string) {
   if (Math.abs(parsed * 100 - Math.round(parsed * 100)) > 0.000001) return null;
   return parsed;
 }
-
-const logNames: Record<string, string> = {
-  invoice_suppressed: "ซ่อนใบขาย",
-  invoice_renumbered: "เรียงเลขใบขายใหม่",
-  invoice_repriced: "บันทึกบิลที่ต้นทุน + %",
-  price_adjusted: "ปรับราคาบรรทัดเป็นต้นทุน + %",
-  stock_reversed: "ย้อนการตัด Real เดิม",
-  stock_received: "WH รับ Real คืน",
-  stock_deducted: "ส่งคืน Real / ตัด Ghost",
-  stock_deficit: "บันทึก Ghost deficit"
-};
 
 function GroupRow({ group, label }: { group: InvoiceGroup; label: string }) {
   return (
@@ -201,7 +186,7 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
   const [overview, setOverview] = useState<Overview | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [audit, setAudit] = useState<Row | null>(null);
+  const router = useRouter();
   const [foldedMonths, setFoldedMonths] = useState<Record<string, boolean>>({});
   const [confirmation, setConfirmation] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -291,24 +276,12 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
         body: JSON.stringify(payload())
       });
       toast.success(response.message);
-      setAudit(response.item);
       setConfirmOpen(false);
       setConfirmation("");
       resetPlan();
       await loadHistory();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "ยืนยันสรุปสิ้นเดือนไม่สำเร็จ");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function openAudit(id: string) {
-    setLoading(true);
-    try {
-      setAudit(await proxyClient<Row>(`/accounting/month-end/reconciliations/${id}`));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "โหลด Audit Log ไม่สำเร็จ");
     } finally {
       setLoading(false);
     }
@@ -466,7 +439,7 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
                       <Table>
                         <TableHeader><TableRow><TableHead>เลขรายการ</TableHead><TableHead>ช่วงวันที่</TableHead><TableHead className="text-right">ยอดเดิม</TableHead><TableHead className="text-right">ยอดซ่อน</TableHead><TableHead className="text-right">ส่วนต่างต้นทุน + %</TableHead><TableHead className="text-right">ยอดเป้าหมาย</TableHead><TableHead>ผู้ยืนยัน / เวลา</TableHead><TableHead /></TableRow></TableHeader>
                         <TableBody>
-                          {bucket.rounds.map((item) => <TableRow key={item.id}><TableCell className="font-medium">{item.reconciliation_number}</TableCell><TableCell className="whitespace-nowrap">{shortDate(item.period_start)} ถึง {shortDate(item.period_end)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.original_revenue)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.suppressed_revenue)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.adjustment_reduction)}{item.adjustment_percent > 0 ? <span className="block text-xs text-muted-foreground">{item.adjustment_percent}%</span> : null}</TableCell><TableCell className="text-right font-semibold tabular-nums">{currency(item.final_revenue)}</TableCell><TableCell><p>{item.finalized_by_name}</p><p className="text-xs text-muted-foreground">{dateTime(item.finalized_at)}</p></TableCell><TableCell className="text-right"><Button onClick={() => void openAudit(item.id)} variant="secondary"><Eye className="h-4 w-4" />Audit</Button></TableCell></TableRow>)}
+                          {bucket.rounds.map((item) => <TableRow key={item.id}><TableCell className="font-medium">{item.reconciliation_number}</TableCell><TableCell className="whitespace-nowrap">{shortDate(item.period_start)} ถึง {shortDate(item.period_end)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.original_revenue)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.suppressed_revenue)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.adjustment_reduction)}{item.adjustment_percent > 0 ? <span className="block text-xs text-muted-foreground">{item.adjustment_percent}%</span> : null}</TableCell><TableCell className="text-right font-semibold tabular-nums">{currency(item.final_revenue)}</TableCell><TableCell><p>{item.finalized_by_name}</p><p className="text-xs text-muted-foreground">{dateTime(item.finalized_at)}</p></TableCell><TableCell className="text-right"><Button onClick={() => router.push(`/month-end-report?reconciliation_id=${item.id}`)} variant="secondary"><Eye className="h-4 w-4" />Audit</Button></TableCell></TableRow>)}
                         </TableBody>
                       </Table>
                     </TableContainer>
@@ -484,17 +457,6 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
           <div className="rounded-lg border border-warning-200 bg-warning-50 p-4 text-sm"><p className="font-semibold">ผลที่จะบันทึก</p><p className="mt-2">{selectedBranches.map((branch) => text(branch.name)).join(", ")}</p><p className="mt-1">{dateFrom} ถึง {dateTo} · ซ่อน {preview?.hidden_invoice_count || 0} ใบ · บันทึกที่ต้นทุน + {preview?.adjustment_percent ?? markup}% {preview?.repriced_invoice_count || 0} ใบ · ยอดเป้าหมาย {currency(preview?.final_revenue || 0)}</p></div>
           <label className="mt-4 block space-y-2 text-sm"><span>พิมพ์ <strong>{closeText}</strong></span><Input autoFocus onChange={(event) => setConfirmation(event.target.value)} value={confirmation} /></label>
           <div className="mt-5 flex justify-end gap-2"><Button onClick={() => setConfirmOpen(false)} variant="secondary">ยกเลิก</Button><Button disabled={confirmation !== closeText || loading} onClick={() => void finalize()}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}ยืนยันธุรกรรม</Button></div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog onOpenChange={(open) => { if (!open) setAudit(null); }} open={Boolean(audit)}>
-        <DialogContent className="max-w-5xl">
-          <DialogHeader title={`Audit Log · ${text(audit?.reconciliation_number)}`} description={`${text(audit?.period_start)} ถึง ${text(audit?.period_end)} · ${text(audit?.finalized_by_name)} · ${audit?.finalized_at ? dateTime(text(audit.finalized_at)) : ""}${num(audit?.adjustment_percent) > 0 ? ` · ต้นทุน + ${num(audit?.adjustment_percent)}%` : ""} · ยอดเป้าหมาย ${currency(num(audit?.final_revenue))}`} />
-          <div className="mt-4 max-h-[60vh] overflow-auto rounded-lg border">
-            <Table><TableHeader><TableRow><TableHead>เวลา</TableHead><TableHead>เหตุการณ์</TableHead><TableHead>เลขบิล</TableHead><TableHead>สินค้า</TableHead><TableHead>บทบาท movement</TableHead><TableHead>จำนวน / ราคา</TableHead></TableRow></TableHeader><TableBody>
-              {(audit?.logs as Row[] | undefined || []).map((log) => <TableRow key={text(log.id)}><TableCell className="whitespace-nowrap">{dateTime(text(log.created_at))}</TableCell><TableCell><span className="inline-flex items-center gap-1 font-medium"><FileClock className="h-4 w-4" />{logNames[text(log.log_type)] || text(log.log_type)}</span></TableCell><TableCell><p>{text(log.original_invoice_number) || "-"}</p>{log.new_invoice_number ? <p className="text-xs text-muted-foreground">→ {text(log.new_invoice_number)}</p> : null}</TableCell><TableCell>{text(log.product_name) || "-"}</TableCell><TableCell>{text(log.movement_role) || "-"}</TableCell><TableCell className="whitespace-nowrap">{log.old_unit_price != null ? `${currency(num(log.old_unit_price))} → ${currency(num(log.new_unit_price))}` : text(log.log_type) === "invoice_repriced" ? `ส่วนต่าง ${currency(num(log.variance_amount))}` : text(log.stock_bucket) ? `${text(log.stock_bucket) === "ghost" ? "Ghost" : "Real"} ${count(num(log.stock_quantity))}` : "-"}</TableCell></TableRow>)}
-            </TableBody></Table>
-          </div>
         </DialogContent>
       </Dialog>
     </div>

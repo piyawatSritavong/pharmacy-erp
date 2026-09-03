@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -118,11 +119,16 @@ function dateTime(value: string) {
 export function MonthEndSummaryReportConsole({ branches, reconciliations }: { branches: Branch[]; reconciliations: Reconciliation[] }) {
   // Open on the newest period, not the newest confirmation: closing an old
   // month today should not hide the current one behind an empty report.
+  // The Audit button on ประวัติการสรุป links here with ?reconciliation_id=…, so
+  // honour that round when it names a real one, otherwise fall back to newest.
+  const params = useSearchParams();
+  const requestedID = params.get("reconciliation_id");
   const newest = byPeriodDesc(reconciliations)[0];
-  const [reconciliationID, setReconciliationID] = useState(newest?.id || "");
+  const initialRound = (requestedID && reconciliations.find((item) => item.id === requestedID)) || newest;
+  const [reconciliationID, setReconciliationID] = useState(initialRound?.id || "");
   const selectedReconciliation = useMemo(() => reconciliations.find((item) => item.id === reconciliationID), [reconciliationID, reconciliations]);
-  const [dateFrom, setDateFrom] = useState(newest?.period_start || "");
-  const [dateTo, setDateTo] = useState(newest?.period_end || "");
+  const [dateFrom, setDateFrom] = useState(initialRound?.period_start || "");
+  const [dateTo, setDateTo] = useState(initialRound?.period_end || "");
   const [branchID, setBranchID] = useState("");
   const [report, setReport] = useState<Report | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
