@@ -255,7 +255,13 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 
 	var inventoryChildren []map[string]any
 	inventoryChildren = appendItemIf(inventoryChildren, has("products.view", "products.manage"), "product_catalog", "รายการสินค้า", "/product-catalog", "แหล่งข้อมูลสินค้าเดียวที่ทุกสาขาดึงไปใช้")
-	inventoryChildren = appendItemIf(inventoryChildren, has("inventory.manage.global"), "real_inventory", "สต๊อกจริง", "/real-inventory", "ดู รับเข้า และปรับยอดสต๊อกจริง")
+	// Only the superadmin has a second (Ghost) bucket to tell this one apart
+	// from, so for everyone else it is simply "สต๊อก".
+	realStockTitle, realStockDescription := "สต๊อก", "ดู รับเข้า และปรับยอดสต๊อก"
+	if user.RoleKey == "super_admin" {
+		realStockTitle, realStockDescription = "สต๊อกจริง", "ดู รับเข้า และปรับยอดสต๊อกจริง"
+	}
+	inventoryChildren = appendItemIf(inventoryChildren, has("inventory.manage.global"), "real_inventory", realStockTitle, "/real-inventory", realStockDescription)
 	inventoryChildren = appendItemIf(inventoryChildren, user.RoleKey == "super_admin" && has("inventory.ghost.manage"), "ghost_inventory", "สต๊อกผี", "/ghost-inventory", "ดู รับเข้า และปรับยอดสต๊อกผี")
 	inventoryChildren = appendItemIf(inventoryChildren, has("products.manage"), "product_categories", "หมวดสินค้า", "/product-categories", "จัดกลุ่มสินค้าและกำหนดสีสำหรับการค้นหา")
 	inventoryChildren = appendItemIf(inventoryChildren, has("promotion.manage"), "promotions", "โปรโมชั่น", "/promotions", "ส่วนลด ของแถม และราคาชุดที่หน้าร้านใช้อัตโนมัติ")
@@ -273,7 +279,11 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	documentsChildren = appendProItemIf(documentsChildren, has("fda.manage"), "fda_reports", "อย.", "/fda-reports", "เลือกสินค้าและสร้างเอกสารนำส่ง อย.")
 
 	items = appendGroup(items, "reports_group", "รายงาน", "รายงานสรุปและแดชบอร์ด", reportsChildren)
-	items = appendGroup(items, "inventory_group", "คลังสินค้า", "สต๊อกจริง สต๊อกผี หมวดสินค้า และการโอนสินค้า", inventoryChildren)
+	inventoryGroupDescription := "สต๊อก หมวดสินค้า และการโอนสินค้า"
+	if user.RoleKey == "super_admin" {
+		inventoryGroupDescription = "สต๊อกจริง สต๊อกผี หมวดสินค้า และการโอนสินค้า"
+	}
+	items = appendGroup(items, "inventory_group", "คลังสินค้า", inventoryGroupDescription, inventoryChildren)
 	items = appendGroup(items, "documents_group", "ใบเอกสาร", "ใบสั่งซื้อ บริษัทคู่ค้า รพ.สต. ใบขาย และเอกสาร อย.", documentsChildren)
 
 	// branch_ops_group: a branch-scoped back-office role (e.g. หัวหน้าสาขา)

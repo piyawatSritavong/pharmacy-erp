@@ -8,6 +8,9 @@ export default async function RequisitionsPage() {
   // Head office reviews requisitions and can raise them for any branch; a POS
   // cashier raises and tracks their own.
   const isReviewer = (session.user.permissions || []).includes("transfer.approve");
+  // Ghost Stock is the superadmin's alone — everyone else sources requisitions
+  // from real stock, so they get neither the bucket picker nor its column.
+  const canUseGhost = session.user.role_key === "super_admin";
   const [branches, products, requests] = await Promise.all([
     getBranches(),
     getProducts(isReviewer ? undefined : session.user.branch_id, { pageSize: 500 }),
@@ -22,6 +25,7 @@ export default async function RequisitionsPage() {
       />
       <StockRequestConsole
         branches={branches.items}
+        canUseGhost={canUseGhost}
         mode={isReviewer ? "admin" : "pos"}
         products={products.items}
         requests={requests.items}

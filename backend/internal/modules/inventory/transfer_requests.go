@@ -140,13 +140,17 @@ func (s *Service) ListStockTransferRequests(ctx context.Context, user platform.A
 			"requested_quantity": quantity, "status": requestStatus,
 			"requested_by_name": requesterName, "reviewed_by_name": reviewerName, "created_at": createdAt,
 		}
+		// How a request was fulfilled — which branch sent it, and the transfer
+		// raised for it — is ordinary back-office detail: whoever can review
+		// requisitions needs it to answer "where is my stock?". Only the stock
+		// bucket stays superadmin-only, since Ghost Stock is theirs alone.
+		item["source_branch_id"] = sourceID
+		item["source_branch_name"] = sourceName
+		item["transfer_id"] = transferID
+		item["transfer_code"] = transferCode
+		item["transfer_status"] = transferStatus
 		if user.RoleKey == "super_admin" {
-			item["source_branch_id"] = sourceID
-			item["source_branch_name"] = sourceName
 			item["approved_stock_bucket"] = bucket
-			item["transfer_id"] = transferID
-			item["transfer_code"] = transferCode
-			item["transfer_status"] = transferStatus
 		}
 		if reviewedAt.Valid {
 			item["reviewed_at"] = reviewedAt.Time

@@ -692,26 +692,31 @@ export function PurchaseOrderConsole({
               />
             </Field>
           </div>
-          <div className="mt-5 grid gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
-            <aside>
-              <div className="mb-3 flex gap-2">
-                <Select
-                  aria-label="ประเภทสต๊อกสำหรับสินค้าที่เพิ่ม"
-                  onChange={(e) =>
-                    setPickerBucket(e.target.value as "real" | "ghost")
-                  }
-                  value={pickerBucket}
-                >
-                  <option value="real">สต๊อกจริง</option>
-                  {canUseGhostAtBranch ? <option value="ghost">สต๊อกผี</option> : null}
-                </Select>
-              </div>
+          {/* Search on top, the lines you have added underneath — stacked so the
+              list runs the full width of the dialog instead of being squeezed
+              into a column beside the picker. */}
+          <div className="mt-5 space-y-5">
+            <div>
+              {canUseGhostAtBranch ? (
+                <div className="mb-3 flex gap-2">
+                  <Select
+                    aria-label="ประเภทสต๊อกสำหรับสินค้าที่เพิ่ม"
+                    onChange={(e) =>
+                      setPickerBucket(e.target.value as "real" | "ghost")
+                    }
+                    value={pickerBucket}
+                  >
+                    <option value="real">สต๊อกจริง</option>
+                    <option value="ghost">สต๊อกผี</option>
+                  </Select>
+                </div>
+              ) : null}
               <PurchaseProductPicker
                 branchId={branchId}
                 onChoose={chooseProduct}
                 stockBucket={pickerBucket}
               />
-            </aside>
+            </div>
             <div className="space-y-3">
               <h3 className="font-bold">รายการสินค้า ({lines.length})</h3>
               {mergeNotice ? (
@@ -741,18 +746,20 @@ export function PurchaseOrderConsole({
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-4">
-                    <Field label="ประเภทสต๊อก">
-                      <Select
-                        onChange={(e) =>
-                          changeLineBucket(line.key, e.target.value as "real" | "ghost")
-                        }
-                        value={line.stock_bucket}
-                      >
-                        <option value="real">จริง</option>
-                        {canUseGhostAtBranch ? <option value="ghost">สต๊อกผี</option> : null}
-                      </Select>
-                    </Field>
+                  <div className={`grid gap-3 ${canUseGhostAtBranch ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
+                    {canUseGhostAtBranch ? (
+                      <Field label="ประเภทสต๊อก">
+                        <Select
+                          onChange={(e) =>
+                            changeLineBucket(line.key, e.target.value as "real" | "ghost")
+                          }
+                          value={line.stock_bucket}
+                        >
+                          <option value="real">จริง</option>
+                          <option value="ghost">สต๊อกผี</option>
+                        </Select>
+                      </Field>
+                    ) : null}
                     <Field label="จำนวน">
                       <Input
                         min={1}
@@ -970,7 +977,7 @@ export function PurchaseOrderConsole({
                   <thead className="bg-muted text-left">
                     <tr>
                       <th className="p-3">สินค้า</th>
-                      <th className="p-3">Bucket</th>
+                      {canUseGhost ? <th className="p-3">Bucket</th> : null}
                       <th className="p-3">รับเข้า</th>
                       <th className="p-3">คงเหลือ lot</th>
                       <th className="p-3">ต้นทุน</th>
@@ -988,9 +995,11 @@ export function PurchaseOrderConsole({
                             {String(item.sku)}
                           </span>
                         </td>
-                        <td className="p-3">
-                          {item.stock_bucket === "real" ? "จริง" : "ผี"}
-                        </td>
+                        {canUseGhost ? (
+                          <td className="p-3">
+                            {item.stock_bucket === "ghost" ? "ผี" : "จริง"}
+                          </td>
+                        ) : null}
                         <td className="p-3">
                           {Number(item.received_quantity)}
                         </td>
@@ -1054,7 +1063,7 @@ export function PurchaseOrderConsole({
                   <span>{currency(Number(detail.total_amount))}</span>
                 </p>
               </div>
-              <div className="print:hidden">
+              <div className={canUseGhost ? "print:hidden" : "hidden"}>
                 <h3 className="mb-2 font-bold">ประวัติเอกสาร</h3>
                 <div className="space-y-2">
                   {((detail.events as Item[]) || []).map((event) => (
@@ -1138,20 +1147,22 @@ export function PurchaseOrderConsole({
                 />
               </div>
               <div className="grid gap-3 md:grid-cols-2">
-                <Field label="ประเภทสต๊อก">
-                  <Select
-                    onChange={(event) =>
-                      setCorrection({
-                        ...correction,
-                        stock_bucket: event.target.value as "real" | "ghost",
-                      })
-                    }
-                    value={correction.stock_bucket}
-                  >
-                    <option value="real">สต๊อกจริง</option>
-                    {canUseGhost && String(branches.find((branch) => String(branch.id) === String(detail.branch_id))?.branch_type) === "main_warehouse" ? <option value="ghost">สต๊อกผี</option> : null}
-                  </Select>
-                </Field>
+                {canUseGhost ? (
+                  <Field label="ประเภทสต๊อก">
+                    <Select
+                      onChange={(event) =>
+                        setCorrection({
+                          ...correction,
+                          stock_bucket: event.target.value as "real" | "ghost",
+                        })
+                      }
+                      value={correction.stock_bucket}
+                    >
+                      <option value="real">สต๊อกจริง</option>
+                      {String(branches.find((branch) => String(branch.id) === String(detail.branch_id))?.branch_type) === "main_warehouse" ? <option value="ghost">สต๊อกผี</option> : null}
+                    </Select>
+                  </Field>
+                ) : null}
                 <Field label="จำนวนรับเข้า">
                   <Input
                     min={1}

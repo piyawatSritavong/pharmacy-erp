@@ -287,11 +287,14 @@ export function ProductCatalogConsole({
                 <option value="both">หน้าร้าน + ออนไลน์</option>
               </Select>
             </Field>
-            <label className="flex items-center gap-2 rounded-xl border px-3 text-sm">
+            {/* Full-height rows that line up with the inputs beside them — these
+                used to collapse to the checkbox's own height and read as thin,
+                cramped pills. */}
+            <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm font-medium transition hover:bg-muted">
               <Checkbox checked={Boolean(editing.tax_exempt)} onChange={(event) => setEditing((current) => ({ ...current, tax_exempt: event.target.checked }))} />
               ยกเว้นภาษีมูลค่าเพิ่ม
             </label>
-            <label className="flex items-center gap-2 rounded-xl border px-3 text-sm">
+            <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm font-medium transition hover:bg-muted">
               <Checkbox checked={Boolean(editing.active)} onChange={(event) => setEditing((current) => ({ ...current, active: event.target.checked }))} />
               เปิดใช้งาน
             </label>

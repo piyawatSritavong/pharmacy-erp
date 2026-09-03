@@ -8,6 +8,7 @@ import { SectionCard, statusLabel } from "@/components/sections/common";
 import { ProductSearchPicker } from "@/components/sections/product-search-picker";
 import { Field } from "@/components/ui/field";
 import { Badge, Button, Dialog, DialogContent, DialogHeader, EmptyState, Input, Select } from "@/components/ui/primitives";
+import { cn } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
 
 type Option = Record<string, unknown>;
@@ -351,7 +352,10 @@ export function TransferConsole({
           {lines.map((line, index) => {
             return (
               <div
-                className="grid gap-3 rounded-2xl bg-muted p-4 md:grid-cols-[minmax(0,1fr)_150px_160px_auto]"
+                className={cn(
+                  "grid gap-3 rounded-2xl bg-muted p-4",
+                  canUseGhost ? "md:grid-cols-[minmax(0,1fr)_150px_160px_auto]" : "md:grid-cols-[minmax(0,1fr)_150px_auto]"
+                )}
                 key={line.key}
               >
                 <Field label={`สินค้า ${index + 1}`}>
@@ -360,12 +364,16 @@ export function TransferConsole({
                 <Field label="จำนวนที่ส่ง">
                   <Input aria-label={`จำนวนที่โอน ${index + 1}`} min="1" onChange={(event) => updateLine(line.key, { quantity: event.target.value })} type="number" value={line.quantity} />
                 </Field>
-                <Field label="ประเภทสต๊อก">
-                  <Select aria-label={`ประเภทสต๊อกที่โอน ${index + 1}`} value={line.stock_bucket} onChange={(event) => updateLine(line.key, { stock_bucket: event.target.value as "real" | "ghost" })}>
-                    <option value="real">สต๊อกจริง</option>
-                    {canUseGhost ? <option value="ghost">สต๊อกผี</option> : null}
-                  </Select>
-                </Field>
+                {/* Only the superadmin moves Ghost Stock. For everyone else a
+                    transfer is always real stock, so there is nothing to pick. */}
+                {canUseGhost ? (
+                  <Field label="ประเภทสต๊อก">
+                    <Select aria-label={`ประเภทสต๊อกที่โอน ${index + 1}`} value={line.stock_bucket} onChange={(event) => updateLine(line.key, { stock_bucket: event.target.value as "real" | "ghost" })}>
+                      <option value="real">สต๊อกจริง</option>
+                      <option value="ghost">สต๊อกผี</option>
+                    </Select>
+                  </Field>
+                ) : null}
                 <Button aria-label={`ลบสินค้า ${index + 1}`} disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((item) => item.key !== line.key))} type="button" variant="secondary">
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -406,7 +414,7 @@ export function TransferConsole({
                 {transferItems(transfer).map((item) => (
                   <div className="flex items-center justify-between gap-3 py-3 text-sm" key={String(item.id)}>
                     <span><strong>{String(item.product_name)}</strong> <span className="text-muted-foreground">· {String(item.sku)}</span></span>
-                    <span className="font-bold">{Number(item.quantity).toLocaleString("th-TH")} ชิ้น · {String(item.stock_bucket) === "ghost" ? "สต๊อกผี" : "สต๊อกจริง"}</span>
+                    <span className="font-bold">{Number(item.quantity).toLocaleString("th-TH")} ชิ้น · {String(item.stock_bucket) === "ghost" ? "สต๊อกผี" : canUseGhost ? "สต๊อกจริง" : "สต๊อก"}</span>
                   </div>
                 ))}
               </div>

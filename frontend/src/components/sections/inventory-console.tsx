@@ -74,6 +74,9 @@ export function InventoryConsole({
   filters?: { search: string; branchId: string; page: number; pageSize?: number };
 }) {
   const router = useRouter();
+  // Only the superadmin has a Ghost bucket to tell this one apart from, so for
+  // everyone else "สต๊อกจริง" is just "สต๊อก".
+  const realLabel = canManageGhost ? "สต๊อกจริง" : "สต๊อก";
   const [branchId, setBranchId] = useState(
     defaultBranchId || String(inventory[0]?.branch_id || ""),
   );
@@ -573,7 +576,7 @@ export function InventoryConsole({
           {manageBucket === "ghost"
             ? "สต๊อกผี"
             : manageBucket === "real"
-              ? "สต๊อกจริง"
+              ? realLabel
               : "สต๊อก"}
         </h2>
         <div className="space-y-3 border-b bg-surface-warm p-4">
@@ -664,7 +667,7 @@ export function InventoryConsole({
                             ] || 0,
                           ).toLocaleString("th-TH")}
                         </strong>
-                        {manageBucket === "real" ? "สต๊อกจริง" : "สต๊อกผี"}
+                        {manageBucket === "real" ? realLabel : "สต๊อกผี"}
                       </>
                     ) : (
                       <>
@@ -765,7 +768,7 @@ export function InventoryConsole({
             <ReadOnlyField label="สาขา" value={String(selectedInventory?.branch_name || branchLabel || "-")} />
           ) : null}
           <ReadOnlyField
-            label={activeBucket === "ghost" ? "จำนวนในสต๊อก (สต๊อกผี)" : "จำนวนในสต๊อก (สต๊อกจริง)"}
+            label={activeBucket === "ghost" ? "จำนวนในสต๊อก (สต๊อกผี)" : `จำนวนในสต๊อก (${realLabel})`}
             value={`${currentBucketQty.toLocaleString("th-TH")} ชิ้น`}
           />
           {/* Newest lot, not the FEFO-nearest one: this line answers "when did
@@ -799,7 +802,7 @@ export function InventoryConsole({
                 <thead className="bg-muted/60 text-left"><tr><th className="p-3">วันที่</th><th className="p-3">รายการ</th><th className="p-3">ประเภท</th><th className="p-3 text-right">จำนวน</th><th className="p-3">หมายเหตุ</th></tr></thead>
                 <tbody>
                   {movements.map((movement) => (
-                    <tr className="border-t" key={String(movement.id)}><td className="whitespace-nowrap p-3">{showFullTimestamp ? new Date(String(movement.created_at)).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" }) : new Date(String(movement.created_at)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}</td><td className="p-3">{String(movement.movement_type)}</td><td className="p-3">{String(movement.stock_bucket) === "ghost" ? "Ghost Stock (สต๊อกผี)" : "Real Stock (สต๊อกจริง)"}</td><td className={`p-3 text-right font-semibold ${Number(movement.quantity_delta) < 0 ? "text-red-700" : "text-emerald-700"}`}>{Number(movement.quantity_delta) > 0 ? "+" : ""}{Number(movement.quantity_delta).toLocaleString("th-TH")}</td><td className="p-3 text-muted-foreground">{String(movement.note || "-")}</td></tr>
+                    <tr className="border-t" key={String(movement.id)}><td className="whitespace-nowrap p-3">{showFullTimestamp ? new Date(String(movement.created_at)).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" }) : new Date(String(movement.created_at)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}</td><td className="p-3">{String(movement.movement_type)}</td><td className="p-3">{String(movement.stock_bucket) === "ghost" ? "Ghost Stock (สต๊อกผี)" : canManageGhost ? "Real Stock (สต๊อกจริง)" : "สต๊อก"}</td><td className={`p-3 text-right font-semibold ${Number(movement.quantity_delta) < 0 ? "text-red-700" : "text-emerald-700"}`}>{Number(movement.quantity_delta) > 0 ? "+" : ""}{Number(movement.quantity_delta).toLocaleString("th-TH")}</td><td className="p-3 text-muted-foreground">{String(movement.note || "-")}</td></tr>
                   ))}
                   {movements.length === 0 ? <tr><td className="p-8 text-center text-muted-foreground" colSpan={5}>ยังไม่มีประวัติ movement ที่มองเห็นได้</td></tr> : null}
                 </tbody>
@@ -813,7 +816,7 @@ export function InventoryConsole({
           <DialogHeader
             description={manageBucket === "ghost"
               ? "สต๊อกผี · เรียงตาม FEFO"
-              : `${String(selectedInventory?.branch_name || "")} · สต๊อกจริง · เรียงตาม FEFO`}
+              : `${String(selectedInventory?.branch_name || "")} · ${realLabel} · เรียงตาม FEFO`}
             title={`Lot ของ ${String(selectedInventory?.product_name || "สินค้า")}`}
           />
           {lotsLoading ? (
@@ -933,7 +936,7 @@ export function InventoryConsole({
                   เลือก lot ที่นับแล้วระบุจำนวนที่เปลี่ยน (ใส่ค่าติดลบเพื่อลดยอด) — ระบบจะบันทึกลงประวัติระบบทุกครั้ง
                 </p>
               </div>
-              <Field hint={`${activeBucket === "ghost" ? "สต๊อกผี" : "สต๊อกจริง"} · ${lots.length.toLocaleString("th-TH")} lot ที่มีของ`} label="เลือก lot ที่ต้องการปรับ">
+              <Field hint={`${activeBucket === "ghost" ? "สต๊อกผี" : realLabel} · ${lots.length.toLocaleString("th-TH")} lot ที่มีของ`} label="เลือก lot ที่ต้องการปรับ">
                 <Select
                   aria-label="เลือก lot ที่ต้องการปรับ"
                   onChange={(event) => setAdjustLotId(event.target.value)}
@@ -999,7 +1002,7 @@ export function InventoryConsole({
             </div>
 
             <p className="text-sm font-semibold">แจ้งเตือนสต๊อกใกล้หมด</p>
-            <Field label="จุดเตือนสต๊อกจริง">
+            <Field label={`จุดเตือน${realLabel}`}>
               <Input
                 min="0"
                 onChange={(event) =>

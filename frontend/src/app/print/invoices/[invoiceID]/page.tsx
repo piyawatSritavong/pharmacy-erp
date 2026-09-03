@@ -77,7 +77,16 @@ export default async function InvoicePrintPage({
                   <span className="block">{currency(Number(item.unit_price || 0))}</span>
                   {Number(item.discount_amount || 0) > 0 ? <span className="mt-1 block text-xs text-muted-foreground">ส่วนลดรายการ {currency(Number(item.discount_amount))}</span> : null}
                 </td>
-                <td className="py-3 pr-0 text-right">{currency(Number(item.line_total || 0))}</td>
+                {/* Pre-tax, so the column reads as ราคาต่อหน่วย × จำนวน (less any
+                    line discount) and foots to ยอดก่อนภาษี below. line_total
+                    carries VAT and never matched the two columns beside it. */}
+                <td className="py-3 pr-0 text-right">
+                  {currency(
+                    item.line_subtotal == null
+                      ? Number(item.unit_price || 0) * Number(item.quantity || 0) - Number(item.discount_amount || 0)
+                      : Number(item.line_subtotal)
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

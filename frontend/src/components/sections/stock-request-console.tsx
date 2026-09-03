@@ -265,17 +265,21 @@ export function StockRequestConsole({
                   </div>
                   <Badge><Clock3 className="mr-1 h-3 w-3" />{statusLabel(request.status)}</Badge>
                 </div>
-                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_190px_auto_auto]">
+                <div className={`mt-4 grid gap-3 md:grid-cols-2 ${canUseGhost ? "xl:grid-cols-[minmax(0,1fr)_190px_auto_auto]" : "xl:grid-cols-[minmax(0,1fr)_auto_auto]"}`}>
                   <Select aria-label={`สาขาต้นทาง ${id}`} onChange={(event) => setSourceBranches((current) => ({ ...current, [id]: event.target.value }))} value={sourceBranches[id] || ""}>
                     <option value="">เลือกสาขาต้นทาง</option>
                     {branches.filter((branch) => String(branch.id) !== destinationId).map((branch) => (
                       <option key={String(branch.id)} value={String(branch.id)}>{String(branch.name)}</option>
                     ))}
                   </Select>
-                  <Select aria-label={`ประเภทสต๊อก ${id}`} onChange={(event) => setReviewBuckets((current) => ({ ...current, [id]: event.target.value }))} value={reviewBuckets[id] || "real"}>
-                    <option value="real">สต๊อกจริง</option>
-                    {canUseGhost ? <option value="ghost">สต๊อกผี</option> : null}
-                  </Select>
+                  {/* Only the superadmin sources from Ghost Stock; for everyone
+                      else the answer is always real, so there is nothing to pick. */}
+                  {canUseGhost ? (
+                    <Select aria-label={`ประเภทสต๊อก ${id}`} onChange={(event) => setReviewBuckets((current) => ({ ...current, [id]: event.target.value }))} value={reviewBuckets[id] || "real"}>
+                      <option value="real">สต๊อกจริง</option>
+                      <option value="ghost">สต๊อกผี</option>
+                    </Select>
+                  ) : null}
                   <Button disabled={busyId === id || !sourceBranches[id]} onClick={() => void review(request, "approve")} type="button"><CheckCircle2 className="h-4 w-4" />สร้างใบโอน</Button>
                   <Button disabled={busyId === id} onClick={() => void review(request, "reject")} type="button" variant="secondary"><XCircle className="h-4 w-4" />ปฏิเสธ</Button>
                 </div>
@@ -315,7 +319,9 @@ export function StockRequestConsole({
             { key: "product_name", label: "สินค้า" },
             { key: "requested_quantity", label: "จำนวน" },
             { key: "source_branch_name", label: "ต้นทาง" },
-            { key: "approved_stock_bucket", label: "สต๊อก" },
+            // The stock bucket is superadmin-only detail; for everyone else a
+            // requisition is always filled from real stock.
+            ...(canUseGhost ? [{ key: "approved_stock_bucket", label: "สต๊อก" }] : []),
             { key: "transfer_code", label: "เลขใบโอน" },
             { key: "transfer_status", label: "สถานะใบโอน" },
             { key: "status", label: "สถานะคำขอ" },

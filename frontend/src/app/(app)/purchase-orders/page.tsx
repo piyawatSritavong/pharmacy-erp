@@ -31,7 +31,7 @@ export default async function PurchaseOrdersPage({
       <div className="print:hidden">
         <PageIntro
           title="ใบสั่งซื้อเข้า"
-          description={session.user.role_key === "super_admin" ? "สร้างเอกสารซื้อสินค้าและรับเข้า Lot ของสต๊อกจริงหรือสต๊อกผี พร้อมติดตามบริษัทคู่ค้าและวันหมดอายุ" : "ดูและจัดการใบสั่งซื้อเข้าสำหรับสต๊อกจริง โดยไม่แสดงข้อมูลสต๊อกผี"}
+          description={session.user.role_key === "super_admin" ? "สร้างเอกสารซื้อสินค้าและรับเข้า Lot ของสต๊อกจริงหรือสต๊อกผี พร้อมติดตามบริษัทคู่ค้าและวันหมดอายุ" : "ดูและจัดการใบสั่งซื้อเข้า พร้อมติดตามบริษัทคู่ค้าและวันหมดอายุ"}
         />
       </div>
       <PurchaseOrderConsole

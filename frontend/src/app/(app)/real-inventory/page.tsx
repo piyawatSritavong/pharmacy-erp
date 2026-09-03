@@ -9,6 +9,7 @@ export default async function RealInventoryPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const session = requirePermission(await requireSession(), ["inventory.manage.global"]);
+  const isSuperAdmin = session.user.role_key === "super_admin";
   const params = await searchParams;
   const value = (key: string) => typeof params?.[key] === "string" ? String(params[key]) : "";
   const requestedBranchId = value("inventory_branch");
@@ -35,8 +36,8 @@ export default async function RealInventoryPage({
   return (
     <div className="space-y-6">
       <PageIntro
-        title="สต๊อกจริง"
-        description="ดู รับเข้า และปรับยอดสต๊อกจริงสำหรับการดำเนินงานประจำวัน"
+        title={isSuperAdmin ? "สต๊อกจริง" : "สต๊อก"}
+        description={isSuperAdmin ? "ดู รับเข้า และปรับยอดสต๊อกจริงสำหรับการดำเนินงานประจำวัน" : "ดู รับเข้า และปรับยอดสต๊อกสำหรับการดำเนินงานประจำวัน"}
       />
       <InventoryConsole
         branches={branchOptions}
