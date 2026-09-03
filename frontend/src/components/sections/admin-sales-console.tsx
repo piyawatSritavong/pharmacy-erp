@@ -44,6 +44,9 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
   const [products, setProducts] = useState<Option[]>([]);
   const [inventory, setInventory] = useState<Option[]>([]);
   const [loading, setLoading] = useState(false);
+  // The picker folds away once a branch is chosen: the till needs the height,
+  // and re-picking is rare.
+  const [setupOpen, setSetupOpen] = useState(true);
   const branchName = branches.find((branch) => branch.id === branchId)?.name || "";
 
   const loadBranchStock = useCallback(async (id: string) => {
@@ -75,11 +78,24 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
   }, [branchId, loadBranchStock]);
 
   return (
-    <div className="space-y-6">
-      <SectionCard title="เลือกสาขาและวิธีขาย" description="ระบบจะออกบิลในนามสาขาที่เลือกและตัดสต๊อกของสาขานั้น">
+    // Bounded like the POS shell: the grid and the cart scroll inside their own
+    // boxes, so the totals and the pay button stay in view instead of sitting
+    // at the far end of a page-length product list.
+    <div className="flex h-[calc(100dvh-8rem)] min-h-0 flex-col gap-3">
+      {!setupOpen && branchId ? (
+        <div className="flex shrink-0 items-center gap-3 rounded-xl border bg-primary/5 px-4 py-2.5 text-sm">
+          <span>
+            กำลังเปิดขายในนาม <strong>{branchName}</strong> · {MODES.find((option) => option.id === mode)?.title}
+          </span>
+          <button className="ml-auto shrink-0 font-semibold text-primary underline underline-offset-2" onClick={() => setSetupOpen(true)} type="button">
+            เปลี่ยนสาขา/วิธีขาย
+          </button>
+        </div>
+      ) : (
+      <SectionCard className="shrink-0" title="เลือกสาขาและวิธีขาย" description="ระบบจะออกบิลในนามสาขาที่เลือกและตัดสต๊อกของสาขานั้น">
         <div className="grid gap-5 lg:grid-cols-[minmax(0,280px)_1fr]">
           <Field label="สาขาที่จะเปิดขาย">
-            <Select aria-label="เลือกสาขาที่จะเปิดขาย" onChange={(event) => setBranchId(event.target.value)} value={branchId}>
+            <Select aria-label="เลือกสาขาที่จะเปิดขาย" onChange={(event) => { setBranchId(event.target.value); if (event.target.value) setSetupOpen(false); }} value={branchId}>
               <option value="">เลือกสาขา</option>
               {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
             </Select>
@@ -95,7 +111,7 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
                     aria-pressed={active}
                     className={`flex items-start gap-3 rounded-xl border p-3 text-left transition ${active ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:border-primary/40 hover:bg-muted/50"}`}
                     key={option.id}
-                    onClick={() => setMode(option.id)}
+                    onClick={() => { setMode(option.id); if (branchId) setSetupOpen(false); }}
                     type="button"
                   >
                     <Icon className={`mt-0.5 h-5 w-5 shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`} />
@@ -110,7 +126,9 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
           </fieldset>
         </div>
       </SectionCard>
+      )}
 
+      <div className="min-h-0 flex-1">
       {!branchId ? (
         <SectionCard title="ยังไม่ได้เลือกสาขา" description="เลือกสาขาด้านบนเพื่อเริ่มเปิดการขาย">
           <p className="py-8 text-center text-sm text-muted-foreground">เลือกสาขาที่จะเปิดขาย แล้วรายการสินค้าของสาขานั้นจะแสดงที่นี่</p>
@@ -118,12 +136,6 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
       ) : loading ? (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> กำลังโหลดสินค้าของ {branchName}</div>
       ) : (
-        <div className="rounded-xl border bg-primary/5 px-4 py-2.5 text-sm">
-          กำลังเปิดขายในนาม <strong>{branchName}</strong> · {MODES.find((option) => option.id === mode)?.title}
-        </div>
-      )}
-
-      {branchId && !loading ? (
         <PosWorkspace
           branchId={branchId}
           branchName={branchName}
@@ -135,13 +147,14 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
           // the money; ขายผ่านสำนักงานใหญ่ settles here as before.
           remoteBranchId={mode === "remote" ? branchId : ""}
         />
-      ) : null}
+      )}
+      </div>
 
       {/* The till's context bar, mirroring the POS footer: whose shop this bill
           is being written in, and who is writing it. Deliberately without the
           POS menu — this page already sits inside the back-office sidebar. */}
       {branchId && !loading ? (
-        <footer className="sticky bottom-0 -mx-4 flex items-center gap-4 border-t bg-white/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
+        <footer className="-mx-4 flex shrink-0 items-center gap-4 border-t bg-white/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-foreground text-white">
             <Store className="h-5 w-5" />
           </span>

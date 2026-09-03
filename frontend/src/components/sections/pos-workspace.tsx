@@ -975,13 +975,28 @@ export function PosWorkspace({
             </Link>
           ) : null}
           {remoteBranchId ? (
-            <p className="mt-3 rounded-xl bg-info-50 px-3 py-2 text-xs text-info-800" role="status">
-              {remoteStatus === "open"
-                ? "ส่งให้เครื่อง POS ของสาขาแล้ว · รอพนักงานสาขารับชำระ"
-                : remoteStatus === "completed"
-                  ? `สาขารับชำระแล้ว · ${String(remoteSession?.invoice_number || "")}`
-                  : "หยิบสินค้าลงตะกร้า แล้วรายการจะไปโผล่ที่เครื่อง POS ของสาขาทันที"}
-            </p>
+            <div className="mt-3 flex items-center justify-between gap-2 rounded-xl bg-info-50 px-3 py-2 text-xs text-info-800">
+              <p role="status">
+                {remoteStatus === "open"
+                  ? "ส่งให้เครื่อง POS ของสาขาแล้ว · สาขารับชำระได้ หรือกดรับชำระที่นี่ก็ได้"
+                  : remoteStatus === "completed"
+                    ? `สาขารับชำระแล้ว · ${String(remoteSession?.invoice_number || "")}`
+                    : "หยิบสินค้าลงตะกร้า แล้วรายการจะไปโผล่ที่เครื่อง POS ของสาขาทันที"}
+              </p>
+              {remoteStatus === "open" ? (
+                <button
+                  className="shrink-0 font-semibold underline underline-offset-2"
+                  onClick={() =>
+                    void proxyClient(`/admin/pos/remote-session?branch_id=${encodeURIComponent(remoteBranchId)}`, { method: "DELETE" })
+                      .then(() => setRemoteSession(null))
+                      .catch(() => {})
+                  }
+                  type="button"
+                >
+                  ยกเลิกการรีโมต
+                </button>
+              ) : null}
+            </div>
           ) : null}
           <div className="mt-4 grid grid-cols-[auto_auto_1fr] gap-2">
             <Button
@@ -1003,21 +1018,9 @@ export function PosWorkspace({
               <PauseCircle className="h-4 w-4" />
               พักบิล
             </Button>
-            {remoteBranchId ? (
-              <Button
-                className="rounded-full"
-                disabled={!cart.length}
-                onClick={() => void proxyClient(`/admin/pos/remote-session?branch_id=${encodeURIComponent(remoteBranchId)}`, { method: "DELETE" }).then(() => { setCart([]); setRemoteSession(null); }).catch(() => {})}
-                type="button"
-                variant="secondary"
-              >
-                ยกเลิกการรีโมต
-              </Button>
-            ) : (
-              <Button className="rounded-full" disabled={!cart.length} onClick={() => void openPayment()} type="button">
-                รับชำระเงิน
-              </Button>
-            )}
+            <Button className="rounded-full" disabled={!cart.length} onClick={() => void openPayment()} type="button">
+              รับชำระเงิน
+            </Button>
           </div>
         </aside>
         {watchRemote ? <RemoteSalePanel /> : null}

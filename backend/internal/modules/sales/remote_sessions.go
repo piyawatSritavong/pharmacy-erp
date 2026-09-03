@@ -279,6 +279,31 @@ func (h *Handler) PosRemoteSession(c echo.Context) error {
 	return platform.JSON(c, http.StatusOK, map[string]any{"item": item})
 }
 
+// AdminCheckout is head office settling the bill at its own counter. Whatever
+// cart it had left waiting at the branch till is withdrawn in the same request,
+// so the branch can never collect a second time for a bill already paid.
+func (h *Handler) AdminCheckout(c echo.Context) error {
+	var input CheckoutRequest
+	if err := c.Bind(&input); err != nil {
+		return platform.HandleHTTPError(c, platform.NewError(http.StatusBadRequest, "ข้อมูลการขายไม่ถูกต้อง"))
+	}
+	user := platform.CurrentUser(c)
+	if input.BranchID == "" && user.BranchID != nil {
+		input.BranchID = *user.BranchID
+	}
+	result, err := h.service.Checkout(c.Request().Context(), user, audit.MetaFromContext(c), input)
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
+	if input.BranchID != "" {
+		// Best effort: the sale is already recorded, and an orphaned open cart
+		// is the one thing that could cause a double charge.
+		_ = h.service.CancelRemoteSession(c.Request().Context(), input.BranchID)
+	}
+	result["message"] = "ชำระเงินและออกใบเสร็จแล้ว"
+	return platform.JSON(c, http.StatusCreated, result)
+}
+
 func (h *Handler) CheckoutRemoteSession(c echo.Context) error {
 	var payment RemoteSessionPayment
 	if err := c.Bind(&payment); err != nil {

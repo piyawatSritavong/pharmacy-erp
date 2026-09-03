@@ -189,7 +189,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.GET("/parked-bills/:parkedBillID", parkedBillHandler.Get)
 	protected.DELETE("/parked-bills/:parkedBillID", parkedBillHandler.Delete)
 	protected.POST("/pos/checkout", salesHandler.Checkout, appMiddleware.RequireAnyPermission("invoice.create.pos", "payment.collect"))
-	protected.POST("/admin/pos/checkout", salesHandler.Checkout, appMiddleware.RequireAnyPermission("invoice.create.remote"))
+	protected.POST("/admin/pos/checkout", salesHandler.AdminCheckout, appMiddleware.RequireAnyPermission("invoice.create.remote"))
 	// รีโมตหน้าร้าน: head office keeps the cart here, the branch till reads it
 	// and takes the money. State, not clicks — see modules/sales/remote_sessions.go.
 	protected.PUT("/admin/pos/remote-session", salesHandler.SaveRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.remote"))
