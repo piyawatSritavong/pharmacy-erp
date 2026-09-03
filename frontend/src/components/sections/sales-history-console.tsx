@@ -88,9 +88,15 @@ export function SalesHistoryConsole({
         if (dateTo && day > dateTo) return false;
         return true;
       })
-      // Ordered by invoice number so a run of a branch's bills reads in sequence;
-      // numeric-aware so BL...9 precedes BL...10.
-      .sort((a, b) => String(a.invoice_number || "").localeCompare(String(b.invoice_number || ""), "th", { numeric: true }));
+      // Newest sale first — the bill you just rang up is the one you come here
+      // looking for. Bill numbers break ties (also newest first), since a
+      // branch's numbering runs forward in time; sorting *by* the number put a
+      // June bill above a July one whenever numbering was reset at a close.
+      .sort((a, b) => {
+        const byDate = String(b.issued_at || "").localeCompare(String(a.issued_at || ""));
+        if (byDate !== 0) return byDate;
+        return String(b.invoice_number || "").localeCompare(String(a.invoice_number || ""), "th", { numeric: true });
+      });
   }, [branchFilter, closeStatusFilter, dateFrom, dateTo, initialItems, paymentFilter, search, taxFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
