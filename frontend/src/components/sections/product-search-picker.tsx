@@ -41,10 +41,33 @@ export function ProductSearchPicker({
   // is used inside a scrollable Dialog (see D6's "dropdown clipped by
   // dialog boundary" bug).
   const anchorRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const [panelRect, setPanelRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
+
+  // A modal Radix Dialog locks background scrolling (react-remove-scroll). This
+  // results panel is a body-portaled *sibling* of the dialog, so that lock can
+  // swallow the wheel before the panel ever scrolls. Drive the panel's own
+  // scroll here with a non-passive listener, and only consume the event while
+  // there is room to scroll, so reaching the top/bottom hands scrolling back.
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!open || !el) return;
+    const node = el;
+    function onWheel(event: WheelEvent) {
+      const factor = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? node.clientHeight : 1;
+      const before = node.scrollTop;
+      node.scrollTop += event.deltaY * factor;
+      if (node.scrollTop !== before) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [open, mounted, panelRect]);
 
   useEffect(() => {
     if (!open) return;
@@ -101,7 +124,12 @@ export function ProductSearchPicker({
         // *sibling* portal under <body>, not nested inside the dialog, so it
         // inherits that `none` and renders visually on top but eats no
         // clicks unless explicitly opted back in here.
-        className="pointer-events-auto fixed z-50 max-h-72 overflow-y-auto rounded-2xl border bg-white p-2 shadow-xl"
+        className="pointer-events-auto fixed z-50 max-h-72 overflow-y-auto overscroll-contain rounded-2xl border bg-white p-2 shadow-xl"
+        // Keep the text input focused when the pointer lands anywhere in the
+        // panel — its scrollbar included — so grabbing the scrollbar doesn't
+        // blur the input and close the panel mid-scroll.
+        onMouseDown={(event) => event.preventDefault()}
+        ref={panelRef}
         role="listbox"
         style={panelRect ? { top: panelRect.top, left: panelRect.left, width: panelRect.width } : { visibility: "hidden" }}
       >

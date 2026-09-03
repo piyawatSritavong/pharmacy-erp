@@ -5,6 +5,7 @@ import { startTransition, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { DataTable, SectionCard, statusLabel } from "@/components/sections/common";
+import { ProductSearchPicker } from "@/components/sections/product-search-picker";
 import { Badge, Button, Dialog, DialogContent, DialogHeader, Input, Pagination, Select, usePagedRows } from "@/components/ui/primitives";
 import { Field } from "@/components/ui/field";
 import { proxyClient } from "@/services/api";
@@ -51,6 +52,21 @@ export function StockRequestConsole({
 
   function updateLine(key: string, patch: Partial<RequisitionLine>) {
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
+  }
+  // Picking a product that another line already asks for collapses the two:
+  // its quantity is added onto the existing line and this line drops away, so a
+  // requisition never lists the same product twice.
+  function selectProduct(key: string, productId: string) {
+    setLines((current) => {
+      if (!productId) return current.map((line) => (line.key === key ? { ...line, productId: "" } : line));
+      const twin = current.find((line) => line.key !== key && line.productId === productId);
+      if (!twin) return current.map((line) => (line.key === key ? { ...line, productId } : line));
+      const addQty = Math.max(1, Number(current.find((line) => line.key === key)?.quantity) || 1);
+      const merged = current
+        .map((line) => (line.key === twin.key ? { ...line, quantity: String((Number(line.quantity) || 0) + addQty) } : line))
+        .filter((line) => line.key !== key);
+      return merged.length > 0 ? merged : [newLine()];
+    });
   }
   function removeLine(key: string) {
     setLines((current) => (current.length > 1 ? current.filter((line) => line.key !== key) : current));
@@ -170,12 +186,12 @@ export function StockRequestConsole({
               {lines.map((line) => (
                 <tr key={line.key}>
                   <td className="px-3 py-2">
-                    <Select aria-label="เลือกสินค้าที่ต้องการเบิก" onChange={(event) => updateLine(line.key, { productId: event.target.value })} value={line.productId}>
-                      <option value="">เลือกสินค้า</option>
-                      {activeProducts.map((product) => (
-                        <option key={String(product.id)} value={String(product.id)}>{String(product.name)} · {String(product.sku)}</option>
-                      ))}
-                    </Select>
+                    <ProductSearchPicker
+                      ariaLabel="เลือกสินค้าที่ต้องการเบิก"
+                      initialOptions={activeProducts}
+                      onChange={(productId) => selectProduct(line.key, productId)}
+                      value={line.productId}
+                    />
                   </td>
                   <td className="px-3 py-2">
                     <Input aria-label="จำนวนที่ต้องการ" min="1" onChange={(event) => updateLine(line.key, { quantity: event.target.value })} type="number" value={line.quantity} />
