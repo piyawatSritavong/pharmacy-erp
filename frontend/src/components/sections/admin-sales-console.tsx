@@ -47,7 +47,12 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
   // The picker folds away once a branch is chosen: the till needs the height,
   // and re-picking is rare.
   const [setupOpen, setSetupOpen] = useState(true);
+  // Which branch tills are on their sales screen right now. Head office can
+  // only sell through a shop that is open — the customer pays at that till.
+  const [onlineBranches, setOnlineBranches] = useState<Record<string, string>>({});
   const branchName = branches.find((branch) => branch.id === branchId)?.name || "";
+  const onlineCount = branches.filter((branch) => onlineBranches[branch.id]).length;
+  const selectedOffline = Boolean(branchId) && !onlineBranches[branchId];
 
   const loadBranchStock = useCallback(async (id: string) => {
     if (!id) {
@@ -77,15 +82,32 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
     void loadBranchStock(branchId);
   }, [branchId, loadBranchStock]);
 
+  useEffect(() => {
+    const load = () =>
+      void proxyClient<{ items: Array<Record<string, unknown>> }>("/admin/pos/online-branches")
+        .then((response) =>
+          setOnlineBranches(
+            Object.fromEntries((response.items || []).map((row) => [text(row.branch_id), text(row.cashier_name)]))
+          )
+        )
+        .catch(() => {
+          /* the next tick retries */
+        });
+    load();
+    const timer = window.setInterval(load, 10000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   return (
     // Bounded like the POS shell: the grid and the cart scroll inside their own
     // boxes, so the totals and the pay button stay in view instead of sitting
     // at the far end of a page-length product list.
     <div className="flex h-[calc(100dvh-8rem)] min-h-0 flex-col gap-3">
       {!setupOpen && branchId ? (
-        <div className="flex shrink-0 items-center gap-3 rounded-xl border bg-primary/5 px-4 py-2.5 text-sm">
+        <div className={`flex shrink-0 items-center gap-3 rounded-xl border px-4 py-2.5 text-sm ${selectedOffline ? "border-warning-200 bg-warning-50" : "bg-primary/5"}`}>
           <span>
             กำลังเปิดขายในนาม <strong>{branchName}</strong> · {MODES.find((option) => option.id === mode)?.title}
+            {selectedOffline ? " · เครื่อง POS ของสาขาปิดอยู่" : ""}
           </span>
           <button className="ml-auto shrink-0 font-semibold text-primary underline underline-offset-2" onClick={() => setSetupOpen(true)} type="button">
             เปลี่ยนสาขา/วิธีขาย
@@ -94,10 +116,22 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
       ) : (
       <SectionCard className="shrink-0" title="เลือกสาขาและวิธีขาย" description="ระบบจะออกบิลในนามสาขาที่เลือกและตัดสต๊อกของสาขานั้น">
         <div className="grid gap-5 lg:grid-cols-[minmax(0,280px)_1fr]">
-          <Field label="สาขาที่จะเปิดขาย">
+          <Field
+            hint={
+              onlineCount === 0
+                ? "ยังไม่มีสาขาใดเปิดหน้าขายอยู่ — รอพนักงานสาขาเปิดเครื่อง POS"
+                : `เลือกได้เฉพาะสาขาที่เปิดหน้าขายอยู่ · ออนไลน์ ${onlineCount} สาขา`
+            }
+            label="สาขาที่จะเปิดขาย"
+          >
             <Select aria-label="เลือกสาขาที่จะเปิดขาย" onChange={(event) => { setBranchId(event.target.value); if (event.target.value) setSetupOpen(false); }} value={branchId}>
               <option value="">เลือกสาขา</option>
-              {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+              {branches.map((branch) => (
+                <option disabled={!onlineBranches[branch.id]} key={branch.id} value={branch.id}>
+                  {branch.name}
+                  {onlineBranches[branch.id] ? ` · ${onlineBranches[branch.id]}` : " · ออฟไลน์"}
+                </option>
+              ))}
             </Select>
           </Field>
           <fieldset>

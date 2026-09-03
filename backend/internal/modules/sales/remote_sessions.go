@@ -234,6 +234,56 @@ func (s *Service) CheckoutRemoteSession(ctx context.Context, user platform.AuthU
 	return result, nil
 }
 
+// posPresenceWindow is how stale a heartbeat may be before the till counts as
+// closed. The POS polls every few seconds, so this tolerates a handful of
+// missed beats without declaring a busy shop offline.
+const posPresenceWindow = 60 * time.Second
+
+// TouchPosPresence records that a branch's till is on the sales screen.
+func (s *Service) TouchPosPresence(ctx context.Context, user platform.AuthUser) {
+	if user.BranchID == nil || *user.BranchID == "" {
+		return
+	}
+	// Best effort: a missed heartbeat only costs a moment of looking offline.
+	_, _ = s.db.ExecContext(ctx, `
+		INSERT INTO pos_terminal_presence (branch_id, user_id, last_seen_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (branch_id)
+		DO UPDATE SET user_id = EXCLUDED.user_id, last_seen_at = NOW()
+	`, *user.BranchID, user.ID)
+}
+
+// OnlineBranches lists the tills head office may sell through right now.
+func (s *Service) OnlineBranches(ctx context.Context) ([]map[string]any, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT p.branch_id::text, b.name, u.full_name, p.last_seen_at
+		FROM pos_terminal_presence p
+		INNER JOIN branches b ON b.id = p.branch_id
+		INNER JOIN users u ON u.id = p.user_id
+		WHERE p.last_seen_at > NOW() - $1::interval
+		ORDER BY b.name
+	`, posPresenceWindow.String())
+	if err != nil {
+		return nil, platform.WrapError(http.StatusInternalServerError, "โหลดสถานะเครื่อง POS ไม่สำเร็จ", err)
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var branchID, branchName, cashierName string
+		var lastSeen time.Time
+		if err := rows.Scan(&branchID, &branchName, &cashierName, &lastSeen); err != nil {
+			return nil, err
+		}
+		items = append(items, map[string]any{
+			"branch_id":    branchID,
+			"branch_name":  branchName,
+			"cashier_name": cashierName,
+			"last_seen_at": lastSeen,
+		})
+	}
+	return items, rows.Err()
+}
+
 // --- handlers -------------------------------------------------------------
 
 func (h *Handler) SaveRemoteSession(c echo.Context) error {
@@ -272,11 +322,23 @@ func (h *Handler) PosRemoteSession(c echo.Context) error {
 	if user.BranchID != nil {
 		branchID = *user.BranchID
 	}
+	// This poll is the till's heartbeat: it only runs while the sales screen is
+	// open, which is exactly when head office may sell through it.
+	h.service.TouchPosPresence(c.Request().Context(), user)
 	item, err := h.service.RemoteSessionForBranch(c.Request().Context(), branchID)
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
 	}
 	return platform.JSON(c, http.StatusOK, map[string]any{"item": item})
+}
+
+// OnlineBranches tells head office which tills are open to sell through.
+func (h *Handler) OnlineBranches(c echo.Context) error {
+	items, err := h.service.OnlineBranches(c.Request().Context())
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
+	return platform.JSON(c, http.StatusOK, map[string]any{"items": items})
 }
 
 // AdminCheckout is head office settling the bill at its own counter. Whatever

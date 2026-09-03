@@ -195,6 +195,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.PUT("/admin/pos/remote-session", salesHandler.SaveRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.remote"))
 	protected.DELETE("/admin/pos/remote-session", salesHandler.CancelRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.remote"))
 	protected.GET("/admin/pos/remote-session", salesHandler.AdminRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.remote"))
+	protected.GET("/admin/pos/online-branches", salesHandler.OnlineBranches, appMiddleware.RequireAnyPermission("invoice.create.remote"))
 	protected.GET("/pos/remote-session", salesHandler.PosRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.pos"))
 	protected.POST("/pos/remote-session/checkout", salesHandler.CheckoutRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.pos"))
 
