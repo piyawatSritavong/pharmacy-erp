@@ -38,7 +38,7 @@ const MODES: Array<{ id: SaleMode; title: string; detail: string; icon: typeof S
  * Pick the branch first, then how the customer pays; the till itself is the
  * same POS cart, and the bill it writes is an ordinary bill of that branch.
  */
-export function AdminSalesConsole({ branches }: { branches: Branch[] }) {
+export function AdminSalesConsole({ branches, operatorName = "" }: { branches: Branch[]; operatorName?: string }) {
   const [branchId, setBranchId] = useState("");
   const [mode, setMode] = useState<SaleMode>("remote");
   const [products, setProducts] = useState<Option[]>([]);
@@ -56,7 +56,7 @@ export function AdminSalesConsole({ branches }: { branches: Branch[] }) {
     try {
       const query = `?branch_id=${encodeURIComponent(id)}`;
       const [productResponse, inventoryResponse] = await Promise.all([
-        proxyClient<{ items: Option[] }>(`/products${query}&page_size=500`),
+        proxyClient<{ items: Option[] }>(`/products${query}&active=true&page=1&page_size=18`),
         proxyClient<{ items: Option[] }>(`/inventory${query}&page_size=500`)
       ]);
       setProducts(productResponse.items);
@@ -131,7 +131,28 @@ export function AdminSalesConsole({ branches }: { branches: Branch[] }) {
           inventory={inventory}
           key={`${branchId}:${mode}`}
           products={products}
+          // รีโมตหน้าร้าน pushes the cart to the branch's own till, which takes
+          // the money; ขายผ่านสำนักงานใหญ่ settles here as before.
+          remoteBranchId={mode === "remote" ? branchId : ""}
         />
+      ) : null}
+
+      {/* The till's context bar, mirroring the POS footer: whose shop this bill
+          is being written in, and who is writing it. Deliberately without the
+          POS menu — this page already sits inside the back-office sidebar. */}
+      {branchId && !loading ? (
+        <footer className="sticky bottom-0 -mx-4 flex items-center gap-4 border-t bg-white/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-foreground text-white">
+            <Store className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate font-bold">PharmaPOS</p>
+            <p className="truncate text-xs text-muted-foreground">
+              กำลังขายในนาม {branchName} · {MODES.find((option) => option.id === mode)?.title}
+            </p>
+          </div>
+          <p className="ml-auto shrink-0 text-right text-xs text-muted-foreground">{operatorName}</p>
+        </footer>
       ) : null}
     </div>
   );

@@ -190,6 +190,13 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.DELETE("/parked-bills/:parkedBillID", parkedBillHandler.Delete)
 	protected.POST("/pos/checkout", salesHandler.Checkout, appMiddleware.RequireAnyPermission("invoice.create.pos", "payment.collect"))
 	protected.POST("/admin/pos/checkout", salesHandler.Checkout, appMiddleware.RequireAnyPermission("invoice.create.remote"))
+	// รีโมตหน้าร้าน: head office keeps the cart here, the branch till reads it
+	// and takes the money. State, not clicks — see modules/sales/remote_sessions.go.
+	protected.PUT("/admin/pos/remote-session", salesHandler.SaveRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.remote"))
+	protected.DELETE("/admin/pos/remote-session", salesHandler.CancelRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.remote"))
+	protected.GET("/admin/pos/remote-session", salesHandler.AdminRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.remote"))
+	protected.GET("/pos/remote-session", salesHandler.PosRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.pos"))
+	protected.POST("/pos/remote-session/checkout", salesHandler.CheckoutRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.pos"))
 
 	protected.GET("/transfers", transferHandler.List, appMiddleware.RequireAnyPermission("transfer.request", "transfer.receive", "transfer.approve"))
 	protected.POST("/transfers", transferHandler.Create, appMiddleware.RequireAnyPermission("transfer.request"))

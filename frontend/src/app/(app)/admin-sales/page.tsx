@@ -4,7 +4,7 @@ import { requirePermission } from "@/lib/rbac";
 import { getBranches, requireSession } from "@/services/erp";
 
 export default async function AdminSalesPage() {
-  requirePermission(await requireSession(), ["invoice.create.remote"]);
+  const session = requirePermission(await requireSession(), ["invoice.create.remote"]);
   const branches = await getBranches();
   const sellingBranches = branches.items
     .filter((branch) => Boolean(branch.active ?? true) && Boolean(branch.sales_enabled ?? true) && String(branch.branch_type) !== "main_warehouse")
@@ -16,7 +16,7 @@ export default async function AdminSalesPage() {
         title="ขายหน้าร้าน"
         description="สำนักงานใหญ่เปิดการขายในนามสาขา — เลือกสาขา เลือกวิธีขาย แล้วขายเหมือนหน้าร้าน"
       />
-      <AdminSalesConsole branches={sellingBranches} />
+      <AdminSalesConsole branches={sellingBranches} operatorName={String(session.user.name || "")} />
     </div>
   );
 }

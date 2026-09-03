@@ -3,14 +3,19 @@
 import Image from "next/image";
 import Link from "next/link";
 import { CheckCircle2, Minus, Package, PauseCircle, Plus, Printer, Search, ShoppingCart, Trash2, X } from "lucide-react";
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Field } from "@/components/ui/field";
 import { Button, CheckboxField, Dialog, DialogContent, DialogHeader, EmptyState, Input, Notice, Select } from "@/components/ui/primitives";
 import { cn, currency } from "@/lib/utils";
 import { RESUME_KEY } from "@/components/sections/parked-bills-console";
+import { RemoteSalePanel } from "@/components/sections/remote-sale-panel";
 import { proxyClient } from "@/services/api";
+
+/** The grid pages in from the server rather than shipping the whole catalogue
+ *  (and one image request per product) on first paint. */
+const GRID_PAGE_SIZE = 18;
 
 type Option = Record<string, unknown>;
 
@@ -90,12 +95,19 @@ export function PosWorkspace({
   // The POS portal sells its own branch through /pos/*; head office sells in a
   // branch's name through /admin/pos/*. Same cart, same bill, different door.
   endpointBase = "/pos",
+  remoteBranchId = "",
+  watchRemote = false,
 }: {
   branchId: string;
   branchName: string;
   products: Option[];
   inventory: Option[];
   endpointBase?: string;
+  /** รีโมตหน้าร้าน (head office): the cart is pushed to this branch's till and
+   *  paid for there, rather than being settled here. */
+  remoteBranchId?: string;
+  /** POS: watch for a cart head office has left waiting at this till. */
+  watchRemote?: boolean;
 }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -123,6 +135,17 @@ export function PosWorkspace({
   // the grid to that promotion's eligible products.
   const [promotions, setPromotions] = useState<Option[]>([]);
   const [activePromoId, setActivePromoId] = useState("");
+  // Grid paging: the server filters and pages, the sentinel below the grid asks
+  // for the next 18 as it scrolls into view.
+  const [gridItems, setGridItems] = useState<Option[]>(products);
+  const [gridPage, setGridPage] = useState(1);
+  const [gridDone, setGridDone] = useState(products.length < GRID_PAGE_SIZE);
+  const [gridLoading, setGridLoading] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // The branch till's side of a remote sale, as head office sees it.
+  const [remoteSession, setRemoteSession] = useState<Option | null>(null);
+  const remoteStatus = String(remoteSession?.status || "");
   // พักบิล — suspend the cart without touching stock, resume it later.
   const [parking, setParking] = useState(false);
   const [parkNote, setParkNote] = useState("");
@@ -139,15 +162,120 @@ export function PosWorkspace({
   const promoProductIds = new Set(
     ((activePromo?.items as Option[]) || []).map((item) => String(item.product_id))
   );
-  const keyword = search.trim().toLocaleLowerCase("th-TH");
-  const filteredProducts = products.filter((product) => {
-    if (!Boolean(product.active)) return false;
-    if (activePromoId && !promoProductIds.has(String(product.id))) return false;
-    if (!keyword) return true;
-    return [product.name, product.sku, product.barcode, product.description]
-      .filter(Boolean)
-      .some((value) => String(value).toLocaleLowerCase("th-TH").includes(keyword));
-  });
+  // A stable key for the promo's product set, so the loader below is not
+  // rebuilt on every render by a freshly-allocated Set.
+  const promoIdsKey = [...promoProductIds].sort().join(",");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  const loadProducts = useCallback(
+    async (page: number, replace: boolean) => {
+      setGridLoading(true);
+      try {
+        const query = new URLSearchParams({ active: "true", page: String(page) });
+        if (branchId) query.set("branch_id", branchId);
+        if (promoIdsKey) {
+          // A promotion covers a known, small set — ask for exactly those
+          // rather than paging the catalogue looking for them.
+          query.set("ids", promoIdsKey);
+          query.set("page_size", "200");
+        } else {
+          query.set("page_size", String(GRID_PAGE_SIZE));
+          if (debouncedSearch) query.set("search", debouncedSearch);
+        }
+        const response = await proxyClient<{ items: Option[] }>(`/products?${query.toString()}`);
+        const items = response.items || [];
+        setGridItems((current) => (replace ? items : [...current, ...items]));
+        setGridDone(Boolean(promoIdsKey) || items.length < GRID_PAGE_SIZE);
+        setGridPage(page);
+      } catch {
+        // A failed page stops the scroll from asking again in a loop.
+        setGridDone(true);
+      } finally {
+        setGridLoading(false);
+      }
+    },
+    [branchId, debouncedSearch, promoIdsKey]
+  );
+
+  // Any change of branch, search term or promotion starts the list over.
+  useEffect(() => {
+    void loadProducts(1, true);
+  }, [loadProducts]);
+
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || gridDone || gridLoading) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadProducts(gridPage + 1, false);
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [gridDone, gridLoading, gridPage, loadProducts]);
+
+  // Head office pushes the cart itself — not its clicks — so the till shows the
+  // same bill however the two screens differ, and it survives a refresh.
+  useEffect(() => {
+    if (!remoteBranchId) return;
+    const timer = window.setTimeout(() => {
+      void proxyClient<Option>("/admin/pos/remote-session", {
+        method: "PUT",
+        body: JSON.stringify({
+          branch_id: remoteBranchId,
+          cart: {
+            lines: cart.map((line) => ({
+              product_id: String(line.product.id),
+              product_name: String(line.product.name || ""),
+              sku: String(line.product.sku || ""),
+              inventory_lot_id: String(line.lot.id),
+              lot_number: String(line.lot.lot_number || ""),
+              stock_bucket: "real",
+              quantity: line.quantity,
+              unit_price: Number(line.product.effective_price || 0),
+              discount_amount: Number(line.discount || 0)
+            })),
+            bill_discount_amount: Number(billDiscount || 0),
+            full_tax_invoice: fullTaxInvoice,
+            customer_name: fullTaxInvoice ? customerName : "",
+            customer_tax_id: fullTaxInvoice ? customerTaxId : ""
+          }
+        })
+      })
+        .then(setRemoteSession)
+        .catch(() => {
+          /* the next edit pushes again */
+        });
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [billDiscount, cart, customerName, customerTaxId, fullTaxInvoice, remoteBranchId]);
+
+  // ...and watches for the till to take the money.
+  useEffect(() => {
+    if (!remoteBranchId) return;
+    const load = () =>
+      void proxyClient<{ item: Option | null }>(`/admin/pos/remote-session?branch_id=${encodeURIComponent(remoteBranchId)}`)
+        .then((response) => setRemoteSession(response.item))
+        .catch(() => {});
+    const timer = window.setInterval(load, 3000);
+    return () => window.clearInterval(timer);
+  }, [remoteBranchId]);
+
+  // Once the branch has been paid, clear the till here so the next customer
+  // starts clean rather than re-sending a bill that is already settled.
+  useEffect(() => {
+    if (remoteStatus !== "completed") return;
+    setCart([]);
+    setBillDiscount("");
+    setMessage(`สาขารับชำระแล้ว · ${String(remoteSession?.invoice_number || "")}`);
+  }, [remoteSession?.invoice_number, remoteStatus]);
+
+  const filteredProducts = gridItems;
 
   function payload(extra?: { payment_type?: string; tendered_amount?: number; transfer_amount?: number }) {
     return {
@@ -661,9 +789,14 @@ export function PosWorkspace({
               })}
             </div>
 
-            {filteredProducts.length === 0 ? (
+            {!gridLoading && filteredProducts.length === 0 ? (
               <EmptyState className="rounded-3xl border border-dashed bg-white p-12" description="ไม่พบสินค้าที่ค้นหา" />
             ) : null}
+            {gridLoading ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">กำลังโหลดสินค้า...</p>
+            ) : null}
+            {/* Scrolling this into view asks for the next page. */}
+            <div aria-hidden className="h-6" ref={sentinelRef} />
           </div>
         </div>
 
@@ -841,6 +974,15 @@ export function PosWorkspace({
               พิมพ์ใบเสร็จ {String(receipt.invoice_number)}
             </Link>
           ) : null}
+          {remoteBranchId ? (
+            <p className="mt-3 rounded-xl bg-info-50 px-3 py-2 text-xs text-info-800" role="status">
+              {remoteStatus === "open"
+                ? "ส่งให้เครื่อง POS ของสาขาแล้ว · รอพนักงานสาขารับชำระ"
+                : remoteStatus === "completed"
+                  ? `สาขารับชำระแล้ว · ${String(remoteSession?.invoice_number || "")}`
+                  : "หยิบสินค้าลงตะกร้า แล้วรายการจะไปโผล่ที่เครื่อง POS ของสาขาทันที"}
+            </p>
+          ) : null}
           <div className="mt-4 grid grid-cols-[auto_auto_1fr] gap-2">
             <Button
               aria-label="ล้างรายการขาย"
@@ -861,11 +1003,24 @@ export function PosWorkspace({
               <PauseCircle className="h-4 w-4" />
               พักบิล
             </Button>
-            <Button className="rounded-full" disabled={!cart.length} onClick={() => void openPayment()} type="button">
-              รับชำระเงิน
-            </Button>
+            {remoteBranchId ? (
+              <Button
+                className="rounded-full"
+                disabled={!cart.length}
+                onClick={() => void proxyClient(`/admin/pos/remote-session?branch_id=${encodeURIComponent(remoteBranchId)}`, { method: "DELETE" }).then(() => { setCart([]); setRemoteSession(null); }).catch(() => {})}
+                type="button"
+                variant="secondary"
+              >
+                ยกเลิกการรีโมต
+              </Button>
+            ) : (
+              <Button className="rounded-full" disabled={!cart.length} onClick={() => void openPayment()} type="button">
+                รับชำระเงิน
+              </Button>
+            )}
           </div>
         </aside>
+        {watchRemote ? <RemoteSalePanel /> : null}
       </section>
 
       <Dialog onOpenChange={setParkOpen} open={parkOpen}>

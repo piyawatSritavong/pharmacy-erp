@@ -95,8 +95,11 @@ type ListFilter struct {
 	Active            string
 	SalesChannel      string
 	RequiresFDAReport string
-	Page              int
-	PageSize          int
+	// IDs narrows the list to an explicit set — the till uses it to pull just
+	// the products a promotion covers instead of paging the whole catalogue.
+	IDs      []string
+	Page     int
+	PageSize int
 }
 
 type ListResult struct {
@@ -152,6 +155,14 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 	if filter.RequiresFDAReport == "true" || filter.RequiresFDAReport == "false" {
 		args = append(args, filter.RequiresFDAReport == "true")
 		conditions = append(conditions, "p.requires_fda_report = $"+strconv.Itoa(len(args)))
+	}
+	if len(filter.IDs) > 0 {
+		placeholders := make([]string, 0, len(filter.IDs))
+		for _, id := range filter.IDs {
+			args = append(args, id)
+			placeholders = append(placeholders, "$"+strconv.Itoa(len(args)))
+		}
+		conditions = append(conditions, "p.id::text IN ("+strings.Join(placeholders, ",")+")")
 	}
 	whereClause := ""
 	if len(conditions) > 0 {
@@ -1170,6 +1181,26 @@ func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
 
+// productIDList splits an "ids" query parameter into a bounded set. Values are
+// bound as parameters, so anything malformed simply matches nothing.
+func productIDList(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	ids := []string{}
+	for _, part := range strings.Split(raw, ",") {
+		id := strings.TrimSpace(part)
+		if len(id) != 36 {
+			continue
+		}
+		ids = append(ids, id)
+		if len(ids) == 200 {
+			break
+		}
+	}
+	return ids
+}
+
 func (h *Handler) List(c echo.Context) error {
 	branchID := strings.TrimSpace(c.QueryParam("branch_id"))
 	user := platform.CurrentUser(c)
@@ -1183,7 +1214,7 @@ func (h *Handler) List(c echo.Context) error {
 	pageSize, _ := strconv.Atoi(c.QueryParam("page_size"))
 	result, err := h.service.List(c.Request().Context(), user, branchID, ListFilter{
 		Search: strings.TrimSpace(c.QueryParam("search")), CategoryID: strings.TrimSpace(c.QueryParam("category_id")),
-		Active: strings.TrimSpace(c.QueryParam("active")), Page: page, PageSize: pageSize,
+		Active: strings.TrimSpace(c.QueryParam("active")), IDs: productIDList(c.QueryParam("ids")), Page: page, PageSize: pageSize,
 		SalesChannel: strings.TrimSpace(c.QueryParam("sales_channel")), RequiresFDAReport: strings.TrimSpace(c.QueryParam("requires_fda_report")),
 	})
 	if err != nil {
