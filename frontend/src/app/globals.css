@@ -127,7 +127,11 @@ textarea:disabled {
   position: fixed !important;
   left: auto !important;
   right: 1rem !important;
-  top: 3.75rem !important;
+  /* Clears the sticky header in its tallest state — when the page is at the
+     top, the header is pushed down by <main>'s lg:py-8, so its bottom sits at
+     ~97px. Starting the panel at 100px keeps it fully below the header (and its
+     account + logout controls) instead of overlapping them. */
+  top: 6.25rem !important;
   transform: none !important;
 }
 @media (min-width: 640px) {
