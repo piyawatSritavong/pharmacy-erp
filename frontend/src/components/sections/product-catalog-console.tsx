@@ -83,8 +83,7 @@ export function ProductCatalogConsole({
     () =>
       initialItems.map((item) => ({
         ...item,
-        sales_channel_label: CHANNEL_LABEL[String(item.sales_channel || "in_store")] || String(item.sales_channel),
-        fda_flag: item.requires_fda_report ? "ใช่" : "ไม่ใช่"
+        sales_channel_label: CHANNEL_LABEL[String(item.sales_channel || "in_store")] || String(item.sales_channel)
       })),
     [initialItems]
   );
@@ -223,8 +222,7 @@ export function ProductCatalogConsole({
             { key: "name", label: "ชื่อสินค้า" },
             { key: "category_name", label: "หมวดสินค้า" },
             { key: "base_selling_price", label: "ราคาขายตั้งต้น", type: "currency" },
-            { key: "sales_channel_label", label: "ช่องทางขาย" },
-            { key: "fda_flag", label: "รายงาน อย." }
+            { key: "sales_channel_label", label: "ช่องทางขาย" }
           ]}
           emptyDescription="ลองปรับคำค้นหาหรือตัวกรอง"
           rowActions={(row) => (
@@ -297,17 +295,9 @@ export function ProductCatalogConsole({
               <Checkbox checked={Boolean(editing.active)} onChange={(event) => setEditing((current) => ({ ...current, active: event.target.checked }))} />
               เปิดใช้งาน
             </label>
-            <div className="md:col-span-2 rounded-xl border bg-muted p-3">
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <Checkbox checked={Boolean(editing.requires_fda_report)} onChange={(event) => setEditing((current) => ({ ...current, requires_fda_report: event.target.checked }))} />
-                ต้องรายงานต่อ อย.
-              </label>
-              {editing.requires_fda_report ? (
-                <Field className="mt-2" hint="กรอกเมื่อได้รับเลขทะเบียนแล้ว" label="เลขทะเบียน อย.">
-                  <Input onChange={(event) => setEditing((current) => ({ ...current, fda_registration_no: event.target.value }))} value={String(editing.fda_registration_no || "")} />
-                </Field>
-              ) : null}
-            </div>
+            {/* The อย. flag + registration number moved out with the FDA (อย.)
+                feature into PharmaPOS Pro; the product still carries the fields
+                (kept on save) so nothing is lost when that feature returns. */}
             <div className="md:col-span-2 flex justify-end gap-2">
               <Button onClick={() => setDialogOpen(false)} type="button" variant="secondary">ยกเลิก</Button>
               <Button type="submit">{editingId ? "บันทึก" : "เพิ่มสินค้า"}</Button>

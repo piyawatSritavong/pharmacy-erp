@@ -114,3 +114,25 @@ textarea:disabled {
 .btn-neutral {
   @apply bg-neutral-100 text-neutral-dark transition-colors hover:bg-neutral-200 active:bg-neutral-300 disabled:cursor-not-allowed disabled:opacity-40;
 }
+
+/*
+ * The system-notification panel is pinned flush to the back-office header's
+ * right edge, not left hanging off the bell (which sits mid-bar, left of the
+ * account controls). Radix positions the popper via a transform on its wrapper
+ * div, so we override that wrapper — scoped with :has() to only the wrapper
+ * holding this panel — rather than the content element itself. right/top match
+ * the sticky header's horizontal padding and height.
+ */
+[data-radix-popper-content-wrapper]:has(.notif-flush-right) {
+  position: fixed !important;
+  left: auto !important;
+  right: 1rem !important;
+  top: 3.75rem !important;
+  transform: none !important;
+}
+@media (min-width: 640px) {
+  [data-radix-popper-content-wrapper]:has(.notif-flush-right) { right: 1.5rem !important; }
+}
+@media (min-width: 1024px) {
+  [data-radix-popper-content-wrapper]:has(.notif-flush-right) { right: 2.5rem !important; }
+}

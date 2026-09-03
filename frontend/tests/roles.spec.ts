@@ -62,7 +62,7 @@ test.describe("สิทธิ์และการนำทางสองบ�
     const adminGroups: Array<[string, string[]]> = [
       ["รายงาน", ["Dashboard", "สรุปสิ้นเดือน", "รายงานสรุปสิ้นเดือน"]],
       ["คลังสินค้า", ["รายการสินค้า", "สต๊อกจริง", "สต๊อกผี", "หมวดสินค้า", "โปรโมชั่น", "เบิกสินค้า", "โอนสินค้า"]],
-      ["ใบเอกสาร", ["ใบสั่งซื้อเข้า", "บริษัทคู่ค้า", "รพ.สต.", "ใบขาย", "เคลม/คืนสินค้า", "อย."]],
+      ["ใบเอกสาร", ["ใบสั่งซื้อเข้า", "บริษัทคู่ค้า", "เคลม/คืนสินค้า", "รพ.สต.", "ใบขาย", "อย."]],
       ["ระบบ", ["ตั้งค่า", "ประวัติระบบ", "ประวัติการขาย"]],
     ];
     for (const [group, children] of adminGroups) {
@@ -370,8 +370,11 @@ test.describe("สิทธิ์และการนำทางสองบ�
     ] as const;
 
     for (const [linkName, path, heading] of pages) {
+      // Non-exact: เบิกสินค้า / รับโอนสินค้า can carry a red count badge, so the
+      // link's accessible name is the label plus its unseen count (e.g.
+      // "เบิกสินค้า 2").
       await session.page
-        .getByRole("link", { name: linkName, exact: true })
+        .getByRole("link", { name: linkName })
         .first()
         .click();
       await session.page.waitForURL((url) => url.pathname === path);

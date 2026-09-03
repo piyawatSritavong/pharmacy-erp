@@ -21,6 +21,7 @@ import {
   Settings,
   ShoppingBasket,
 	Handshake,
+  Sparkles,
   Store,
 	Tags,
   TableProperties,
@@ -61,6 +62,18 @@ const iconByKey: Record<string, LucideIcon> = {
 
 function activePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/** The little corner badge on a Pro-gated menu item. Decorative (aria-hidden)
+ *  so it doesn't lengthen the link's accessible name — the Pro gate on the page
+ *  itself is what announces the feature is locked. */
+function ProTag() {
+  return (
+    <span aria-hidden className="ml-auto inline-flex shrink-0 items-center gap-0.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none text-white shadow-sm">
+      <Sparkles className="h-2.5 w-2.5" />
+      Pro
+    </span>
+  );
 }
 
 /** True when the item itself, or (for a C1 parent menu) any of its children, matches the current route. */
@@ -192,8 +205,9 @@ export function Sidebar({
                   <p className="px-3 pb-1.5 pt-1 text-xs font-bold text-muted-foreground">{item.title}</p>
                   {item.children.map((child) => (
                     <DropdownMenuItem asChild key={child.key}>
-                      <Link className={cn("block", activePath(pathname, child.href) && "font-bold text-primary")} href={child.href}>
-                        {child.title}
+                      <Link className={cn("flex items-center gap-2", activePath(pathname, child.href) && "font-bold text-primary")} href={child.href}>
+                        <span className="truncate">{child.title}</span>
+                        {child.pro ? <ProTag /> : null}
                       </Link>
                     </DropdownMenuItem>
                   ))}
@@ -225,13 +239,14 @@ export function Sidebar({
                     return (
                       <Link
                         className={cn(
-                          "block truncate rounded-lg px-2.5 py-2 text-sm font-medium transition",
+                          "flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium transition",
                           childActive ? "bg-secondary/60 font-bold text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                         )}
                         href={child.href}
                         key={child.key}
                       >
-                        {child.title}
+                        <span className="truncate">{child.title}</span>
+                        {child.pro ? <ProTag /> : null}
                       </Link>
                     );
                   })}

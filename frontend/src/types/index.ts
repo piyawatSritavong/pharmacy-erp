@@ -3,6 +3,9 @@ export type NavigationItem = {
   title: string;
   href: string;
   description: string;
+  /** True for a feature that lives behind PharmaPOS Pro — the nav shows it with
+   *  a "Pro" badge, and the page itself renders the upgrade gate. */
+  pro?: boolean;
   /** Present on parent/group menu items (C1) — href points at children[0]. */
   children?: NavigationItem[];
 };

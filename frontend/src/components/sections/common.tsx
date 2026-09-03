@@ -106,27 +106,11 @@ export function statusLabel(value: unknown) {
   return statusLabels[key] || key;
 }
 
-/**
- * Single page header for every screen: title and description share one
- * baseline-aligned row (no eyebrow badge — it only repeated what the sidebar
- * already says). Wraps to two lines on narrow viewports.
- */
-export function PageIntro({
-  title,
-  description
-}: {
-  title: string;
-  description?: string;
-}) {
-  return (
-    <div className="mb-6 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-      <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-      {description ? (
-        <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
-      ) : null}
-    </div>
-  );
-}
+// PageIntro now lives with the sticky header it feeds — a page's title and
+// description render up in the header bar, on one row with the bell and
+// account controls, instead of on a line of their own below them. Re-exported
+// here so every page can keep importing it from this module unchanged.
+export { PageIntro } from "@/components/layout/page-header";
 
 export function MetricGrid({
   items

@@ -4,6 +4,7 @@ import type { PropsWithChildren } from "react";
 import { useState } from "react";
 
 import { AppHeader } from "@/components/layout/app-header";
+import { PageHeaderProvider } from "@/components/layout/page-header";
 import { MobileNav, PosBottomNav, Sidebar } from "@/components/layout/sidebar";
 import { cn } from "@/lib/utils";
 import type { Session } from "@/types";
@@ -41,9 +42,11 @@ export function AppShell({
           full-bleed, non-scrolling workspace of its own (สรุปสิ้นเดือน used
           to, and its content was simply clipped once it outgrew the viewport). */}
       <main className="min-w-0 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
-        <AppHeader user={session.user} />
-        <MobileNav navigation={session.navigation} />
-        {children}
+        <PageHeaderProvider>
+          <AppHeader navigation={session.navigation} user={session.user} />
+          <MobileNav navigation={session.navigation} />
+          {children}
+        </PageHeaderProvider>
       </main>
     </div>
   );

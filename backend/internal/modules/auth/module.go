@@ -193,6 +193,16 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 		}
 		return appendItem(items, key, title, href, description)
 	}
+	// appendProItemIf is appendItemIf for a feature that has moved behind
+	// PharmaPOS Pro: the menu entry stays visible (so the upsell is reachable)
+	// but carries a "pro" flag the sidebar renders as a badge.
+	appendProItemIf := func(items []map[string]any, allowed bool, key string, title string, href string, description string) []map[string]any {
+		if !allowed {
+			return items
+		}
+		item := map[string]any{"key": key, "title": title, "href": href, "description": description, "pro": true}
+		return append(items, item)
+	}
 	// appendGroup adds a parent/group menu item (C1) whose href is its first
 	// child's href, so clicking the parent itself auto-activates that child.
 	// Omitted entirely when it would have no visible children.
@@ -255,10 +265,12 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	var documentsChildren []map[string]any
 	documentsChildren = appendItemIf(documentsChildren, has("purchase_orders.view.global", "purchase_orders.manage.global"), "purchase_orders", "ใบสั่งซื้อเข้า", "/purchase-orders", "ประวัติและสร้างใบสั่งซื้อพร้อมรับสินค้าเข้าคลัง")
 	documentsChildren = appendItemIf(documentsChildren, has("suppliers.view.global", "suppliers.manage.global"), "suppliers", "บริษัทคู่ค้า", "/suppliers", "จัดการบริษัทคู่ค้าส่วนกลาง")
-	documentsChildren = appendItemIf(documentsChildren, has("quotation.manage"), "government_sales", "รพ.สต.", "/government-sales", "ใบเสนอราคาและใบขายสำหรับงานราชการ")
-	documentsChildren = appendItemIf(documentsChildren, has("quotation.manage"), "sales_management", "ใบขาย", "/sales-management", "ใบเสนอราคา ใบขาย และประวัติเอกสาร")
 	documentsChildren = appendItemIf(documentsChildren, has("returns.manage"), "claims", "เคลม/คืนสินค้า", "/claims", "ส่งเคลมให้คู่ค้าและปิดเคลมรับรุ่นเดิมหรือรุ่นทดแทน")
-	documentsChildren = appendItemIf(documentsChildren, has("fda.manage"), "fda_reports", "อย.", "/fda-reports", "เลือกสินค้าและสร้างเอกสารนำส่ง อย.")
+	// The three Pro features sit last, each badged; they stay in the menu so the
+	// upsell is reachable, but no live feature links into them (D-gating).
+	documentsChildren = appendProItemIf(documentsChildren, has("quotation.manage"), "government_sales", "รพ.สต.", "/government-sales", "ใบเสนอราคาและใบขายสำหรับงานราชการ")
+	documentsChildren = appendProItemIf(documentsChildren, has("quotation.manage"), "sales_management", "ใบขาย", "/sales-management", "ใบเสนอราคา ใบขาย และประวัติเอกสาร")
+	documentsChildren = appendProItemIf(documentsChildren, has("fda.manage"), "fda_reports", "อย.", "/fda-reports", "เลือกสินค้าและสร้างเอกสารนำส่ง อย.")
 
 	// ขายหน้าร้าน for head office: a single top-level action, not a group.
 	items = appendItemIf(items, has("invoice.create.remote"), "admin_sales", "ขายหน้าร้าน", "/admin-sales", "เปิดการขายในนามสาขาที่เลือก")

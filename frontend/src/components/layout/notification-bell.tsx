@@ -92,7 +92,10 @@ export function NotificationBell() {
           ) : null}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80 p-0">
+      {/* notif-flush-right pins the panel to the header's right edge via a
+          scoped rule in globals.css (Radix puts its transform on the popper
+          wrapper, so a class on the content alone can't move it). */}
+      <DropdownMenuContent align="end" className="w-80 p-0 notif-flush-right">
         <div className="border-b px-4 py-3">
           <p className="text-sm font-semibold">การแจ้งเตือนระบบ</p>
           <p className="text-xs text-muted-foreground">{total > 0 ? `มี ${total.toLocaleString("th-TH")} รายการที่ต้องดำเนินการ` : "ไม่มีรายการที่ต้องดำเนินการ"}</p>
