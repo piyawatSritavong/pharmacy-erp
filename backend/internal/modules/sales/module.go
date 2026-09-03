@@ -737,7 +737,8 @@ func (s *Service) ListQuotations(ctx context.Context, user platform.AuthUser, go
 
 func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, governmentMode *bool) ([]map[string]any, error) {
 	query := `
-		SELECT i.id, i.invoice_number, i.customer_name, i.payment_status, i.total_amount, i.is_government_mode, i.tax_invoice_type, i.request_full_tax_invoice, b.name, i.issued_at, i.deleted_at, COALESCE(i.hidden_by_id::text,''), COALESCE(i.original_invoice_number,'')
+		SELECT i.id, i.invoice_number, i.customer_name, i.payment_status, i.total_amount, i.is_government_mode, i.tax_invoice_type, i.request_full_tax_invoice, b.name, i.issued_at, i.deleted_at, COALESCE(i.hidden_by_id::text,''), COALESCE(i.original_invoice_number,''),
+		       EXISTS(SELECT 1 FROM invoice_items ii WHERE ii.invoice_id = i.id AND ii.reconciliation_discount_amount <> 0)
 		FROM invoices i
 		INNER JOIN branches b ON b.id = i.branch_id
 	`
@@ -767,10 +768,10 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 	for rows.Next() {
 		var id, invoiceNumber, customerName, paymentStatus, taxInvoiceType, branchName, hiddenByID, originalNumber string
 		var totalAmount float64
-		var isGovernment, requestFullTax bool
+		var isGovernment, requestFullTax, repriced bool
 		var issuedAt time.Time
 		var deletedAt sql.NullTime
-		if err := rows.Scan(&id, &invoiceNumber, &customerName, &paymentStatus, &totalAmount, &isGovernment, &taxInvoiceType, &requestFullTax, &branchName, &issuedAt, &deletedAt, &hiddenByID, &originalNumber); err != nil {
+		if err := rows.Scan(&id, &invoiceNumber, &customerName, &paymentStatus, &totalAmount, &isGovernment, &taxInvoiceType, &requestFullTax, &branchName, &issuedAt, &deletedAt, &hiddenByID, &originalNumber, &repriced); err != nil {
 			return nil, err
 		}
 		item := map[string]any{
@@ -788,6 +789,16 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 		if user.RoleKey == "super_admin" {
 			item["original_invoice_number"] = originalNumber
 			item["original_number"] = originalNumber
+			// Same three states the month-end report reports, so a bill reads
+			// the same whichever screen you are on.
+			switch {
+			case deletedAt.Valid:
+				item["reconciliation_status"] = "hidden"
+			case repriced:
+				item["reconciliation_status"] = "adjusted"
+			default:
+				item["reconciliation_status"] = "active"
+			}
 			if deletedAt.Valid {
 				item["deleted_at"] = deletedAt.Time
 				item["hidden_by_id"] = hiddenByID

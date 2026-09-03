@@ -14,11 +14,29 @@ type Option = Record<string, unknown>;
 
 const PAGE_SIZE_DEFAULT = 20;
 
+/** The three states a bill can be in after a month-end close — same wording and
+ *  colours as รายงานสรุปสิ้นเดือน, so a bill reads the same on either screen. */
+const CLOSE_STATUS: Record<string, { label: string; tone: string }> = {
+  hidden: { label: "Hidden/Deleted", tone: "bg-red-100 text-red-700" },
+  adjusted: { label: "Adjusted", tone: "bg-amber-100 text-amber-800" },
+  active: { label: "Active", tone: "bg-emerald-100 text-emerald-700" }
+};
+
 // Part B, Rule 4 — the POS half of the return workflow: look up the
 // original sale, pick the defective line, issue a replacement on the spot.
 // The back-office side (send to supplier, resolve Case A/B) lives on
 // /claims, gated by returns.manage, not this page.
-export function SalesHistoryConsole({ initialItems, showFullTimestamp = false }: { initialItems: Option[]; showFullTimestamp?: boolean }) {
+export function SalesHistoryConsole({
+  initialItems,
+  showFullTimestamp = false,
+  isSuperAdmin = false
+}: {
+  initialItems: Option[];
+  showFullTimestamp?: boolean;
+  /** Superadmin reads this page as an audit trail: before/after bill numbers
+   *  and the close status, and no returns to issue from here. */
+  isSuperAdmin?: boolean;
+}) {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [activeInvoice, setActiveInvoice] = useState<Option | null>(null);
@@ -165,20 +183,66 @@ export function SalesHistoryConsole({ initialItems, showFullTimestamp = false }:
         </div>
         <DataTable
           columns={[
-            { key: "invoice_number", label: "เลขที่ใบขาย", className: "whitespace-nowrap font-medium" },
+            // Superadmin sees the close's before/after pair; a hidden bill has
+            // no current number left, so it reads "—" the way the report does.
+            ...(isSuperAdmin
+              ? [
+                  {
+                    key: "original_invoice_number",
+                    label: "เลขบิลเดิม",
+                    className: "whitespace-nowrap font-medium",
+                    render: (row: Option) => String(row.original_invoice_number || row.invoice_number || "—")
+                  },
+                  {
+                    key: "invoice_number",
+                    label: "เลขบิลใหม่",
+                    className: "whitespace-nowrap font-medium",
+                    render: (row: Option) =>
+                      String(row.reconciliation_status) === "hidden" ? "—" : String(row.invoice_number || "—")
+                  }
+                ]
+              : [{ key: "invoice_number", label: "เลขที่ใบขาย", className: "whitespace-nowrap font-medium" }]),
             ...(showBranch ? [{ key: "branch_name", label: "สาขา", className: "whitespace-nowrap" }] : []),
             { key: "customer_name", label: "ลูกค้า" },
-            { key: "payment_status", label: "สถานะ", className: "whitespace-nowrap" },
+            {
+              key: "payment_status",
+              label: isSuperAdmin ? "ชำระเงิน" : "สถานะ",
+              className: "whitespace-nowrap",
+              ...(isSuperAdmin
+                ? { render: (row: Option) => (String(row.payment_status) === "paid" ? "ชำระแล้ว" : "ค้างชำระ") }
+                : {})
+            },
+            ...(isSuperAdmin
+              ? [
+                  {
+                    key: "reconciliation_status",
+                    label: "สถานะ",
+                    className: "whitespace-nowrap",
+                    render: (row: Option) => {
+                      const state = CLOSE_STATUS[String(row.reconciliation_status || "active")] || CLOSE_STATUS.active;
+                      return (
+                        <span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${state.tone}`}>
+                          {state.label}
+                        </span>
+                      );
+                    }
+                  }
+                ]
+              : []),
             { key: "tax_invoice_label", label: "ใบกำกับภาษี", className: "whitespace-nowrap" },
             { key: "total_amount", label: "ยอดรวม", type: "currency", className: "whitespace-nowrap" },
             { key: "issued_at", label: "วันที่ขาย", type: showFullTimestamp ? "datetime" : "date", className: "whitespace-nowrap" }
           ]}
           rowActions={(invoice) => (
             <div className="flex justify-end gap-2 whitespace-nowrap">
-              <Button onClick={() => void openReturn(invoice)} type="button" variant="secondary">
-                <RotateCcw className="h-4 w-4" />
-                คืน/เปลี่ยนสินค้า
-              </Button>
+              {/* Returns are counter work; the superadmin reads this page as an
+                  audit trail, so the action is not offered there. */}
+              {isSuperAdmin ? null : (
+                <Button onClick={() => void openReturn(invoice)} type="button" variant="secondary">
+                  <RotateCcw className="h-4 w-4" />
+                  คืน/เปลี่ยนสินค้า
+                </Button>
+              )}
               <Link
                 className="inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
                 href={`/print/invoices/${String(invoice.id)}`}
