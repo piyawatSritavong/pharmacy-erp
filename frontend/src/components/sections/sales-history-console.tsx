@@ -17,9 +17,10 @@ const PAGE_SIZE_DEFAULT = 20;
 /** The three states a bill can be in after a month-end close — same wording and
  *  colours as รายงานสรุปสิ้นเดือน, so a bill reads the same on either screen. */
 const CLOSE_STATUS: Record<string, { label: string; tone: string }> = {
-  hidden: { label: "Hidden/Deleted", tone: "bg-red-100 text-red-700" },
+  // Declaration order is the order the filter lists them.
   adjusted: { label: "Adjusted", tone: "bg-amber-100 text-amber-800" },
-  active: { label: "Active", tone: "bg-emerald-100 text-emerald-700" }
+  active: { label: "Active", tone: "bg-emerald-100 text-emerald-700" },
+  hidden: { label: "Hidden/Deleted", tone: "bg-red-100 text-red-700" }
 };
 
 // Part B, Rule 4 — the POS half of the return workflow: look up the
@@ -50,6 +51,7 @@ export function SalesHistoryConsole({
   const [search, setSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
+  const [closeStatusFilter, setCloseStatusFilter] = useState("");
   const [taxFilter, setTaxFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -75,6 +77,9 @@ export function SalesHistoryConsole({
         if (term && ![invoice.invoice_number, invoice.customer_name].some((value) => String(value || "").toLocaleLowerCase("th").includes(term))) return false;
         if (branchFilter && String(invoice.branch_name) !== branchFilter) return false;
         if (paymentFilter && String(invoice.payment_status) !== paymentFilter) return false;
+        // Bills the API says nothing about (anyone but the superadmin) are
+        // active by definition — nothing has closed over them.
+        if (closeStatusFilter && String(invoice.reconciliation_status || "active") !== closeStatusFilter) return false;
         if (taxFilter && String(invoice.tax_invoice_type) !== taxFilter) return false;
         // issued_at is an ISO timestamp; comparing the date half keeps the
         // range inclusive of the whole "to" day.
@@ -86,7 +91,7 @@ export function SalesHistoryConsole({
       // Ordered by invoice number so a run of a branch's bills reads in sequence;
       // numeric-aware so BL...9 precedes BL...10.
       .sort((a, b) => String(a.invoice_number || "").localeCompare(String(b.invoice_number || ""), "th", { numeric: true }));
-  }, [branchFilter, dateFrom, dateTo, initialItems, paymentFilter, search, taxFilter]);
+  }, [branchFilter, closeStatusFilter, dateFrom, dateTo, initialItems, paymentFilter, search, taxFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(Math.max(1, page), totalPages);
@@ -167,6 +172,16 @@ export function SalesHistoryConsole({
               <option value="unpaid">ค้างชำระ</option>
             </Select>
           </Field>
+          {isSuperAdmin ? (
+            <Field className="w-44" label="สถานะ">
+              <Select aria-label="กรองตามสถานะบิล" onChange={(event) => resetPage(setCloseStatusFilter)(event.target.value)} value={closeStatusFilter}>
+                <option value="">ทุกสถานะ</option>
+                {Object.entries(CLOSE_STATUS).map(([value, state]) => (
+                  <option key={value} value={value}>{state.label}</option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
           <Field className="w-40" label="ใบกำกับภาษี">
             <Select aria-label="กรองตามชนิดใบกำกับภาษี" onChange={(event) => resetPage(setTaxFilter)(event.target.value)} value={taxFilter}>
               <option value="">ทุกชนิด</option>
