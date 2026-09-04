@@ -250,6 +250,8 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 
 	protected.POST("/product-returns", returnsHandler.Initiate, appMiddleware.RequireAnyPermission("invoice.create.pos"))
 	protected.GET("/product-returns", returnsHandler.List, appMiddleware.RequireAnyPermission("returns.manage", "invoice.view"))
+	protected.POST("/product-returns/stock-claim", returnsHandler.InitiateStockClaim, appMiddleware.RequireAnyPermission("returns.manage"))
+	protected.GET("/product-returns/:returnID/trace", returnsHandler.Trace, appMiddleware.RequireAnyPermission("returns.manage", "invoice.view"))
 	protected.POST("/product-returns/:returnID/send-to-supplier", returnsHandler.SendToSupplier, appMiddleware.RequireAnyPermission("returns.manage"))
 	protected.POST("/product-returns/:returnID/resolve-case-a", returnsHandler.ResolveCaseA, appMiddleware.RequireAnyPermission("returns.manage"))
 	protected.POST("/product-returns/:returnID/resolve-case-b", returnsHandler.ResolveCaseB, appMiddleware.RequireAnyPermission("returns.manage"))

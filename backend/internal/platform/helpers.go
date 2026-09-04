@@ -36,10 +36,10 @@ func NewError(code int, message string) *AppError {
 }
 
 // EnforceGhostWritePolicy protects operational write paths. Ghost quantity is
-// changed only by the purchase-order and month-end services, which do not call
-// this guard. Compatibility endpoints must call it before touching the DB so
-// non-Superadmins still receive 403 while Superadmins receive an explanatory
-// 400 response.
+// changed only by the purchase-order, month-end and stock-claim services, which
+// do not call this guard. Compatibility endpoints must call it before touching
+// the DB so non-Superadmins still receive 403 while Superadmins receive an
+// explanatory 400 response.
 func EnforceGhostWritePolicy(user AuthUser, touchesGhost bool) error {
 	if !touchesGhost {
 		return nil
@@ -48,6 +48,25 @@ func EnforceGhostWritePolicy(user AuthUser, touchesGhost bool) error {
 		return NewError(http.StatusForbidden, "ไม่มีสิทธิ์จัดการสต๊อกผี")
 	}
 	return NewError(http.StatusBadRequest, "สต๊อกผีเปลี่ยนยอดได้เฉพาะใบสั่งซื้อเข้าและการสรุปสิ้นเดือน")
+}
+
+// EnforceGhostClaimPolicy guards the one operational path Ghost Stock is
+// allowed down: a claim raised against stock on the shelf and sent to the
+// supplier who supplied it. Unlike EnforceGhostWritePolicy this returns nil for
+// a Superadmin rather than an explanation, because the claim is a real movement
+// and not a compatibility stub — a defective Ghost unit has to be able to leave
+// inventory, and receiving is the only way it got in.
+//
+// Every other role is refused outright: a claim is the only place central_admin
+// and the tills could otherwise learn that Ghost Stock exists at all.
+func EnforceGhostClaimPolicy(user AuthUser, touchesGhost bool) error {
+	if !touchesGhost {
+		return nil
+	}
+	if user.RoleKey != "super_admin" {
+		return NewError(http.StatusForbidden, "ไม่มีสิทธิ์จัดการสต๊อกผี")
+	}
+	return nil
 }
 
 func WrapError(code int, message string, err error) *AppError {

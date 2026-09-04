@@ -2,12 +2,12 @@
 // → supplier replacement, with the Case A (same model restocked) / Case B
 // (discontinued, different model received in) accounting split.
 //
-// Known simplification (flagged in the Part B proposal, not resolved yet):
-// restocking here updates inventory.qty_real/qty_ghost and records an
-// inventory_movements row directly, the same as every other stock-adjusting
-// endpoint in this codebase, but does *not* create a new inventory_lots
-// entry the way purchase-order receiving does — claim-driven stock doesn't
-// carry FEFO/expiry lot tracking in this first version.
+// Claim-driven stock is lot-tracked: goods leave on FEFO allocations and come
+// back as a fresh lot, so inventory.qty_real/qty_ghost and inventory_lots stay
+// in step. A stock claim (InitiateStockClaim, stock_claim.go) is also the one
+// operational path Ghost Stock may take out of inventory outside the month-end
+// close — the case business-flow.md calls "เคลมหรือคืนสินค้า กับบริษัทที่
+// ซื้อขายโดยตรง".
 package returns
 
 import (
@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"pharmacy-erp/backend/internal/modules/audit"
+	"pharmacy-erp/backend/internal/modules/stocklot"
 	"pharmacy-erp/backend/internal/platform"
 
 	"github.com/labstack/echo/v4"
@@ -89,9 +90,9 @@ func (s *Service) Initiate(ctx context.Context, user platform.AuthUser, meta aud
 		if user.BranchID != nil && user.Scope != "global" && *user.BranchID != branchID {
 			return platform.NewError(http.StatusForbidden, "รับคืนได้เฉพาะรายการของสาขาตนเอง")
 		}
-		if err := platform.EnforceGhostWritePolicy(user, stockBucket == "ghost"); err != nil {
-			return err
-		}
+		// A sale is only ever drawn from real stock, so this is belt-and-braces
+		// against a line that somehow is not. Ghost never reaches a customer
+		// document; it is claimed against the shelf instead — InitiateStockClaim.
 		if stockBucket != "real" {
 			return platform.NewError(http.StatusConflict, "การคืนสินค้าใช้ได้เฉพาะรายการที่ตัดจากสต๊อกจริง")
 		}
@@ -127,10 +128,18 @@ func (s *Service) Initiate(ctx context.Context, user platform.AuthUser, meta aud
 		`, branchID, productID, input.Quantity); err != nil {
 			return err
 		}
+		allocations, err := stocklot.AllocateFEFO(ctx, tx, branchID, productID, stockBucket, input.Quantity)
+		if err != nil {
+			return err
+		}
+		issueMovementID := platform.MustUUID()
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO inventory_movements (id, branch_id, product_id, movement_type, stock_bucket, quantity_delta, reference_type, reference_id, note, performed_by, created_at)
 			VALUES ($1, $2, $3, 'return_replacement_issue', $4, $5, 'product_return', $6, $7, $8, NOW())
-		`, platform.MustUUID(), branchID, productID, stockBucket, -input.Quantity, returnID, "ออกสินค้าทดแทนให้ลูกค้า: "+reason, user.ID); err != nil {
+		`, issueMovementID, branchID, productID, stockBucket, -input.Quantity, returnID, "ออกสินค้าทดแทนให้ลูกค้า: "+reason, user.ID); err != nil {
+			return err
+		}
+		if err := stocklot.AttachMovement(ctx, tx, issueMovementID, allocations, -1); err != nil {
 			return err
 		}
 
@@ -163,7 +172,7 @@ func insertEvent(ctx context.Context, tx *sql.Tx, returnID, status, note, actorI
 
 func (s *Service) List(ctx context.Context, user platform.AuthUser, status string) ([]map[string]any, error) {
 	query := `
-		SELECT pr.id::text, pr.status, pr.quantity, pr.reason, pr.stock_bucket,
+		SELECT pr.id::text, pr.status, pr.quantity, pr.reason, pr.stock_bucket, pr.origin,
 		       p.name, p.sku, b.name, COALESCE(s.legal_name, ''),
 		       pr.resolution_case, COALESCE(rp.name, ''), pr.claim_sent_at, pr.resolved_at, pr.created_at
 		FROM product_returns pr
@@ -194,12 +203,12 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, status strin
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, status, reason, stockBucket, productName, sku, branchName, supplierName, replacementName string
+		var id, status, reason, stockBucket, origin, productName, sku, branchName, supplierName, replacementName string
 		var quantity int
 		var resolutionCase sql.NullString
 		var claimSentAt, resolvedAt sql.NullTime
 		var createdAt any
-		if err := rows.Scan(&id, &status, &quantity, &reason, &stockBucket, &productName, &sku, &branchName, &supplierName,
+		if err := rows.Scan(&id, &status, &quantity, &reason, &stockBucket, &origin, &productName, &sku, &branchName, &supplierName,
 			&resolutionCase, &replacementName, &claimSentAt, &resolvedAt, &createdAt); err != nil {
 			return nil, err
 		}
@@ -207,7 +216,7 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, status strin
 			continue
 		}
 		item := map[string]any{
-			"id": id, "status": status, "quantity": quantity, "reason": reason,
+			"id": id, "status": status, "quantity": quantity, "reason": reason, "origin": origin,
 			"product_name": productName, "sku": sku, "branch_name": branchName, "supplier_name": supplierName,
 			"resolution_case": resolutionCase.String, "replacement_product_name": replacementName, "created_at": createdAt,
 		}
@@ -300,10 +309,16 @@ func (s *Service) ResolveCaseA(ctx context.Context, user platform.AuthUser, meta
 		`, branchID, productID, quantity); err != nil {
 			return err
 		}
+		restockMovementID := platform.MustUUID()
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO inventory_movements (id, branch_id, product_id, movement_type, stock_bucket, quantity_delta, reference_type, reference_id, note, performed_by, created_at)
 			VALUES ($1, $2, $3, 'claim_restock', $4, $5, 'product_return', $6, 'รับสินค้ารุ่นเดิมจากคู่ค้าตามเคลม', $7, NOW())
-		`, platform.MustUUID(), branchID, productID, stockBucket, quantity, returnID, user.ID); err != nil {
+		`, restockMovementID, branchID, productID, stockBucket, quantity, returnID, user.ID); err != nil {
+			return err
+		}
+		// A replacement unit is physically new, so it opens its own lot rather
+		// than topping up the one the defective unit came off.
+		if err := attachClaimRestockLot(ctx, tx, restockMovementID, returnID, branchID, productID, stockBucket, quantity); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `
@@ -378,10 +393,14 @@ func (s *Service) ResolveCaseB(ctx context.Context, user platform.AuthUser, meta
 		`, branchID, input.ReplacementProductID, quantity); err != nil {
 			return err
 		}
+		receiveMovementID := platform.MustUUID()
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO inventory_movements (id, branch_id, product_id, movement_type, stock_bucket, quantity_delta, reference_type, reference_id, note, performed_by, created_at)
 			VALUES ($1, $2, $3, 'claim_replacement_receive', $4, $5, 'product_return', $6, 'รับสินค้ารุ่นทดแทนจากคู่ค้าตามเคลม (รุ่นเดิมเลิกผลิต)', $7, NOW())
-		`, platform.MustUUID(), branchID, input.ReplacementProductID, stockBucket, quantity, returnID, user.ID); err != nil {
+		`, receiveMovementID, branchID, input.ReplacementProductID, stockBucket, quantity, returnID, user.ID); err != nil {
+			return err
+		}
+		if err := attachClaimRestockLot(ctx, tx, receiveMovementID, returnID, branchID, input.ReplacementProductID, stockBucket, quantity); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `
@@ -439,8 +458,26 @@ func (s *Service) Reject(ctx context.Context, user platform.AuthUser, meta audit
 	})
 }
 
+// attachClaimRestockLot opens the lot a supplier's replacement arrives on and
+// ties it to the movement, so the restock is countable on the shelf and not
+// only on the inventory row.
+func attachClaimRestockLot(ctx context.Context, tx *sql.Tx, movementID, returnID, branchID, productID, stockBucket string, quantity int) error {
+	var unitCost float64
+	if err := tx.QueryRowContext(ctx, `SELECT cost_price FROM products WHERE id = $1`, productID).Scan(&unitCost); err != nil {
+		return err
+	}
+	lotID, err := stocklot.Create(ctx, tx, stocklot.Lot{
+		BranchID: branchID, ProductID: productID, StockBucket: stockBucket,
+		ReceivedQuantity: quantity, RemainingQuantity: quantity, UnitCost: unitCost,
+	}, "product_return", &returnID, nil, nil)
+	if err != nil {
+		return err
+	}
+	return stocklot.AttachMovement(ctx, tx, movementID, []stocklot.Allocation{{Lot: stocklot.Lot{ID: lotID}, Quantity: quantity}}, 1)
+}
+
 func validateReturnVisibility(user platform.AuthUser, branchID, stockBucket string) error {
-	if err := platform.EnforceGhostWritePolicy(user, stockBucket == "ghost"); err != nil {
+	if err := platform.EnforceGhostClaimPolicy(user, stockBucket == "ghost"); err != nil {
 		return err
 	}
 	if user.BranchID != nil && user.Scope != "global" && *user.BranchID != branchID {

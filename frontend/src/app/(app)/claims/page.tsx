@@ -2,7 +2,7 @@ import { PageIntro } from "@/components/sections/common";
 import { ClaimsConsole } from "@/components/sections/claims-console";
 import { PosClaimsConsole } from "@/components/sections/pos-claims-console";
 import { requirePermission } from "@/lib/rbac";
-import { getInvoices, getProductReturns, getSuppliers, requireSession } from "@/services/erp";
+import { getBranches, getInvoices, getProductReturns, getSuppliers, requireSession } from "@/services/erp";
 
 export default async function ClaimsPage() {
   // Admin manages the full claim (send to supplier, resolve); a POS cashier
@@ -20,14 +20,26 @@ export default async function ClaimsPage() {
     );
   }
 
-  const [returns, suppliers] = await Promise.all([getProductReturns(), getSuppliers({ limit: 200 })]);
+  const [returns, suppliers, branches] = await Promise.all([
+    getProductReturns(),
+    getSuppliers({ limit: 200 }),
+    getBranches()
+  ]);
+  // Ghost Stock is a Superadmin concept end to end: central_admin holds real
+  // stock and is never offered the choice, so it never learns Ghost exists.
+  const canClaimGhost = session.user.role_key === "super_admin";
   return (
     <div className="space-y-6">
       <PageIntro
         title="เคลม/คืนสินค้า"
-        description="คำขอคืนสินค้าจากหน้าร้าน — ส่งเคลมให้คู่ค้า แล้วปิดเคลมเป็นรับรุ่นเดิมหรือรุ่นทดแทน"
+        description="คำขอคืนจากหน้าร้าน และเคลมสต๊อกกับคู่ค้าโดยตรง — ส่งเคลม แล้วปิดเป็นรับรุ่นเดิมหรือรุ่นทดแทน"
       />
-      <ClaimsConsole initialItems={returns.items} suppliers={suppliers.items} />
+      <ClaimsConsole
+        branches={branches.items}
+        canClaimGhost={canClaimGhost}
+        initialItems={returns.items}
+        suppliers={suppliers.items}
+      />
     </div>
   );
 }
