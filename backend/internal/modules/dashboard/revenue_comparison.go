@@ -68,12 +68,18 @@ func salesFilterFrom(c echo.Context) SalesFilter {
 //
 // Bills deleted by hand are excluded from both sides: they were voided, not
 // adjusted, and counting them as "before" revenue would overstate what was ever
-// really sold. Bills the close hid are recognised by hidden_by_id.
+// really sold. A bill the close hid is recognised by the snapshot it left.
 func (s *Service) RevenueComparison(ctx context.Context, filter SalesFilter) (map[string]any, error) {
 	args := []any{}
 	clauses := append([]string{
+		// A bill voided and reissued (an abbreviated tax invoice swapped for a
+		// full one) is not revenue on either side — its replacement is.
 		"i.invoice_status = 'issued'",
-		"(i.deleted_at IS NULL OR i.hidden_by_id IS NOT NULL)",
+		// Live bills, plus the ones a close hid. The snapshot is what proves a
+		// close hid it: hidden_by_id is also stamped by an ordinary manual
+		// deletion, and counting those as "before" revenue overstates what was
+		// ever really sold.
+		"(i.deleted_at IS NULL OR snap.invoice_id IS NOT NULL)",
 	}, filter.predicates("i", &args)...)
 
 	query := `
@@ -81,7 +87,14 @@ func (s *Service) RevenueComparison(ctx context.Context, filter SalesFilter) (ma
 			SELECT i.branch_id,
 			       i.deleted_at,
 			       i.total_amount,
-			       COALESCE(snap.original_total_amount, i.total_amount) AS before_amount
+			       COALESCE(snap.original_total_amount, i.total_amount) AS before_amount,
+			       -- What the close struck off a bill it kept. Counted as hidden,
+			       -- not as a repricing, so the split reads the same here as in
+			       -- the close's own record.
+			       COALESCE((
+			           SELECT SUM(ii.line_total) FROM invoice_items ii
+			           WHERE ii.invoice_id = i.id AND ii.reconciliation_removed_at IS NOT NULL
+			       ), 0) AS struck_amount
 			FROM invoices i
 			LEFT JOIN reconciliation_invoice_snapshots snap ON snap.invoice_id = i.id
 			WHERE ` + strings.Join(clauses, " AND ") + `
@@ -93,6 +106,7 @@ func (s *Service) RevenueComparison(ctx context.Context, filter SalesFilter) (ma
 		       COALESCE(SUM(scope.total_amount) FILTER (WHERE scope.deleted_at IS NULL), 0),
 		       COUNT(scope.branch_id) FILTER (WHERE scope.deleted_at IS NOT NULL),
 		       COALESCE(SUM(scope.before_amount) FILTER (WHERE scope.deleted_at IS NOT NULL), 0)
+		           + COALESCE(SUM(scope.struck_amount) FILTER (WHERE scope.deleted_at IS NULL), 0)
 		FROM branches b
 		LEFT JOIN scope ON scope.branch_id = b.id
 		WHERE b.active = TRUE AND b.sales_enabled = TRUE

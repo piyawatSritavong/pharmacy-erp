@@ -147,8 +147,20 @@ func (s *Service) UpgradeToFullTaxInvoice(ctx context.Context, user platform.Aut
 			return err
 		}
 
+		// The voided number is retired, not held: the unique index on
+		// invoice_number covers every row with deleted_at IS NULL, and a
+		// month-end close compacts surviving numbers into the gaps it frees.
+		// A cancelled bill that kept its number would sit in that index and
+		// collide with the compaction. Marking it -VOID frees the number while
+		// original_invoice_number preserves what the customer was handed.
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE invoices SET invoice_status='cancelled',replaced_by_invoice_id=$2,updated_at=NOW() WHERE id=$1
+			UPDATE invoices
+			SET invoice_status='cancelled',
+			    original_invoice_number=COALESCE(original_invoice_number,invoice_number),
+			    invoice_number=invoice_number||'-VOID',
+			    replaced_by_invoice_id=$2,
+			    updated_at=NOW()
+			WHERE id=$1
 		`, invoiceID, replacementID); err != nil {
 			return err
 		}
