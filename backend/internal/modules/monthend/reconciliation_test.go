@@ -244,6 +244,34 @@ func TestCostMarkupPlanHidesABillOnlyWhenEveryLineIsCovered(t *testing.T) {
 	}
 }
 
+func TestCostMarkupPlanLeavesTransferAndFullTaxBillsAlone(t *testing.T) {
+	// The two reasons a bill stays Active through a close: it was paid by
+	// transfer, or it carries a full tax invoice. A cash bill that a customer
+	// came back to upgrade the same day therefore stops being a candidate — even
+	// though the warehouse has Ghost Stock that would otherwise have hidden it.
+	transfer := transferBill("T1", 100)
+	fullTax := cashBill("C1", "P", 100, 50, 99)
+	fullTax.RequestFullTaxInvoice = true
+	fullTax.SuppressionCandidate = false // set by loadReconciliationSource from the pair above
+	plainCash := cashBill("C2", "P", 100, 50, 99)
+	source := reconciliationSource{Invoices: []*reconciliationInvoice{transfer, fullTax, plainCash}}
+	plan, err := applyCostMarkupPlan(&source, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, invoice := range []*reconciliationInvoice{transfer, fullTax} {
+		if invoice.Classification != classificationUnchanged || invoice.WillSuppress || invoice.WillReprice {
+			t.Fatalf("%s must stay Active: %+v", invoice.ID, invoice)
+		}
+	}
+	if !plainCash.WillSuppress {
+		t.Fatalf("a plain cash bill with Ghost Stock behind it should still hide: %+v", plainCash)
+	}
+	if plan.UnchangedInvoiceCount != 2 || plan.UnchangedRevenue != 20000 {
+		t.Fatalf("unexpected untouched pool: %+v", plan)
+	}
+}
+
 func TestCostMarkupPlanNeverRaisesAPriceAndFlagsMissingCost(t *testing.T) {
 	giveaway := cashBill("C1", "P", 0, 10, 0)   // sold at 0: cost + markup is higher
 	belowCost := cashBill("C2", "P", 40, 50, 0) // sold below cost + markup

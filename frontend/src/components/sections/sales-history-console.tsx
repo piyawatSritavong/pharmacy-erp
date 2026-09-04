@@ -3,7 +3,7 @@
 import { FormEvent, startTransition, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { RotateCcw, Search } from "lucide-react";
+import { FileText, RotateCcw, Search } from "lucide-react";
 
 import { DataTable, SectionCard } from "@/components/sections/common";
 import { Field } from "@/components/ui/field";
@@ -52,6 +52,11 @@ export function SalesHistoryConsole({
   const [branchFilter, setBranchFilter] = useState("");
   const [paymentFilter, setPaymentFilter] = useState("");
   const [closeStatusFilter, setCloseStatusFilter] = useState("");
+  // ใบกำกับภาษีอย่างย่อ -> เต็มรูป, same day only.
+  const [fullTaxInvoice, setFullTaxInvoice] = useState<Option | null>(null);
+  const [fullTaxName, setFullTaxName] = useState("");
+  const [fullTaxId, setFullTaxId] = useState("");
+  const [fullTaxBusy, setFullTaxBusy] = useState(false);
   const [taxFilter, setTaxFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -145,6 +150,37 @@ export function SalesHistoryConsole({
   }
 
   const selectedItem = items.find((item) => String(item.id) === selectedItemId);
+
+  // The customer may swap an abbreviated slip for a full tax invoice, but only
+  // on the day of the sale — a full tax invoice dated into a day already
+  // reported is a different problem. The server enforces this too.
+  const soldToday = (invoice: Option) => {
+    const sold = new Date(String(invoice.issued_at || "")).toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+    return sold === today;
+  };
+  const canUpgrade = (invoice: Option) =>
+    !isSuperAdmin && String(invoice.tax_invoice_type) !== "full" && !invoice.deleted_at && soldToday(invoice);
+
+  async function submitFullTaxInvoice() {
+    if (!fullTaxInvoice) return;
+    setFullTaxBusy(true);
+    try {
+      const result = await proxyClient<Option>(`/invoices/${String(fullTaxInvoice.id)}/full-tax-invoice`, {
+        method: "POST",
+        body: JSON.stringify({ customer_name: fullTaxName, customer_tax_id: fullTaxId })
+      });
+      setMessage(`${String(result.message || "")} เลขที่ใหม่ ${String(result.invoice_number || "")}`);
+      setFullTaxInvoice(null);
+      setFullTaxName("");
+      setFullTaxId("");
+      startTransition(() => router.refresh());
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ออกใบกำกับภาษีเต็มรูปไม่สำเร็จ");
+    } finally {
+      setFullTaxBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -264,6 +300,20 @@ export function SalesHistoryConsole({
                   คืน/เปลี่ยนสินค้า
                 </Button>
               )}
+              {canUpgrade(invoice) ? (
+                <Button
+                  onClick={() => {
+                    setFullTaxInvoice(invoice);
+                    setFullTaxName(String(invoice.customer_name || ""));
+                    setFullTaxId("");
+                  }}
+                  type="button"
+                  variant="secondary"
+                >
+                  <FileText className="h-4 w-4" />
+                  ขอใบกำกับเต็มรูป
+                </Button>
+              ) : null}
               <Link
                 className="inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
                 href={`/print/invoices/${String(invoice.id)}`}
@@ -335,6 +385,29 @@ export function SalesHistoryConsole({
               </div>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog onOpenChange={(open) => { if (!open) setFullTaxInvoice(null); }} open={Boolean(fullTaxInvoice)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader
+            description={`ใบ ${String(fullTaxInvoice?.invoice_number || "")} จะถูกยกเลิก และออกใบกำกับภาษีเต็มรูปใบใหม่แทน · ทำได้เฉพาะภายในวันที่ขาย`}
+            title="ขอใบกำกับภาษีเต็มรูป"
+          />
+          <div className="space-y-3">
+            <Field label="ชื่อผู้ซื้อ">
+              <Input aria-label="ชื่อผู้ซื้อ" onChange={(event) => setFullTaxName(event.target.value)} placeholder="ชื่อบุคคลหรือนิติบุคคล" value={fullTaxName} />
+            </Field>
+            <Field hint="ต้องระบุ ใบกำกับภาษีเต็มรูปออกโดยไม่มีเลขนี้ไม่ได้" label="เลขประจำตัวผู้เสียภาษี">
+              <Input aria-label="เลขประจำตัวผู้เสียภาษี" inputMode="numeric" onChange={(event) => setFullTaxId(event.target.value)} placeholder="13 หลัก" value={fullTaxId} />
+            </Field>
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button onClick={() => setFullTaxInvoice(null)} type="button" variant="secondary">ยกเลิก</Button>
+            <Button disabled={fullTaxBusy || !fullTaxName.trim() || !fullTaxId.trim()} onClick={() => void submitFullTaxInvoice()} type="button">
+              {fullTaxBusy ? "กำลังออกใบ..." : "ยกเลิกใบย่อ และออกใบเต็มรูป"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

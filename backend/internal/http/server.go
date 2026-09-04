@@ -190,6 +190,9 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.GET("/parked-bills/:parkedBillID", parkedBillHandler.Get)
 	protected.DELETE("/parked-bills/:parkedBillID", parkedBillHandler.Delete)
 	protected.POST("/pos/checkout", salesHandler.Checkout, appMiddleware.RequireAnyPermission("invoice.create.pos", "payment.collect"))
+	// ใบกำกับภาษีอย่างย่อ -> เต็มรูป: cancels the abbreviated bill and issues a
+	// full tax invoice in its place, same day only.
+	protected.POST("/invoices/:invoiceID/full-tax-invoice", salesHandler.UpgradeToFullTaxInvoice, appMiddleware.RequireAnyPermission("invoice.create.pos", "invoice.create.remote"))
 	protected.POST("/admin/pos/checkout", salesHandler.AdminCheckout, appMiddleware.RequireAnyPermission("invoice.create.remote"))
 	// รีโมตหน้าร้าน: head office keeps the cart here, the branch till reads it
 	// and takes the money. State, not clicks — see modules/sales/remote_sessions.go.

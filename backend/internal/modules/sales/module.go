@@ -738,12 +738,14 @@ func (s *Service) ListQuotations(ctx context.Context, user platform.AuthUser, go
 func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, governmentMode *bool) ([]map[string]any, error) {
 	query := `
 		SELECT i.id, i.invoice_number, i.customer_name, i.payment_status, i.total_amount, i.is_government_mode, i.tax_invoice_type, i.request_full_tax_invoice, b.name, i.issued_at, i.deleted_at, COALESCE(i.hidden_by_id::text,''), COALESCE(i.original_invoice_number,''),
-		       EXISTS(SELECT 1 FROM invoice_items ii WHERE ii.invoice_id = i.id AND ii.reconciliation_discount_amount <> 0)
+		       EXISTS(SELECT 1 FROM invoice_items ii WHERE ii.invoice_id = i.id AND ii.reconciliation_discount_amount <> 0),
+		       COALESCE(replaced.invoice_number,'')
 		FROM invoices i
 		INNER JOIN branches b ON b.id = i.branch_id
+		LEFT JOIN invoices replaced ON replaced.id = i.replaces_invoice_id
 	`
 	args := []any{}
-	conditions := []string{}
+	conditions := []string{"i.invoice_status = 'issued'"}
 	if user.RoleKey != "super_admin" {
 		conditions = append(conditions, "i.deleted_at IS NULL")
 	}
@@ -766,12 +768,12 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, invoiceNumber, customerName, paymentStatus, taxInvoiceType, branchName, hiddenByID, originalNumber string
+		var id, invoiceNumber, customerName, paymentStatus, taxInvoiceType, branchName, hiddenByID, originalNumber, replacesNumber string
 		var totalAmount float64
 		var isGovernment, requestFullTax, repriced bool
 		var issuedAt time.Time
 		var deletedAt sql.NullTime
-		if err := rows.Scan(&id, &invoiceNumber, &customerName, &paymentStatus, &totalAmount, &isGovernment, &taxInvoiceType, &requestFullTax, &branchName, &issuedAt, &deletedAt, &hiddenByID, &originalNumber, &repriced); err != nil {
+		if err := rows.Scan(&id, &invoiceNumber, &customerName, &paymentStatus, &totalAmount, &isGovernment, &taxInvoiceType, &requestFullTax, &branchName, &issuedAt, &deletedAt, &hiddenByID, &originalNumber, &repriced, &replacesNumber); err != nil {
 			return nil, err
 		}
 		item := map[string]any{
@@ -785,6 +787,9 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 			"request_full_tax_invoice": requestFullTax,
 			"branch_name":              branchName,
 			"issued_at":                issuedAt,
+			// Set when this bill was issued to replace an abbreviated one that
+			// the customer came back to upgrade.
+			"replaces_invoice_number": replacesNumber,
 		}
 		if user.RoleKey == "super_admin" {
 			item["original_invoice_number"] = originalNumber
