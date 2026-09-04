@@ -55,12 +55,12 @@ func (s *Service) ProfitLoss(ctx context.Context) ([]map[string]any, error) {
 		       COALESCE((
 		           SELECT SUM(ii.line_subtotal)
 		           FROM invoices i INNER JOIN invoice_items ii ON ii.invoice_id = i.id
-		           WHERE i.branch_id = b.id AND i.invoice_status = 'issued' AND i.deleted_at IS NULL
+		           WHERE i.branch_id = b.id AND i.invoice_status = 'issued' AND i.deleted_at IS NULL AND ii.reconciliation_removed_at IS NULL
 		       ), 0) AS sales_revenue,
 		       COALESCE((
 		           SELECT SUM(ii.cost_snapshot * ii.quantity)
 		           FROM invoices i INNER JOIN invoice_items ii ON ii.invoice_id = i.id
-		           WHERE i.branch_id = b.id AND i.invoice_status = 'issued' AND i.deleted_at IS NULL
+		           WHERE i.branch_id = b.id AND i.invoice_status = 'issued' AND i.deleted_at IS NULL AND ii.reconciliation_removed_at IS NULL
 		       ), 0) AS cost
 		FROM branches b
 		ORDER BY b.name

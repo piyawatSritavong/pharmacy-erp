@@ -918,7 +918,7 @@ func (s *Service) GetInvoice(ctx context.Context, user platform.AuthUser, invoic
 		       COALESCE(unit_name_snapshot,''),unit_conversion_qty,sold_quantity,sold_unit_price,
 		       discount_amount,bill_discount_share,is_giveaway,COALESCE(promotion_name_snapshot,'')
 		FROM invoice_items
-		WHERE invoice_id = $1
+		WHERE invoice_id = $1 AND reconciliation_removed_at IS NULL
 		ORDER BY created_at ASC
 	`, invoiceID)
 	if err != nil {
@@ -1081,7 +1081,7 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 			lot_received_at_snapshot,
 			lot_expires_on_snapshot
 		FROM invoice_items
-		WHERE invoice_id = $1
+		WHERE invoice_id = $1 AND reconciliation_removed_at IS NULL
 		ORDER BY created_at ASC
 	`, invoiceID)
 	if err != nil {
@@ -1339,7 +1339,7 @@ func (s *Service) InvoiceDeletionImpact(ctx context.Context, user platform.AuthU
 	var itemCount, paymentCount, monthEndCount int
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT i.invoice_number,
-		       (SELECT COUNT(*) FROM invoice_items ii WHERE ii.invoice_id = i.id),
+		       (SELECT COUNT(*) FROM invoice_items ii WHERE ii.invoice_id = i.id AND ii.reconciliation_removed_at IS NULL),
 		       (SELECT COUNT(*) FROM invoice_payments ip WHERE ip.invoice_id = i.id),
 		       (SELECT COUNT(DISTINCT mel.workpaper_id) FROM month_end_workpaper_lines mel WHERE mel.invoice_id = i.id)
 		       + (SELECT COUNT(DISTINCT rl.reconciliation_id) FROM reconciliation_logs rl WHERE rl.invoice_id = i.id)
@@ -1428,7 +1428,7 @@ func (s *Service) deleteInvoiceTx(ctx context.Context, tx *sql.Tx, user platform
 	rows, err := tx.QueryContext(ctx, `
 		SELECT product_id::text, stock_bucket, SUM(quantity)::int
 		FROM invoice_items
-		WHERE invoice_id = $1
+		WHERE invoice_id = $1 AND reconciliation_removed_at IS NULL
 		GROUP BY product_id, stock_bucket
 		ORDER BY product_id, stock_bucket
 	`, invoiceID)

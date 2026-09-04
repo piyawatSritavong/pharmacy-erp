@@ -273,6 +273,11 @@ func (s *Service) MonthEndReport(ctx context.Context, user platform.AuthUser, re
 		       item.product_name,item.quantity,item.original_unit_price,
 		       price.new_unit_price,COALESCE(price.variance_amount,0),invoice.payment_method,
 		       CASE WHEN current_invoice.deleted_at IS NOT NULL THEN 'hidden'
+		            -- A line the close struck off a bill that survived. Without
+		            -- this it read as 'active', which is the opposite of true:
+		            -- the line is gone from the bill and its goods are back in
+		            -- the warehouse.
+		            WHEN current_item.reconciliation_removed_at IS NOT NULL THEN 'hidden'
 		            WHEN price.invoice_item_id IS NOT NULL THEN 'adjusted' ELSE 'active' END,
 		       COALESCE(item.effective_stock_bucket,'none'),COALESCE(movement.movements,'[]'::jsonb)
 		FROM reconciliation_item_snapshots item
@@ -280,6 +285,7 @@ func (s *Service) MonthEndReport(ctx context.Context, user platform.AuthUser, re
 		        ON invoice.reconciliation_id=item.reconciliation_id AND invoice.invoice_id=item.invoice_id
 		INNER JOIN selected s ON s.id=item.reconciliation_id
 		INNER JOIN invoices current_invoice ON current_invoice.id=item.invoice_id
+		LEFT JOIN invoice_items current_item ON current_item.id=item.invoice_item_id
 		INNER JOIN branches branch ON branch.id=invoice.branch_id
 		LEFT JOIN price_changes price
 		       ON price.reconciliation_id=item.reconciliation_id AND price.invoice_item_id=item.invoice_item_id

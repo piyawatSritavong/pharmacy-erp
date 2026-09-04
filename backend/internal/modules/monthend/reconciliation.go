@@ -82,9 +82,12 @@ type reconciliationItem struct {
 	NewLineTotal   float64      `json:"new_line_total"`
 	Variance       float64      `json:"variance_amount"`
 	Repriced       bool         `json:"repriced"`
-	MissingCost    bool         `json:"missing_cost"`
-	GhostStock     int          `json:"ghost_stock_available"`
-	RealStock      int          `json:"real_stock_available"`
+	// Suppressed marks a line Ghost Stock could cover: its goods go back to the
+	// warehouse, the Ghost is deducted, and the line leaves the bill.
+	Suppressed  bool `json:"suppressed"`
+	MissingCost bool `json:"missing_cost"`
+	GhostStock  int  `json:"ghost_stock_available"`
+	RealStock   int  `json:"real_stock_available"`
 }
 
 type reconciliationInvoice struct {
@@ -104,8 +107,12 @@ type reconciliationInvoice struct {
 	WillSuppress          bool                  `json:"will_suppress"`
 	WillReprice           bool                  `json:"will_reprice"`
 	Items                 []*reconciliationItem `json:"items"`
-	FinalTotal            float64               `json:"final_total"`
-	VarianceAmount        float64               `json:"variance_amount"`
+	// SuppressedItemCount is how many of this bill's lines Ghost Stock covered.
+	// Equal to len(Items) means the whole bill goes; anything between 1 and
+	// len(Items)-1 is a bill that survives with fewer lines.
+	SuppressedItemCount int     `json:"suppressed_item_count"`
+	FinalTotal          float64 `json:"final_total"`
+	VarianceAmount      float64 `json:"variance_amount"`
 }
 
 type reconciliationSource struct {
@@ -136,6 +143,11 @@ type reconciliationPlan struct {
 	UnchangedInvoiceCount int
 	AdjustedItemCount     int
 	MissingCostItemCount  int
+	// PartialInvoiceCount is bills that lost some lines to Ghost Stock but kept
+	// others; SuppressedItemCount counts every line removed, in whole bills and
+	// partial ones alike.
+	PartialInvoiceCount int
+	SuppressedItemCount int
 }
 
 // AdjustmentReduction is the difference between what the repriced bills sold
@@ -307,7 +319,7 @@ func (s *Service) loadReconciliationSource(ctx context.Context, db platform.DBTX
 		LEFT JOIN inventory inv ON inv.branch_id=i.branch_id AND inv.product_id=ii.product_id
 		LEFT JOIN branches warehouse ON warehouse.branch_type='main_warehouse' AND warehouse.active=TRUE
 		LEFT JOIN inventory warehouse_inventory ON warehouse_inventory.branch_id=warehouse.id AND warehouse_inventory.product_id=ii.product_id
-		WHERE ii.invoice_id=ANY($1::uuid[])
+		WHERE ii.invoice_id=ANY($1::uuid[]) AND ii.reconciliation_removed_at IS NULL
 		ORDER BY i.created_at,ii.created_at,ii.id
 	`, pq.Array(invoiceIDs))
 	if err != nil {
@@ -424,35 +436,41 @@ func reconciliationLineTotal(item *reconciliationItem, unitPrice int64) int64 {
 	return subtotal + tax
 }
 
-// ghostCoversInvoice reports whether the warehouse still holds enough Ghost
-// Stock for every line of the bill. A bill is hidden whole or not at all.
-func ghostCoversInvoice(invoice *reconciliationInvoice, ghostRemaining map[string]int) bool {
-	if len(invoice.Items) == 0 {
-		return false
-	}
-	need := map[string]int{}
+// allocateGhostToLines hands the warehouse's remaining Ghost Stock out line by
+// line, in the order the lines were sold, and reports how many lines it covered.
+//
+// A line is covered whole or not at all: a line is one lot allocation, and
+// splitting it would leave half a line returned to the warehouse and half of it
+// repriced — two different treatments of the same sale. Bills are no longer
+// all-or-nothing, though: a bill selling a wheelchair the warehouse has Ghost
+// for alongside an IV pole it does not now loses the wheelchair line and keeps
+// the IV pole, repriced.
+func allocateGhostToLines(invoice *reconciliationInvoice, ghostRemaining map[string]int) int {
+	covered := 0
 	for _, item := range invoice.Items {
-		need[item.ProductID] += item.Quantity
-	}
-	for productID, quantity := range need {
-		if ghostRemaining[productID] < quantity {
-			return false
+		if item.Quantity <= 0 || ghostRemaining[item.ProductID] < item.Quantity {
+			continue
 		}
+		ghostRemaining[item.ProductID] -= item.Quantity
+		item.Suppressed = true
+		covered++
 	}
-	return true
+	return covered
 }
 
 // applyCostMarkupPlan classifies every bill in scope exactly once:
 //
-//   - a cash-only bill without a full tax invoice whose every line Ghost Stock
-//     at the warehouse can cover is hidden and its goods returned (existing path);
-//   - the same kind of bill that Ghost Stock cannot cover in full stays in the
-//     books, with each line recorded at cost × (1 + markup);
+//   - on a cash-only bill without a full tax invoice, every line the warehouse
+//     has Ghost Stock for is removed: its goods go back to the warehouse and the
+//     Ghost is deducted. Lines left standing are recorded at cost × (1 + markup);
+//   - a bill whose lines are ALL covered disappears entirely (the existing hidden
+//     path); one that keeps at least one line survives with fewer lines;
 //   - every other bill (bank transfer, mixed tender, full tax invoice) is untouched.
 //
-// Ghost Stock is handed out in created_at order, so an earlier bill wins the
-// last units of a product. The target revenue is untouched bills plus repriced
-// bills; it is an output of the rule, not an input.
+// Ghost Stock is handed out line by line in created_at order, so an earlier bill
+// wins the last units of a product. The target revenue is untouched bills plus
+// what the surviving lines are re-recorded at; it is an output of the rule, not
+// an input.
 func applyCostMarkupPlan(source *reconciliationSource, percent float64) (reconciliationPlan, error) {
 	basisPoints, normalized, err := markupBasisPoints(percent)
 	if err != nil {
@@ -485,10 +503,12 @@ func applyCostMarkupPlan(source *reconciliationSource, percent float64) (reconci
 			plan.UnchangedInvoiceCount++
 			continue
 		}
-		if ghostCoversInvoice(invoice, ghostRemaining) {
-			for _, item := range invoice.Items {
-				ghostRemaining[item.ProductID] -= item.Quantity
-			}
+		covered := allocateGhostToLines(invoice, ghostRemaining)
+		invoice.SuppressedItemCount = covered
+		plan.SuppressedItemCount += covered
+
+		// Every line covered: nothing is left to bill for, so the bill goes.
+		if covered > 0 && covered == len(invoice.Items) {
 			invoice.Classification = classificationHiddenGhost
 			invoice.WillSuppress = true
 			plan.HiddenRevenue += original
@@ -498,8 +518,26 @@ func applyCostMarkupPlan(source *reconciliationSource, percent float64) (reconci
 
 		invoice.Classification = classificationRepriced
 		invoice.WillReprice = true
+		if covered > 0 {
+			plan.PartialInvoiceCount++
+		}
+		// Lines the warehouse covered leave the bill; what they sold for is
+		// hidden revenue exactly as a whole hidden bill's would be, so the books
+		// still add up as untouched + hidden + retained.
+		suppressedValue := int64(0)
+		for _, item := range invoice.Items {
+			if item.Suppressed {
+				suppressedValue += centsFromFloat(item.LineTotal)
+			}
+		}
+		plan.HiddenRevenue += suppressedValue
+		retainedOriginal := original - suppressedValue
+
 		reduction := int64(0)
 		for _, item := range invoice.Items {
+			if item.Suppressed {
+				continue
+			}
 			costCents := centsFromFloat(item.LotUnitCost)
 			if costCents <= 0 {
 				// No cost on the lot or the sale snapshot: leave the line at its
@@ -526,10 +564,12 @@ func applyCostMarkupPlan(source *reconciliationSource, percent float64) (reconci
 			reduction += lineReduction
 			plan.AdjustedItemCount++
 		}
-		invoice.FinalTotal = centsToFloat(original - reduction)
-		invoice.VarianceAmount = centsToFloat(reduction)
-		plan.RepricedOriginal += original
-		plan.RepricedFinal += original - reduction
+		invoice.FinalTotal = centsToFloat(retainedOriginal - reduction)
+		// The whole drop the bill takes — lines removed plus the repricing — so
+		// the log and the payment shrink below describe the same number.
+		invoice.VarianceAmount = centsToFloat(original - (retainedOriginal - reduction))
+		plan.RepricedOriginal += retainedOriginal
+		plan.RepricedFinal += retainedOriginal - reduction
 		plan.RepricedInvoiceCount++
 	}
 	return plan, nil
@@ -558,6 +598,8 @@ func reconciliationPlanSummary(source reconciliationSource, plan reconciliationP
 		"repriced_invoice_count":     plan.RepricedInvoiceCount,
 		"unchanged_invoice_count":    plan.UnchangedInvoiceCount,
 		"adjusted_item_count":        plan.AdjustedItemCount,
+		"partial_invoice_count":      plan.PartialInvoiceCount,
+		"suppressed_item_count":      plan.SuppressedItemCount,
 		"missing_cost_item_count":    plan.MissingCostItemCount,
 		"adjustment_percent":         plan.MarkupPercent,
 		"minimum_adjustment_percent": minimumMarkupPercent,
@@ -612,18 +654,24 @@ func (s *Service) PreviewReconciliation(ctx context.Context, user platform.AuthU
 	projectionByProduct := map[string]*ghostProjection{}
 	totalQuantity := 0
 	for _, invoice := range source.Invoices {
+		// Ghost moves for every removed line, whether its bill disappears or
+		// merely gets shorter — counting only whole hidden bills understated the
+		// deduction the moment a bill could be partly covered.
+		for _, item := range invoice.Items {
+			if !item.Suppressed {
+				continue
+			}
+			projection := projectionByProduct[item.ProductID]
+			if projection == nil {
+				projection = &ghostProjection{ProductID: item.ProductID, ProductName: item.ProductName, GhostBefore: item.GhostStock}
+				projectionByProduct[item.ProductID] = projection
+			}
+			projection.Quantity += item.Quantity
+			totalQuantity += item.Quantity
+		}
 		switch {
 		case invoice.WillSuppress:
 			hidden = append(hidden, invoice)
-			for _, item := range invoice.Items {
-				projection := projectionByProduct[item.ProductID]
-				if projection == nil {
-					projection = &ghostProjection{ProductID: item.ProductID, ProductName: item.ProductName, GhostBefore: item.GhostStock}
-					projectionByProduct[item.ProductID] = projection
-				}
-				projection.Quantity += item.Quantity
-				totalQuantity += item.Quantity
-			}
 		case invoice.WillReprice:
 			repriced = append(repriced, invoice)
 		}
@@ -976,8 +1024,43 @@ func (s *Service) repriceRetainedInvoice(ctx context.Context, tx *sql.Tx, reconc
 	const reason = "COST_MARKUP_NO_GHOST_STOCK"
 	var subtotalDelta, taxDelta, totalDelta int64
 	repricedLines := 0
+
+	// Lines the warehouse had Ghost Stock for have already been returned to it
+	// upstream; here they leave the bill. The customer is refunded their share
+	// through the payment shrink below, so the bill states only what remains.
+	removedLines := 0
 	for _, item := range invoice.Items {
-		if !item.Repriced {
+		if !item.Suppressed {
+			continue
+		}
+		subtotalDelta += centsFromFloat(item.LineSubtotal)
+		taxDelta += centsFromFloat(item.TaxAmount)
+		totalDelta += centsFromFloat(item.LineTotal)
+		// Flagged, not deleted: reconciliation_item_snapshots and
+		// reconciliation_logs hold RESTRICT keys onto this row so the trail of
+		// what the close did cannot be destroyed. Every screen that shows a bill
+		// filters removed lines out, so the bill reads as one line shorter.
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE invoice_items SET reconciliation_removed_at=NOW(),reconciled_at=NOW() WHERE id=$1
+		`, item.ID); err != nil {
+			return err
+		}
+		if err := insertReconciliationLog(ctx, tx, reconciliationID, "line_suppressed", user, map[string]any{
+			"invoice_id": invoice.ID, "invoice_item_id": item.ID, "branch_id": invoice.BranchID, "product_id": item.ProductID,
+			"original_invoice_number": invoice.InvoiceNumber,
+			"variance_amount":         item.LineTotal,
+			"adjustment_reason":       "PRODUCT_RETURN_TO_WAREHOUSE",
+			"movement_role":           "line_hidden",
+			"before_data":             map[string]any{"product_name": item.ProductName, "quantity": item.Quantity, "unit_price": item.UnitPrice, "line_subtotal": item.LineSubtotal, "tax_amount": item.TaxAmount, "line_total": item.LineTotal, "warehouse_ghost_available": item.GhostStock},
+			"after_data":              map[string]any{"removed_from_invoice": true, "effective_stock_bucket": "ghost"},
+		}); err != nil {
+			return err
+		}
+		removedLines++
+	}
+
+	for _, item := range invoice.Items {
+		if !item.Repriced || item.Suppressed {
 			continue
 		}
 		newUnitPrice := centsFromFloat(item.NewUnitPrice)
@@ -1007,7 +1090,7 @@ func (s *Service) repriceRetainedInvoice(ctx context.Context, tx *sql.Tx, reconc
 		}
 		repricedLines++
 	}
-	if repricedLines == 0 {
+	if repricedLines == 0 && removedLines == 0 {
 		return nil
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -1062,7 +1145,7 @@ func (s *Service) repriceRetainedInvoice(ctx context.Context, tx *sql.Tx, reconc
 		"invoice_id": invoice.ID, "branch_id": invoice.BranchID, "original_invoice_number": invoice.InvoiceNumber,
 		"variance_amount": invoice.VarianceAmount, "adjustment_reason": reason,
 		"before_data": map[string]any{"total_amount": invoice.TotalAmount, "payments": beforePayments},
-		"after_data":  map[string]any{"total_amount": invoice.FinalTotal, "payments": afterPayments, "markup_percent": plan.MarkupPercent, "repriced_line_count": repricedLines},
+		"after_data":  map[string]any{"total_amount": invoice.FinalTotal, "payments": afterPayments, "markup_percent": plan.MarkupPercent, "repriced_line_count": repricedLines, "removed_line_count": removedLines, "remaining_line_count": len(invoice.Items) - removedLines},
 	})
 }
 
@@ -1243,8 +1326,10 @@ func (s *Service) FinalizeReconciliation(ctx context.Context, user platform.Auth
 			return err
 		}
 
+		// Any bill that lost lines to Ghost Stock returns those goods, whether it
+		// lost all of them (and disappears) or only some (and survives shorter).
 		for _, invoice := range source.Invoices {
-			if !invoice.WillSuppress {
+			if invoice.SuppressedItemCount == 0 {
 				continue
 			}
 			transferID := platform.MustUUID()
@@ -1266,6 +1351,9 @@ func (s *Service) FinalizeReconciliation(ctx context.Context, user platform.Auth
 				return err
 			}
 			for _, item := range invoice.Items {
+				if !item.Suppressed {
+					continue
+				}
 				if item.StockBucket != "real" {
 					return platform.NewError(http.StatusConflict, "บิลที่จะสรุปต้องมีแหล่งตัดเดิมเป็นสต๊อกจริง")
 				}
@@ -1279,6 +1367,11 @@ func (s *Service) FinalizeReconciliation(ctx context.Context, user platform.Auth
 				if err := s.reclassifySuppressedItem(ctx, tx, reconciliationID, transferID, transferItemID, warehouseID, user, invoice, item); err != nil {
 					return err
 				}
+			}
+			// A bill that kept lines stays in the books; removing those lines and
+			// repricing what is left happens in the retained pass below.
+			if !invoice.WillSuppress {
+				continue
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE invoices SET original_invoice_number=COALESCE(original_invoice_number,invoice_number),deleted_at=NOW(),hidden_by_id=$2,updated_at=NOW() WHERE id=$1`, invoice.ID, user.ID); err != nil {
 				return err
@@ -1296,9 +1389,10 @@ func (s *Service) FinalizeReconciliation(ctx context.Context, user platform.Auth
 			}
 		}
 
-		// Cash bills Ghost Stock could not cover stay in the books at
-		// cost × (1 + markup). Runs after hiding so the retained bills are the
-		// ones the renumbering below sees.
+		// Cash bills Ghost Stock could not cover in full stay in the books: the
+		// covered lines are struck off and whatever is left is recorded at
+		// cost × (1 + markup). Runs after the returns above so the goods have
+		// already moved, and before renumbering so it sees the survivors.
 		for _, invoice := range source.Invoices {
 			if !invoice.WillReprice {
 				continue

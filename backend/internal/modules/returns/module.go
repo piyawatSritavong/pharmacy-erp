@@ -75,7 +75,7 @@ func (s *Service) Initiate(ctx context.Context, user platform.AuthUser, meta aud
 			SELECT i.branch_id::text, ii.product_id::text, ii.stock_bucket, ii.quantity, i.invoice_status
 			FROM invoice_items ii
 			INNER JOIN invoices i ON i.id = ii.invoice_id
-			WHERE ii.id = $1 AND i.deleted_at IS NULL
+			WHERE ii.id = $1 AND i.deleted_at IS NULL AND ii.reconciliation_removed_at IS NULL
 			FOR UPDATE OF ii
 		`, input.InvoiceItemID).Scan(&branchID, &productID, &stockBucket, &soldQuantity, &invoiceStatus); err != nil {
 			if err == sql.ErrNoRows {

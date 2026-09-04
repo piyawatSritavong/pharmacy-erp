@@ -127,30 +127,120 @@ func TestCostMarkupPlanHandsOutGhostStockInBillOrder(t *testing.T) {
 	}
 }
 
-func TestCostMarkupPlanHidesWholeBillOnly(t *testing.T) {
-	// One line is coverable, the other is not: the bill is repriced whole and
-	// consumes no Ghost Stock, so a later bill for the covered product still
-	// hides.
-	mixed := cashBill("C1", "P-GHOST", 100, 50, 5)
-	mixed.TotalAmount = 200
-	mixed.Items = append(mixed.Items, &reconciliationItem{
-		ID: "C1-2", InvoiceID: "C1", ProductID: "P-NONE", Quantity: 1,
-		UnitPrice: 100, LineSubtotal: 100, LineTotal: 100, LotUnitCost: 50, GhostStock: 0,
+// addLine appends one more line to a bill and grows its total, so a test can
+// build the multi-line bills the per-line rule exists for.
+func addLine(invoice *reconciliationInvoice, suffix, productID string, price, cost float64, ghost int) {
+	invoice.Items = append(invoice.Items, &reconciliationItem{
+		ID: invoice.ID + "-" + suffix, InvoiceID: invoice.ID, ProductID: productID, ProductName: productID, Quantity: 1,
+		UnitPrice: price, LineSubtotal: price, LineTotal: price, LotUnitCost: cost, GhostStock: ghost,
 	})
+	invoice.TotalAmount += price
+}
+
+func TestCostMarkupPlanRemovesCoveredLinesAndRepricesTheRest(t *testing.T) {
+	// One line is coverable, the other is not. The covered line leaves the bill
+	// (its goods go back to the warehouse); the bill survives holding only the
+	// uncovered line, recorded at cost + markup. Ghost is consumed by the line
+	// that used it, so a later bill for the same product can still hide.
+	mixed := cashBill("C1", "P-GHOST", 100, 50, 5)
+	addLine(mixed, "2", "P-NONE", 100, 50, 0)
 	later := cashBill("C2", "P-GHOST", 100, 50, 5)
 	source := reconciliationSource{Invoices: []*reconciliationInvoice{mixed, later}}
 	plan, err := applyCostMarkupPlan(&source, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mixed.WillSuppress || !mixed.WillReprice || mixed.FinalTotal != 105 || mixed.VarianceAmount != 95 {
-		t.Fatalf("mixed bill should be repriced whole: %+v", mixed)
+	if mixed.WillSuppress || !mixed.WillReprice {
+		t.Fatalf("a bill that keeps a line must survive: %+v", mixed)
+	}
+	if mixed.SuppressedItemCount != 1 || !mixed.Items[0].Suppressed || mixed.Items[1].Suppressed {
+		t.Fatalf("wrong line suppressed: %+v / %+v", mixed.Items[0], mixed.Items[1])
+	}
+	// 200 sold - 100 removed - 47.50 repriced = 52.50 left on the bill.
+	if mixed.FinalTotal != 52.5 || mixed.VarianceAmount != 147.5 {
+		t.Fatalf("mixed bill money wrong: final=%.2f variance=%.2f", mixed.FinalTotal, mixed.VarianceAmount)
 	}
 	if !later.WillSuppress {
-		t.Fatalf("later bill should still be hidden: %+v", later)
+		t.Fatalf("later bill should still hide on the Ghost the mixed bill left: %+v", later)
 	}
-	if plan.HiddenRevenue != 10000 || plan.RepricedFinal != 10500 || plan.AdjustedItemCount != 2 || plan.FinalRevenue() != 10500 {
-		t.Fatalf("unexpected plan: %+v", plan)
+	// Hidden revenue is the removed line (100) plus the whole hidden bill (100);
+	// only the retained 100 is counted as repriced.
+	if plan.HiddenRevenue != 20000 || plan.RepricedOriginal != 10000 || plan.RepricedFinal != 5250 {
+		t.Fatalf("unexpected plan money: %+v", plan)
+	}
+	if plan.PartialInvoiceCount != 1 || plan.SuppressedItemCount != 2 || plan.HiddenInvoiceCount != 1 {
+		t.Fatalf("unexpected plan counts: %+v", plan)
+	}
+	// The books still add up: untouched + hidden + retained = what was sold.
+	if plan.UnchangedRevenue+plan.HiddenRevenue+plan.RepricedOriginal != plan.OriginalRevenue {
+		t.Fatalf("revenue does not reconcile: %+v", plan)
+	}
+	if plan.FinalRevenue() != 5250 {
+		t.Fatalf("final revenue should be the retained line only, got %d", plan.FinalRevenue())
+	}
+}
+
+func TestCostMarkupPlanSplitsOneBillOfFiveLines(t *testing.T) {
+	// The case the owner described: one cash bill, no full tax invoice, holding
+	// a wheelchair the warehouse has Ghost Stock for and an IV pole it does not.
+	// The wheelchair line disappears; the bill is left with the IV pole, priced
+	// at cost + markup. Three more lines make it five, mixed both ways.
+	bill := cashBill("C1", "wheelchair", 5000, 4000, 2) // covered
+	addLine(bill, "2", "iv-pole", 1000, 400, 0)         // no Ghost -> repriced
+	addLine(bill, "3", "gloves", 200, 100, 10)          // covered
+	addLine(bill, "4", "syringe", 300, 100, 0)          // no Ghost -> repriced
+	addLine(bill, "5", "mask", 500, 200, 0)             // no Ghost -> repriced
+	source := reconciliationSource{Invoices: []*reconciliationInvoice{bill}}
+	plan, err := applyCostMarkupPlan(&source, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bill.WillSuppress || !bill.WillReprice {
+		t.Fatalf("bill keeps three lines, so it must survive: %+v", bill)
+	}
+	if bill.SuppressedItemCount != 2 {
+		t.Fatalf("expected the wheelchair and the gloves to go, got %d", bill.SuppressedItemCount)
+	}
+	suppressed := map[string]bool{}
+	for _, item := range bill.Items {
+		suppressed[item.ProductID] = item.Suppressed
+	}
+	if !suppressed["wheelchair"] || !suppressed["gloves"] {
+		t.Fatalf("covered lines not removed: %+v", suppressed)
+	}
+	if suppressed["iv-pole"] || suppressed["syringe"] || suppressed["mask"] {
+		t.Fatalf("uncovered lines must stay: %+v", suppressed)
+	}
+	// Retained 1000 + 300 + 500 = 1800, re-recorded at cost x 1.05:
+	// 420 + 105 + 210 = 735.
+	if bill.FinalTotal != 735 {
+		t.Fatalf("retained lines should be recorded at cost + 5%%, got %.2f", bill.FinalTotal)
+	}
+	if plan.HiddenRevenue != 520000 || plan.RepricedOriginal != 180000 || plan.RepricedFinal != 73500 {
+		t.Fatalf("unexpected plan money: %+v", plan)
+	}
+	if plan.UnchangedRevenue+plan.HiddenRevenue+plan.RepricedOriginal != plan.OriginalRevenue {
+		t.Fatalf("revenue does not reconcile: %+v", plan)
+	}
+}
+
+func TestCostMarkupPlanHidesABillOnlyWhenEveryLineIsCovered(t *testing.T) {
+	// Both lines covered: nothing is left to bill for, so the bill itself goes.
+	whole := cashBill("C1", "P-A", 100, 50, 1)
+	addLine(whole, "2", "P-B", 100, 50, 1)
+	source := reconciliationSource{Invoices: []*reconciliationInvoice{whole}}
+	plan, err := applyCostMarkupPlan(&source, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !whole.WillSuppress || whole.WillReprice {
+		t.Fatalf("a fully covered bill must disappear: %+v", whole)
+	}
+	if plan.HiddenInvoiceCount != 1 || plan.PartialInvoiceCount != 0 || plan.RepricedInvoiceCount != 0 {
+		t.Fatalf("unexpected plan counts: %+v", plan)
+	}
+	if plan.HiddenRevenue != 20000 || plan.FinalRevenue() != 0 {
+		t.Fatalf("unexpected plan money: %+v", plan)
 	}
 }
 
