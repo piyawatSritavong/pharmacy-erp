@@ -19,8 +19,32 @@ export async function getDashboard() {
   return apiServer<Record<string, unknown>>("/dashboard");
 }
 
-export async function getBranchSales() {
-  return apiServer<{ items: Array<Record<string, unknown>> }>("/dashboard/branch-sales");
+export type SalesScope = { dateFrom?: string; dateTo?: string; paymentStatus?: string };
+
+function salesScopeQuery(scope?: SalesScope) {
+  const query = new URLSearchParams();
+  if (scope?.dateFrom) query.set("date_from", scope.dateFrom);
+  if (scope?.dateTo) query.set("date_to", scope.dateTo);
+  if (scope?.paymentStatus) query.set("payment_status", scope.paymentStatus);
+  return query.size ? `?${query.toString()}` : "";
+}
+
+export async function getBranchSales(scope?: SalesScope) {
+  return apiServer<{ items: Array<Record<string, unknown>> }>(`/dashboard/branch-sales${salesScopeQuery(scope)}`);
+}
+
+/** Superadmin only: what the period looked like before the month-end close, and now. */
+export async function getRevenueComparison(scope?: SalesScope) {
+  return apiServer<{
+    before_invoice_count: number;
+    before_amount: number;
+    after_invoice_count: number;
+    after_amount: number;
+    hidden_invoice_count: number;
+    hidden_amount: number;
+    repriced_reduction: number;
+    branches: Array<Record<string, unknown>>;
+  }>(`/dashboard/revenue-comparison${salesScopeQuery(scope)}`);
 }
 
 export async function getTodayBranchSales() {

@@ -83,6 +83,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.GET("/me", authHandler.Me)
 	protected.GET("/dashboard", dashboardHandler.Summary, appMiddleware.RequireAnyPermission("dashboard.view.global", "dashboard.view.self"))
 	protected.GET("/dashboard/branch-sales", dashboardHandler.BranchSales, appMiddleware.RequireAnyPermission("dashboard.view.global"))
+	protected.GET("/dashboard/revenue-comparison", dashboardHandler.RevenueComparison, appMiddleware.RequireAnyPermission("dashboard.view.global"))
 	protected.GET("/dashboard/today-branch-sales", dashboardHandler.TodayBranchSales, appMiddleware.RequireAnyPermission("dashboard.view.global"))
 	protected.GET("/dashboard/low-stock", dashboardHandler.LowStock, appMiddleware.RequireAnyPermission("dashboard.view.global"))
 	protected.GET("/notifications", dashboardHandler.Notifications, appMiddleware.RequireAnyPermission("dashboard.view.global"))

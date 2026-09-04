@@ -286,7 +286,15 @@ export function PosWorkspace({
       void proxyClient<{ item: Option | null }>("/pos/remote-session")
         .then((response) => {
           const item = response.item;
-          const openSession = item && String(item.status) === "open" ? item : null;
+          // An open session whose cart is still empty is head office mid-build,
+          // not a bill to take. Treating it as one wiped the cashier's own cart
+          // on every poll and locked the till against a bill that did not exist.
+          const openSession =
+            item &&
+            String(item.status) === "open" &&
+            (((item.cart as Option)?.lines as Option[]) || []).length > 0
+              ? item
+              : null;
           if (!openSession) {
             // Head office withdrew it, or the sale is paid: hand the till back.
             if (remoteLockRef.current) {

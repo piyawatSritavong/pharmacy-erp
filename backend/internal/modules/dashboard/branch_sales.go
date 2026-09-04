@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"strings"
 	"time"
 
 	"pharmacy-erp/backend/internal/platform"
@@ -16,7 +17,17 @@ import (
 // (cash vs bank transfer, from invoice_payments) plus when that branch last
 // rang up a sale. Branches with no sales still appear, at zero, so the grid
 // stays a stable shape.
-func (s *Service) BranchSales(ctx context.Context) ([]map[string]any, error) {
+func (s *Service) BranchSales(ctx context.Context, filter SalesFilter) ([]map[string]any, error) {
+	// The filter rides in the LEFT JOIN's ON clause, not a WHERE: a branch with
+	// no sales in the chosen window must still appear, at zero, so the grid keeps
+	// a stable shape as the operator narrows the range.
+	args := []any{}
+	joinClauses := append([]string{
+		"i.branch_id = b.id",
+		"i.invoice_status = 'issued'",
+		"i.deleted_at IS NULL",
+	}, filter.predicates("i", &args)...)
+
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT b.id::text, b.code, b.name,
 		       COUNT(DISTINCT i.id),
@@ -26,7 +37,7 @@ func (s *Service) BranchSales(ctx context.Context) ([]map[string]any, error) {
 		       MAX(i.issued_at)
 		FROM branches b
 		LEFT JOIN invoices i
-		       ON i.branch_id = b.id AND i.invoice_status = 'issued' AND i.deleted_at IS NULL
+		       ON `+strings.Join(joinClauses, " AND ")+`
 		LEFT JOIN LATERAL (
 		       SELECT
 		           COALESCE(SUM(p.amount) FILTER (WHERE p.payment_type = 'cash'), 0) AS cash,
@@ -37,7 +48,7 @@ func (s *Service) BranchSales(ctx context.Context) ([]map[string]any, error) {
 		WHERE b.active = TRUE AND b.sales_enabled = TRUE
 		GROUP BY b.id, b.code, b.name
 		ORDER BY COALESCE(SUM(i.total_amount), 0) DESC, b.name
-	`)
+	`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +82,7 @@ func (s *Service) BranchSales(ctx context.Context) ([]map[string]any, error) {
 }
 
 func (h *Handler) BranchSales(c echo.Context) error {
-	items, err := h.service.BranchSales(c.Request().Context())
+	items, err := h.service.BranchSales(c.Request().Context(), salesFilterFrom(c))
 	if err != nil {
 		return platform.HandleHTTPError(c, platform.WrapError(http.StatusInternalServerError, "failed to load branch sales", err))
 	}
