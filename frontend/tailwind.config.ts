@@ -1,6 +1,10 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  // Toggled, not system-sniffed: the operator's choice is stored and applied
+  // before paint (see ThemeScript), so a shop floor screen keeps the setting it
+  // was left on.
+  darkMode: "class",
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {

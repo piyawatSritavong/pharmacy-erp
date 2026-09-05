@@ -5,6 +5,7 @@ import { Noto_Sans_Thai } from "next/font/google";
 import type { ReactNode } from "react";
 
 import { Toaster } from "@/components/ui/sonner";
+import { ThemeScript } from "@/components/ui/theme-toggle";
 
 const notoSansThai = Noto_Sans_Thai({
   subsets: ["thai", "latin"],
@@ -22,7 +23,10 @@ export default function RootLayout({
   children
 }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="th" className={notoSansThai.variable}>
+    <html lang="th" className={notoSansThai.variable} suppressHydrationWarning>
+      <head>
+        <ThemeScript />
+      </head>
       <body className="font-sans">
         {children}
         <Toaster />

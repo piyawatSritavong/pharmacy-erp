@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/layout/logout-button";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { usePageHeader } from "@/components/layout/page-header";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import type { NavigationItem, Session } from "@/types";
 
 /** Longest-prefix match of the current route against the nav tree, so a page
@@ -48,12 +49,13 @@ export function AppHeader({ user, navigation }: { user: Session["user"]; navigat
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        <ThemeToggle />
         <NotificationBell />
         <div className="hidden text-right sm:block">
           <p className="text-sm font-semibold leading-tight">{user.name}</p>
           <p className="text-xs text-muted-foreground">{user.role_name}</p>
         </div>
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-foreground text-sm font-bold text-white">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-foreground text-sm font-bold text-background">
           {user.name.slice(0, 1).toUpperCase()}
         </span>
         <LogoutButton compact />

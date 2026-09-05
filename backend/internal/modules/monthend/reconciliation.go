@@ -1464,9 +1464,46 @@ func (s *Service) FinalizeReconciliation(ctx context.Context, user platform.Auth
 	return s.GetReconciliation(ctx, user, reconciliationID)
 }
 
-func (s *Service) ListReconciliations(ctx context.Context, user platform.AuthUser) ([]map[string]any, error) {
+// ReconciliationQuery pages the closed rounds for the dashboard's round picker:
+// the newest twenty, then twenty more each time the operator reaches the end of
+// the list, with an optional substring match on the round number or its period.
+type ReconciliationQuery struct {
+	Search string
+	Limit  int
+	Offset int
+}
+
+func reconciliationQueryFrom(c echo.Context) ReconciliationQuery {
+	query := ReconciliationQuery{Search: strings.TrimSpace(c.QueryParam("search")), Limit: 20}
+	if raw := strings.TrimSpace(c.QueryParam("limit")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil && value > 0 && value <= 100 {
+			query.Limit = value
+		}
+	}
+	if raw := strings.TrimSpace(c.QueryParam("offset")); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
+			query.Offset = value
+		}
+	}
+	return query
+}
+
+func (s *Service) ListReconciliations(ctx context.Context, user platform.AuthUser, query ReconciliationQuery) ([]map[string]any, error) {
 	if user.RoleKey != "super_admin" {
 		return nil, platform.NewError(http.StatusForbidden, "เฉพาะผู้ดูแลระบบสูงสุดเท่านั้น")
+	}
+	if query.Limit <= 0 {
+		query.Limit = 20
+	}
+	// Matching the period as text lets "2026-09" find every round that closed
+	// that month, which is how an operator actually remembers them.
+	args := []any{query.Limit, query.Offset}
+	where := ""
+	if query.Search != "" {
+		args = append(args, "%"+strings.ToLower(query.Search)+"%")
+		where = `WHERE LOWER(r.reconciliation_number) LIKE $3
+		       OR r.period_start::text LIKE $3
+		       OR r.period_end::text LIKE $3`
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.id::text,r.reconciliation_number,r.period_start,r.period_end,r.branch_ids,
@@ -1474,8 +1511,9 @@ func (s *Service) ListReconciliations(ctx context.Context, user platform.AuthUse
 		       r.final_revenue,r.suppressed_invoice_count,r.adjusted_item_count,r.adjustment_percent,r.reconciliation_mode,u.full_name,r.finalized_at
 		FROM month_end_reconciliations r
 		INNER JOIN users u ON u.id=r.finalized_by
-		ORDER BY r.finalized_at DESC LIMIT 200
-	`)
+		`+where+`
+		ORDER BY r.finalized_at DESC LIMIT $1 OFFSET $2
+	`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1616,7 +1654,7 @@ func (h *Handler) FinalizeReconciliation(c echo.Context) error {
 }
 
 func (h *Handler) ListReconciliations(c echo.Context) error {
-	items, err := h.service.ListReconciliations(c.Request().Context(), platform.CurrentUser(c))
+	items, err := h.service.ListReconciliations(c.Request().Context(), platform.CurrentUser(c), reconciliationQueryFrom(c))
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
 	}

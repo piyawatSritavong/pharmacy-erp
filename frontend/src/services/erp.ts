@@ -33,6 +33,46 @@ export async function getBranchSales(scope?: SalesScope) {
   return apiServer<{ items: Array<Record<string, unknown>> }>(`/dashboard/branch-sales${salesScopeQuery(scope)}`);
 }
 
+export type BreakdownGroup = {
+  amount: number;
+  invoice_count: number;
+  adjusted_amount?: number;
+  reduction?: number;
+};
+
+export type DailyBreakdown = {
+  date_from: string;
+  date_to: string;
+  markup_percent: number;
+  shows_close: boolean;
+  generated_at: string;
+  overall: Record<string, BreakdownGroup>;
+  branches: Array<Record<string, BreakdownGroup | string>>;
+};
+
+/**
+ * The day as it stands right now, sorted into what the month-end close will
+ * leave alone and what it will move. Computed live from the bills — no daily
+ * snapshot is kept, because a stored total is just a second number that can
+ * disagree with the bills it came from.
+ */
+export async function getDailyBreakdown(scope?: { dateFrom?: string; dateTo?: string; markupPercent?: number }) {
+  const query = new URLSearchParams();
+  if (scope?.dateFrom) query.set("date_from", scope.dateFrom);
+  if (scope?.dateTo) query.set("date_to", scope.dateTo);
+  if (scope?.markupPercent) query.set("markup_percent", String(scope.markupPercent));
+  return apiServer<DailyBreakdown>(`/dashboard/daily-breakdown${query.size ? `?${query.toString()}` : ""}`);
+}
+
+/** Superadmin only: closed rounds, newest first, twenty at a time. */
+export async function getReconciliationRounds(options?: { search?: string; limit?: number; offset?: number }) {
+  const query = new URLSearchParams();
+  if (options?.search) query.set("search", options.search);
+  query.set("limit", String(options?.limit ?? 20));
+  query.set("offset", String(options?.offset ?? 0));
+  return apiServer<{ items: Array<Record<string, unknown>> }>(`/accounting/month-end/reconciliations?${query.toString()}`);
+}
+
 /** Superadmin only: what the period looked like before the month-end close, and now. */
 export async function getRevenueComparison(scope?: SalesScope) {
   return apiServer<{

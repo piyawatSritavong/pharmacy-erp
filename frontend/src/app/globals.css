@@ -25,6 +25,100 @@
   --radius: 1rem;
 }
 
+/*
+ * Dark theme. The light app is warm cream under a brand blue (#344ABF); its
+ * night counterpart is a deep blue-charcoal in the same family rather than a
+ * neutral black, so the two read as one product seen at two times of day. The
+ * primary lifts to stay legible on a dark ground, and the foreground keeps a
+ * trace of the cream's warmth instead of going pure white.
+ *
+ * Only the tokens change here. Every component that already speaks in
+ * bg-card / text-muted-foreground / border follows automatically.
+ */
+.dark {
+  color-scheme: dark;
+  --background: 226 20% 10%;
+  --foreground: 40 14% 92%;
+  --card: 226 18% 14%;
+  --card-foreground: 40 14% 92%;
+  --muted: 226 15% 19%;
+  --muted-foreground: 222 10% 68%;
+  --border: 226 13% 26%;
+  --input: 226 13% 26%;
+  --primary: 231 70% 68%;
+  --primary-foreground: 226 30% 12%;
+  --secondary: 39 88% 62%;
+  --secondary-foreground: 30 30% 10%;
+  --accent: 231 70% 68%;
+  --accent-foreground: 226 30% 12%;
+  --destructive: 0 66% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --ring: 231 70% 68%;
+}
+
+/*
+ * Literal colour utilities predate the token system and are spread across the
+ * app; rather than edit hundreds of call sites, they are re-pointed here so a
+ * white card is the card colour and a status tint becomes its dark equivalent.
+ * The tints keep their hue and swap lightness, so red still reads as trouble.
+ */
+.dark .bg-white { background-color: hsl(var(--card)); }
+.dark .bg-slate-50,
+.dark .bg-slate-100,
+.dark .bg-neutral-100 { background-color: hsl(var(--muted)); }
+.dark .bg-slate-200,
+.dark .bg-neutral-200 { background-color: hsl(var(--border)); }
+.dark .text-black { color: hsl(var(--foreground)); }
+.dark .text-slate-500,
+.dark .text-neutral-500 { color: hsl(var(--muted-foreground)); }
+.dark .border-black { border-color: hsl(var(--border)); }
+
+.dark .bg-success-50,
+.dark .bg-emerald-100 { background-color: hsl(152 40% 18%); }
+.dark .text-success-800,
+.dark .text-emerald-700 { color: hsl(152 55% 72%); }
+.dark .bg-warning-50,
+.dark .bg-amber-50,
+.dark .bg-amber-100 { background-color: hsl(38 45% 19%); }
+.dark .text-warning-800,
+.dark .text-amber-800 { color: hsl(40 80% 72%); }
+.dark .border-warning-200 { border-color: hsl(38 35% 30%); }
+.dark .bg-error-50,
+.dark .bg-red-50,
+.dark .bg-red-100 { background-color: hsl(0 40% 20%); }
+.dark .text-error,
+.dark .text-red-700 { color: hsl(0 75% 74%); }
+.dark .bg-info-50 { background-color: hsl(214 42% 20%); }
+.dark .text-info-800 { color: hsl(210 75% 76%); }
+
+.dark .shadow-card { box-shadow: 0 12px 36px rgba(0, 0, 0, 0.42); }
+.dark .shadow-brand { box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5); }
+.dark .bg-surface-warm { background-color: hsl(226 16% 16%); }
+.dark .bg-pos-canvas {
+  background-color: hsl(226 20% 11%);
+  background-image: radial-gradient(circle at 20% -20%, rgba(255, 200, 61, 0.07), transparent 32rem);
+}
+
+/*
+ * A printed document is ink on paper whatever the operator's screen is set to,
+ * so print routes restore the light tokens for their whole subtree.
+ */
+.dark .theme-print-sheet {
+  color-scheme: light;
+  --background: 0 0% 100%;
+  --foreground: 0 0% 7%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 7%;
+  --muted: 38 30% 94%;
+  --muted-foreground: 0 0% 42%;
+  --border: 36 16% 87%;
+  background-color: #fff;
+  color: #000;
+}
+.dark .theme-print-sheet .bg-white { background-color: #fff; }
+.dark .theme-print-sheet .text-black { color: #000; }
+.dark .theme-print-sheet .border-black { border-color: #000; }
+
 * {
   box-sizing: border-box;
   border-color: hsl(var(--border));
@@ -40,6 +134,12 @@ body {
     hsl(var(--background));
   color: hsl(var(--foreground));
   -webkit-font-smoothing: antialiased;
+}
+
+.dark body {
+  background:
+    radial-gradient(circle at 85% 5%, rgba(110, 132, 255, 0.09), transparent 28rem),
+    hsl(var(--background));
 }
 
 .bg-surface-warm {

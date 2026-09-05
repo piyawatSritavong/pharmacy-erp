@@ -214,6 +214,9 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.POST("/accounting/month-end/reconciliation-preview", monthEndHandler.PreviewReconciliation, monthEndOnly)
 	protected.POST("/accounting/month-end/reconciliations", monthEndHandler.FinalizeReconciliation, monthEndOnly)
 	protected.GET("/accounting/month-end/reconciliations", monthEndHandler.ListReconciliations, monthEndOnly)
+	// The dashboard's running picture of a day, computed by the close's own
+	// rules — central_admin sees the real half, superadmin sees all of it.
+	protected.GET("/dashboard/daily-breakdown", monthEndHandler.DailyBreakdown, appMiddleware.RequireAnyPermission("dashboard.view.global"))
 	protected.GET("/accounting/month-end/reconciliations/:reconciliationID", monthEndHandler.GetReconciliation, monthEndOnly)
 	protected.POST("/accounting/month-end/preview", monthEndHandler.Preview, monthEndOnly)
 	protected.GET("/accounting/month-end/source", monthEndHandler.Source, monthEndOnly)

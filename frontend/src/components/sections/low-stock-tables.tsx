@@ -74,7 +74,7 @@ export function LowStockTables({ rows }: { rows: LowStockRow[] }) {
         title="สำนักงานใหญ่ · ทุกสาขารวมกัน"
         description={`${count(company.length)} รายการที่ต้องเติม รวมทุกสาขา`}
       >
-        <TableContainer>
+        <TableContainer className="max-h-[26rem] overflow-y-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -106,7 +106,7 @@ export function LowStockTables({ rows }: { rows: LowStockRow[] }) {
         title="แยกตามสาขา"
         description="กดที่ชื่อสาขาเพื่อดูรายการสินค้าที่ใกล้หมดของสาขานั้น"
       >
-        <div className="space-y-2">
+        <div className="max-h-[30rem] space-y-2 overflow-y-auto pr-1">
           {branches.map((branch, index) => {
             const expanded = open[branch.code] ?? index === 0;
             return (
@@ -122,7 +122,7 @@ export function LowStockTables({ rows }: { rows: LowStockRow[] }) {
                   <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">{count(branch.rows.length)} รายการ</span>
                 </button>
                 {expanded ? (
-                  <TableContainer>
+                  <TableContainer className="max-h-72 overflow-y-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
