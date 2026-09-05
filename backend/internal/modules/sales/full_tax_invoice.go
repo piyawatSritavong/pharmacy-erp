@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -23,15 +24,20 @@ import (
 //
 // Two limits keep this honest:
 //
-//   - same calendar day only. A full tax invoice dated to a day the shop has
-//     already reported is a different problem entirely, so the door shuts at
-//     midnight, Bangkok time.
+//   - same calendar day, and before the shop shuts at 17:00. A full tax invoice
+//     dated to a day the shop has already reported is a different problem
+//     entirely, and after closing there is no counter to hand the old slip back
+//     across, so the door shuts with the shop.
 //   - not once a month-end close has touched the bill. The close rewrites and
 //     renumbers bills and freezes a snapshot of them; reissuing afterwards would
 //     leave the snapshot describing a bill that no longer exists.
 //
 // Stock is deliberately untouched: the goods were handed over at the original
 // sale, and the replacement bill records the same lines from the same lots.
+
+// The counter shuts at 17:00; a swap asked for after that is tomorrow's problem
+// and tomorrow is a day the shop may already have reported.
+const shopClosingHour = 17
 
 type FullTaxInvoiceRequest struct {
 	CustomerName  string `json:"customer_name"`
@@ -83,8 +89,12 @@ func (s *Service) UpgradeToFullTaxInvoice(ctx context.Context, user platform.Aut
 		if taxInvoiceType == "full" || requestFullTax {
 			return platform.NewError(http.StatusConflict, "ใบขายนี้เป็นใบกำกับภาษีเต็มรูปอยู่แล้ว")
 		}
-		if platform.InBangkok(issuedAt).Format("2006-01-02") != platform.InBangkok(time.Now()).Format("2006-01-02") {
+		now := platform.InBangkok(time.Now())
+		if platform.InBangkok(issuedAt).Format("2006-01-02") != now.Format("2006-01-02") {
 			return platform.NewError(http.StatusConflict, "ขอใบกำกับภาษีเต็มรูปย้อนหลังได้เฉพาะภายในวันที่ขายเท่านั้น")
+		}
+		if now.Hour() >= shopClosingHour {
+			return platform.NewError(http.StatusConflict, "ร้านปิดแล้ว ขอใบกำกับภาษีเต็มรูปย้อนหลังได้ก่อน 17:00 น. ของวันที่ขายเท่านั้น")
 		}
 		var closed bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM reconciliation_invoice_snapshots WHERE invoice_id=$1)`, invoiceID).Scan(&closed); err != nil {
@@ -109,12 +119,15 @@ func (s *Service) UpgradeToFullTaxInvoice(ctx context.Context, user platform.Aut
 				is_government_mode,tax_invoice_type,request_full_tax_invoice,
 				subtotal,tax_rate,tax_amount,total_amount,
 				bill_discount_amount,line_discount_total,promotion_discount_total,giveaway_cost_total,
-				payment_method,created_by,issued_at,created_at,updated_at,replaces_invoice_id
-			) VALUES ($1,$2,$3,$4,$5,$6,'issued',$7,'full',TRUE,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW(),$20)
+				payment_method,created_by,issued_at,created_at,updated_at,replaces_invoice_id,notes
+			) VALUES ($1,$2,$3,$4,$5,$6,'issued',$7,'full',TRUE,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW(),$20,$21)
 		`, replacementID, branchID, replacementNumber, customerName, taxID, paymentStatus,
 			isGovernment, subtotal, taxRate, taxAmount, totalAmount,
 			billDiscount, lineDiscount, promotionDiscount, giveawayCost,
-			paymentMethod, user.ID, issuedAt, createdAt, invoiceID); err != nil {
+			paymentMethod, user.ID, issuedAt, createdAt, invoiceID,
+			// Printed on the replacement, because the customer holding it should
+			// be able to see which slip it stands in for without asking.
+			fmt.Sprintf("ยกเลิกบิลเลข %s และออกใบกำกับภาษีแบบเต็มฉบับนี้", invoiceNumber)); err != nil {
 			return err
 		}
 

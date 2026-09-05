@@ -106,6 +106,15 @@ export default async function InvoicePrintPage({
         </table>
       </section>
 
+      {/* A replacement full tax invoice says which slip it stands in for, so the
+          customer holding it does not have to take the pairing on trust. */}
+      {document.notes ? (
+        <section className="mt-6 border-t border-black pt-4">
+          <p className="text-xs text-muted-foreground">หมายเหตุ</p>
+          <p className="mt-1 text-sm font-medium">{String(document.notes)}</p>
+        </section>
+      ) : null}
+
       <section className="mt-8 grid gap-6 md:grid-cols-[1fr_320px]">
         <div>
           <p className="text-xs text-muted-foreground">การชำระเงิน</p>

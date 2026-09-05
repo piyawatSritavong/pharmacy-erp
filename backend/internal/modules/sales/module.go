@@ -993,6 +993,7 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 		id, branchID, branchCode, branchName, branchAddress      string
 		invoiceNumber, customerName, customerTaxID               string
 		paymentStatus, invoiceStatus, taxInvoiceType, sellerName string
+		notes                                                    string
 		isGovernment                                             bool
 		subtotal, taxRate, taxAmount, totalAmount                float64
 		issuedAt                                                 time.Time
@@ -1016,7 +1017,8 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 			i.tax_amount,
 			i.total_amount,
 			u.full_name,
-			i.issued_at
+			i.issued_at,
+			COALESCE(i.notes, '')
 		FROM invoices i
 		INNER JOIN branches b ON b.id = i.branch_id
 		INNER JOIN users u ON u.id = i.created_by
@@ -1040,6 +1042,7 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 		&totalAmount,
 		&sellerName,
 		&issuedAt,
+		&notes,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, platform.NewError(http.StatusNotFound, "invoice not found")
@@ -1206,6 +1209,7 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 			"issued_at":          issuedAt,
 			"payment_status":     paymentStatus,
 			"invoice_status":     invoiceStatus,
+			"notes":              notes,
 			"customer_name":      customerName,
 			"customer_tax_id":    customerTaxID,
 			"is_government_mode": isGovernment,

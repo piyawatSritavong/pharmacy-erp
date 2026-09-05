@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"strings"
@@ -84,9 +85,25 @@ func JSONMessage(c echo.Context, code int, message string) error {
 func HandleHTTPError(c echo.Context, err error) error {
 	var appErr *AppError
 	if errors.As(err, &appErr) {
+		if appErr.Code >= http.StatusInternalServerError {
+			logServerError(c, err)
+		}
 		return c.JSON(appErr.Code, ErrorResponse{Message: thaiMessage(appErr.Message)})
 	}
+	logServerError(c, err)
 	return c.JSON(http.StatusInternalServerError, ErrorResponse{Message: "เกิดข้อผิดพลาดภายในระบบ"})
+}
+
+// The customer-facing message for a 500 is deliberately vague, which left the
+// actual cause nowhere at all — a failing endpoint could only be diagnosed by
+// re-deriving it from the outside. The cause belongs in the server log, where
+// the operator cannot see it and whoever is on call can.
+func logServerError(c echo.Context, err error) {
+	if err == nil {
+		return
+	}
+	request := c.Request()
+	log.Printf("500 %s %s: %v", request.Method, request.URL.Path, err)
 }
 
 func thaiMessage(message string) string {

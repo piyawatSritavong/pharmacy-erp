@@ -423,10 +423,14 @@ test.describe("สิทธิ์และการนำทางสองบ�
         status: 200,
       });
     });
-    await session.page
+    // The grid lists the whole catalogue and marks anything without stock as
+    // "หมด", so pick a card that can actually be sold rather than whichever
+    // product happens to sort first.
+    const sellable = session.page
       .getByRole("button", { name: /^เพิ่ม .* ลงตะกร้า$/ })
-      .first()
-      .click();
+      .filter({ hasText: "+ เพิ่ม" });
+    await expect(sellable.first()).toBeVisible();
+    await sellable.first().click();
     // Selling a tracked product picks a lot first: one cart line, one lot.
     const lotDialog = session.page.getByRole("dialog");
     if (await lotDialog.isVisible().catch(() => false)) {
