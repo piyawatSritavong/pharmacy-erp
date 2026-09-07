@@ -117,6 +117,7 @@ export function DashboardFilters({ canSeeClose }: { canSeeClose: boolean }) {
               <option value="">ทุกประเภท</option>
               <option value="cash">เงินสด</option>
               <option value="bank_transfer">เงินโอน</option>
+              <option value="mixed">เงินสด + โอน ผสม</option>
             </Select>
           </Field>
           <Field className="w-full sm:w-40" label="สถานะชำระเงิน">
@@ -152,12 +153,12 @@ export function DashboardFilters({ canSeeClose }: { canSeeClose: boolean }) {
           ) : null}
         </div>
 
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+        <div className="flex min-w-0 shrink-0 flex-nowrap items-center justify-end gap-2">
           <Button aria-label="วันก่อนหน้า" onClick={() => step(-1)} type="button" variant="secondary">
             <ChevronLeft className="h-4 w-4" />
             <span className="hidden sm:inline">วันก่อนหน้า</span>
           </Button>
-          <div className="min-w-0 flex-1 rounded-xl border bg-muted/50 px-4 py-2 text-center sm:min-w-[13rem] sm:flex-none">
+          <div className="min-w-0 flex-1 whitespace-nowrap rounded-xl border bg-muted/50 px-4 py-2 text-center sm:min-w-[13rem] sm:flex-none">
             <p className="text-base font-semibold leading-tight">
               {singleDay ? thaiFullDate(dateFrom) : `${thaiFullDate(dateFrom)} – ${thaiFullDate(dateTo)}`}
             </p>

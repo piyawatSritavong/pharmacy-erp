@@ -130,6 +130,8 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
   const [dateFrom, setDateFrom] = useState(initialRound?.period_start || "");
   const [dateTo, setDateTo] = useState(initialRound?.period_end || "");
   const [branchID, setBranchID] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
+  const [status, setStatus] = useState("");
   const [report, setReport] = useState<Report | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [foldedRounds, setFoldedRounds] = useState<Record<string, boolean>>({});
@@ -153,6 +155,10 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
         query.set("date_to", dateTo);
       }
       if (branchID) query.set("branch_id", branchID);
+      // Both narrow by bill, not by line, so a filtered page still holds whole
+      // bills — the report folds items into the invoice they belong to.
+      if (paymentMethod) query.set("payment_method", paymentMethod);
+      if (status) query.set("status", status);
       const response = await proxyClient<Report>(`/admin/month-end-report?${query.toString()}`);
       setReport(response);
       setExpanded(null);
@@ -163,7 +169,7 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
     } finally {
       setLoading(false);
     }
-  }, [branchID, dateFrom, dateTo, reconciliationID]);
+  }, [branchID, dateFrom, dateTo, paymentMethod, reconciliationID, status]);
 
   useEffect(() => {
     void loadReport(1);
@@ -221,11 +227,13 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
   return (
     <div className="space-y-6">
       <SectionCard title="ตัวกรองรายงาน" description="เลือก reconciliation โดยตรงเป็นหลัก หรือเลือกค้นด้วยช่วงวันที่">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.5fr_1fr_1fr_1fr_auto] xl:items-end">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1fr_auto] xl:items-end">
           <label className="space-y-2 text-sm font-medium"><span>รอบ reconciliation</span><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" onChange={(event) => setReconciliationID(event.target.value)} value={reconciliationID}><option value="">ค้นด้วยช่วงวันที่</option>{groupByPeriod(reconciliations).map((bucket) => <optgroup key={bucket.key} label={bucket.label}>{bucket.rounds.map((item) => <option key={item.id} value={item.id}>{item.reconciliation_number} · {shortDate(item.period_start)} ถึง {shortDate(item.period_end)}</option>)}</optgroup>)}</select></label>
           <label className="space-y-2 text-sm font-medium"><span>วันที่เริ่มต้น</span><input className="h-10 w-full rounded-md border bg-white px-3 text-sm" disabled={Boolean(reconciliationID)} onChange={(event) => setDateFrom(event.target.value)} type="date" value={dateFrom} /></label>
           <label className="space-y-2 text-sm font-medium"><span>วันที่สิ้นสุด</span><input className="h-10 w-full rounded-md border bg-white px-3 text-sm" disabled={Boolean(reconciliationID)} min={dateFrom} onChange={(event) => setDateTo(event.target.value)} type="date" value={dateTo} /></label>
           <label className="space-y-2 text-sm font-medium"><span>สาขาขาย</span><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" onChange={(event) => setBranchID(event.target.value)} value={branchID}><option value="">ทุกสาขาในรอบ</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+          <label className="space-y-2 text-sm font-medium"><span>ประเภทการชำระเงิน</span><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" onChange={(event) => setPaymentMethod(event.target.value)} value={paymentMethod}><option value="">ทุกประเภท</option><option value="cash">เงินสด</option><option value="bank_transfer">เงินโอน</option><option value="mixed">เงินสด + โอน ผสม</option><option value="unpaid">ค้างชำระ</option></select></label>
+          <label className="space-y-2 text-sm font-medium"><span>สถานะ</span><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" onChange={(event) => setStatus(event.target.value)} value={status}><option value="">ทุกสถานะ</option><option value="active">Active — ไม่ถูกแตะ</option><option value="adjusted">Adjusted — ปรับราคา</option><option value="hidden">Hidden — ถูกซ่อน</option></select></label>
           <Button disabled={loading} onClick={() => void loadReport(1)}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}โหลดรายงาน</Button>
         </div>
         {selectedReconciliation ? <p className="mt-3 text-xs text-muted-foreground">ยืนยันเมื่อ {dateTime(selectedReconciliation.finalized_at)}</p> : null}

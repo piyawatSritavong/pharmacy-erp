@@ -2,15 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ArrowRight } from "lucide-react";
 
 import { SectionCard } from "@/components/sections/common";
 import { currency } from "@/lib/utils";
-import type { BreakdownGroup, DailyBreakdown } from "@/services/erp";
+import type { BreakdownGroup, DailyBreakdown, TenderSplit } from "@/services/erp";
 
 type GroupKey =
   | "transfer_abbreviated"
   | "transfer_full_tax"
   | "cash_full_tax"
+  | "mixed_abbreviated"
+  | "mixed_full_tax"
   | "cash_ghost_hidden"
   | "cash_repriced"
   | "cash_mixed"
@@ -20,13 +23,12 @@ type GroupSpec = {
   key: GroupKey;
   title: string;
   note: string;
-  paymentType: "cash" | "bank_transfer";
+  paymentType: "cash" | "bank_transfer" | "mixed";
   closeStatus: "active" | "adjusted" | "hidden";
   paid: boolean;
-  showsAdjusted?: boolean;
 };
 
-// Money that settles as rung up: the close leaves all three alone.
+// Money that settles as rung up: the close leaves all of these alone.
 const REAL_GROUPS: GroupSpec[] = [
   {
     key: "transfer_abbreviated",
@@ -51,11 +53,27 @@ const REAL_GROUPS: GroupSpec[] = [
     paymentType: "cash",
     closeStatus: "active",
     paid: true
+  },
+  {
+    key: "mixed_abbreviated",
+    title: "เงินสด + โอน ผสม",
+    note: "ใบกำกับภาษีอย่างย่อ · จ่ายสองทาง จึงไม่เข้าเงื่อนไข",
+    paymentType: "mixed",
+    closeStatus: "active",
+    paid: true
+  },
+  {
+    key: "mixed_full_tax",
+    title: "เงินสด + โอน ผสม + ใบกำกับเต็มรูป",
+    note: "จ่ายสองทาง จึงไม่เข้าเงื่อนไข",
+    paymentType: "mixed",
+    closeStatus: "active",
+    paid: true
   }
 ];
 
 // Cash without a full tax invoice — the pool the close acts on, split by what
-// Ghost Stock at the warehouse can cover right now.
+// Ghost Stock at the warehouse covers.
 const CLOSE_GROUPS: GroupSpec[] = [
   {
     key: "cash_ghost_hidden",
@@ -71,8 +89,7 @@ const CLOSE_GROUPS: GroupSpec[] = [
     note: "ใบกำกับภาษีอย่างย่อ · ไม่มีผีคุ้มสักรายการ",
     paymentType: "cash",
     closeStatus: "adjusted",
-    paid: true,
-    showsAdjusted: true
+    paid: true
   },
   {
     key: "cash_mixed",
@@ -80,8 +97,7 @@ const CLOSE_GROUPS: GroupSpec[] = [
     note: "ใบกำกับภาษีอย่างย่อ · ผีคุ้มบางรายการ",
     paymentType: "cash",
     closeStatus: "adjusted",
-    paid: true,
-    showsAdjusted: true
+    paid: true
   }
 ];
 
@@ -108,44 +124,82 @@ function keep(spec: GroupSpec, filters: BreakdownFilters) {
   return true;
 }
 
+const EMPTY: BreakdownGroup = {
+  amount: 0,
+  invoice_count: 0,
+  after_amount: 0,
+  after_count: 0,
+  difference: 0,
+  difference_count: 0
+};
+
 function readGroup(source: Record<string, unknown>, key: string): BreakdownGroup {
-  const value = source?.[key] as BreakdownGroup | undefined;
-  return value || { amount: 0, invoice_count: 0 };
+  return (source?.[key] as BreakdownGroup | undefined) || EMPTY;
 }
 
 function bills(count: number) {
   return `${count.toLocaleString("th-TH")} บิล`;
 }
 
-/** One measured figure. Amounts are tabular so columns of them line up. */
-function GroupTile({ spec, group, compact }: { spec: GroupSpec; group: BreakdownGroup; compact?: boolean }) {
+/**
+ * One measured figure, in the two readings the screen has to support.
+ *
+ * Before the round is closed the second number is what the close would leave;
+ * afterwards it is what it left. Either way the difference is stated in money
+ * and in bills, because a bill that disappears takes its count with it and a
+ * total alone does not show that.
+ */
+function GroupTile({
+  spec,
+  group,
+  closed,
+  compact
+}: {
+  spec: GroupSpec;
+  group: BreakdownGroup;
+  closed: boolean;
+  compact?: boolean;
+}) {
   const empty = group.invoice_count === 0;
+  const moved = group.difference !== 0 || group.difference_count !== 0;
   return (
-    <div
-      className={`rounded-xl border bg-card px-4 ${compact ? "py-3" : "py-4"} ${empty ? "opacity-55" : ""}`}
-    >
+    <div className={`rounded-xl border bg-card px-4 ${compact ? "py-3" : "py-4"} ${empty ? "opacity-55" : ""}`}>
       <p className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>{spec.title}</p>
       {compact ? null : <p className="mt-0.5 text-xs text-muted-foreground">{spec.note}</p>}
-      <p className={`mt-2 font-semibold tabular-nums ${compact ? "text-lg" : "text-2xl"}`}>{currency(group.amount)}</p>
-      <div className="mt-1 flex flex-wrap items-baseline gap-x-3 text-xs text-muted-foreground">
-        <span>{bills(group.invoice_count)}</span>
-        {spec.showsAdjusted && group.adjusted_amount !== undefined ? (
-          <span>
-            ปรับเหลือ <span className="font-semibold tabular-nums text-foreground">{currency(group.adjusted_amount)}</span>
-          </span>
-        ) : null}
+
+      <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className={`font-semibold tabular-nums ${compact ? "text-lg" : "text-2xl"}`}>{currency(group.amount)}</span>
+        <span className="text-xs text-muted-foreground">{bills(group.invoice_count)}</span>
       </div>
+
+      {moved ? (
+        <div className="mt-2 space-y-1 border-t pt-2 text-xs">
+          <p className="flex items-center gap-1.5 text-muted-foreground">
+            <ArrowRight className="h-3 w-3 shrink-0" />
+            <span>{closed ? "หลังปรับ" : "ถ้าปิดรอบ"}</span>
+            <span className="font-semibold tabular-nums text-foreground">{currency(group.after_amount)}</span>
+            <span>{bills(group.after_count)}</span>
+          </p>
+          <p className="text-muted-foreground">
+            ส่วนต่าง{" "}
+            <span className="font-semibold tabular-nums text-error">−{currency(group.difference)}</span>
+            {group.difference_count > 0 ? <span> · หายไป {bills(group.difference_count)}</span> : null}
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-/** A titled group of tiles with its own running total. */
+/** A titled group of tiles with its own running total, stated the same way. */
 function Panel({
   title,
   note,
   specs,
   source,
   filters,
+  totalKey,
+  closed,
   compact,
   provisional
 }: {
@@ -154,31 +208,61 @@ function Panel({
   specs: GroupSpec[];
   source: Record<string, unknown>;
   filters: BreakdownFilters;
+  totalKey: string;
+  closed: boolean;
   compact?: boolean;
   provisional?: boolean;
 }) {
   const visible = specs.filter((spec) => keep(spec, filters));
   if (visible.length === 0) return null;
-  const total = visible.reduce((sum, spec) => sum + readGroup(source, spec.key).amount, 0);
-  const totalBills = visible.reduce((sum, spec) => sum + readGroup(source, spec.key).invoice_count, 0);
+  // Filtering hides groups, so the heading adds up what is on screen rather
+  // than quoting a server total for rows the operator cannot see.
+  const showServerTotal = visible.length === specs.length;
+  const total = showServerTotal
+    ? readGroup(source, totalKey)
+    : visible.reduce(
+        (sum, spec) => {
+          const group = readGroup(source, spec.key);
+          return {
+            ...sum,
+            amount: sum.amount + group.amount,
+            invoice_count: sum.invoice_count + group.invoice_count,
+            after_amount: sum.after_amount + group.after_amount,
+            after_count: sum.after_count + group.after_count,
+            difference: sum.difference + group.difference,
+            difference_count: sum.difference_count + group.difference_count
+          };
+        },
+        { ...EMPTY }
+      );
 
   return (
-    // A dashed edge on the provisional side: these figures are what the close
-    // WOULD do if it ran now, not money that has settled.
-    <div className={`rounded-2xl border p-4 ${provisional ? "border-dashed bg-muted/40" : "bg-muted/20"}`}>
+    // A dashed edge while the round is open: those figures are what the close
+    // WOULD do, not money that has settled.
+    <div className={`rounded-2xl border p-4 ${provisional && !closed ? "border-dashed bg-muted/40" : "bg-muted/20"}`}>
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <p className={`font-semibold ${compact ? "text-sm" : "text-base"}`}>{title}</p>
           {compact ? null : <p className="text-xs text-muted-foreground">{note}</p>}
         </div>
-        <p className={`font-semibold tabular-nums ${compact ? "text-base" : "text-xl"}`}>
-          {currency(total)}
-          <span className="ml-2 text-xs font-normal text-muted-foreground">{bills(totalBills)}</span>
-        </p>
+        <div className="text-right">
+          <p className={`font-semibold tabular-nums ${compact ? "text-base" : "text-xl"}`}>
+            {currency(total.amount)}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">{bills(total.invoice_count)}</span>
+          </p>
+          {total.difference !== 0 || total.difference_count !== 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {closed ? "หลังปรับ" : "ถ้าปิดรอบ"}{" "}
+              <span className="font-semibold tabular-nums text-foreground">{currency(total.after_amount)}</span> ·{" "}
+              {bills(total.after_count)} · ส่วนต่าง{" "}
+              <span className="font-semibold tabular-nums text-error">−{currency(total.difference)}</span>
+            </p>
+          ) : null}
+        </div>
       </div>
-      <div className={`grid gap-3 ${compact ? "sm:grid-cols-3" : "md:grid-cols-3"}`}>
+      <div className={`grid gap-3 ${compact ? "sm:grid-cols-2 lg:grid-cols-3" : "md:grid-cols-3"}`}>
         {visible.map((spec) => (
-          <GroupTile compact={compact} group={readGroup(source, spec.key)} key={spec.key} spec={spec} />
+          <GroupTile closed={closed} compact={compact} group={readGroup(source, spec.key)} key={spec.key} spec={spec} />
         ))}
       </div>
     </div>
@@ -188,38 +272,40 @@ function Panel({
 function Breakdown({
   source,
   filters,
-  showsClose,
   markup,
+  closed,
   compact
 }: {
   source: Record<string, unknown>;
   filters: BreakdownFilters;
-  showsClose: boolean;
   markup: number;
+  closed: boolean;
   compact?: boolean;
 }) {
   const unpaid = readGroup(source, "unpaid");
   return (
     <div className="space-y-3">
       <Panel
+        closed={closed}
         compact={compact}
         filters={filters}
-        note="เงินที่เข้าแล้วและรอบสิ้นเดือนจะไม่แตะ"
+        note={closed ? "เงินที่เข้าแล้วและรอบสิ้นเดือนไม่ได้แตะ" : "เงินที่เข้าแล้วและรอบสิ้นเดือนจะไม่แตะ"}
         source={source}
         specs={REAL_GROUPS}
         title="ยอดรวมจริง"
+        totalKey="real_total"
       />
-      {showsClose ? (
-        <Panel
-          compact={compact}
-          filters={filters}
-          note={`ถ้าปิดรอบตอนนี้ — ต้นทุน + ${markup}%`}
-          provisional
-          source={source}
-          specs={CLOSE_GROUPS}
-          title={`ยอดเข้าเงื่อนไข ต้นทุน + ${markup}%`}
-        />
-      ) : null}
+      <Panel
+        closed={closed}
+        compact={compact}
+        filters={filters}
+        note={closed ? `ปิดรอบแล้วที่ ต้นทุน + ${markup}%` : `ถ้าปิดรอบตอนนี้ — ต้นทุน + ${markup}%`}
+        provisional
+        source={source}
+        specs={CLOSE_GROUPS}
+        title={`ยอดเข้าเงื่อนไข ต้นทุน + ${markup}%`}
+        totalKey="close_total"
+      />
       {unpaid.invoice_count > 0 && keep(UNPAID_GROUP, filters) ? (
         <div className="rounded-xl border border-dashed px-4 py-3 text-sm">
           <span className="font-medium">{UNPAID_GROUP.title}</span>
@@ -228,6 +314,37 @@ function Breakdown({
           <span className="ml-2 text-xs text-muted-foreground">{bills(unpaid.invoice_count)}</span>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * What central_admin's dashboard is: the money that arrived, split by how it
+ * arrived. A bill settled part in cash and part by transfer lands on both
+ * sides — the split follows the tender, not the bill.
+ */
+function TenderBoard({ tender, compact }: { tender: TenderSplit; compact?: boolean }) {
+  const rows = [
+    { label: "ยอดโอน", amount: tender.transfer_amount },
+    { label: "ยอดเงินสด", amount: tender.cash_amount }
+  ];
+  return (
+    <div className="rounded-2xl border bg-muted/20 p-4">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <p className={`font-semibold ${compact ? "text-sm" : "text-base"}`}>ยอดรวม</p>
+        <p className={`font-semibold tabular-nums ${compact ? "text-base" : "text-xl"}`}>
+          {currency(tender.total_amount)}
+          <span className="ml-2 text-xs font-normal text-muted-foreground">{bills(tender.invoice_count)}</span>
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {rows.map((row) => (
+          <div className={`rounded-xl border bg-card px-4 ${compact ? "py-3" : "py-4"}`} key={row.label}>
+            <p className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>{row.label}</p>
+            <p className={`mt-2 font-semibold tabular-nums ${compact ? "text-lg" : "text-2xl"}`}>{currency(row.amount)}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -260,10 +377,15 @@ export function DailyBreakdownBoards({
     return () => clearInterval(timer);
   }, [live, router]);
 
+  const singleDay = data.date_from === data.date_to;
   const heading = useMemo(
-    () => (data.date_from === data.date_to ? "ยอดขายรวมวันนี้ทุกสาขา" : "ยอดขายรวมทุกสาขาในช่วงที่เลือก"),
-    [data.date_from, data.date_to]
+    () => (singleDay ? "ยอดขายรวมวันนี้ทุกสาขา" : "ยอดขายรวมทุกสาขาในช่วงที่เลือก"),
+    [singleDay]
   );
+  const window = singleDay ? data.date_from : `${data.date_from} ถึง ${data.date_to}`;
+  const description = data.closed && data.reconciliation_number
+    ? `${window} · สรุปสิ้นเดือนแล้วในรอบ ${data.reconciliation_number} — ตัวเลขก่อนปรับมาจากบันทึกของรอบนั้น`
+    : window;
 
   return (
     <>
@@ -276,15 +398,20 @@ export function DailyBreakdownBoards({
             </span>
           ) : null
         }
-        description={data.date_from === data.date_to ? data.date_from : `${data.date_from} ถึง ${data.date_to}`}
+        description={description}
         title={heading}
       >
-        <Breakdown
-          filters={filters}
-          markup={data.markup_percent}
-          showsClose={data.shows_close}
-          source={data.overall}
-        />
+        {data.shows_close ? (
+          <Breakdown
+            closed={data.closed}
+            filters={filters}
+            markup={data.markup_percent}
+            source={data.overall as Record<string, unknown>}
+
+          />
+        ) : (
+          <TenderBoard tender={data.overall.tender as TenderSplit} />
+        )}
       </SectionCard>
 
       <SectionCard description="แยกตามสาขา เรียงจากยอดมากไปน้อย" title="ยอดขายแต่ละสาขา">
@@ -295,13 +422,17 @@ export function DailyBreakdownBoards({
                 {String(branch.branch_name)}
                 <span className="ml-2 text-xs font-normal text-muted-foreground">{String(branch.branch_code)}</span>
               </p>
-              <Breakdown
-                compact
-                filters={filters}
-                markup={data.markup_percent}
-                showsClose={data.shows_close}
-                source={branch as Record<string, unknown>}
-              />
+              {data.shows_close ? (
+                <Breakdown
+                  closed={data.closed}
+                  compact
+                  filters={filters}
+                  markup={data.markup_percent}
+                  source={branch as Record<string, unknown>}
+                />
+              ) : (
+                <TenderBoard compact tender={branch.tender as TenderSplit} />
+              )}
             </div>
           ))}
         </div>

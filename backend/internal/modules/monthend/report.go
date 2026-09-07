@@ -126,7 +126,20 @@ const selectedReconciliationsSQL = `
 	    OR ($1::uuid IS NULL AND r.period_start=$2::date AND r.period_end=$3::date))
 	  AND ($4::uuid IS NULL OR $4::uuid=ANY(r.branch_ids))`
 
-func (s *Service) MonthEndReport(ctx context.Context, user platform.AuthUser, reconciliationID, period, dateFrom, dateTo, branchID string, page, pageSize int) (MonthEndReportResult, error) {
+// monthEndInvoiceStatusSQL names a bill's outcome the way the report screen
+// reads it: the strongest thing that happened to any of its lines. A struck line
+// makes the bill "hidden" even though the bill survived, because that is what
+// the operator sees against it in the list.
+const monthEndInvoiceStatusSQL = `CASE
+	WHEN current_invoice.deleted_at IS NOT NULL THEN 'hidden'
+	WHEN EXISTS(SELECT 1 FROM invoice_items x
+	            WHERE x.invoice_id=invoice.invoice_id AND x.reconciliation_removed_at IS NOT NULL) THEN 'hidden'
+	WHEN EXISTS(SELECT 1 FROM reconciliation_logs l
+	            WHERE l.reconciliation_id=invoice.reconciliation_id AND l.invoice_id=invoice.invoice_id
+	              AND l.log_type='price_adjusted') THEN 'adjusted'
+	ELSE 'active' END`
+
+func (s *Service) MonthEndReport(ctx context.Context, user platform.AuthUser, reconciliationID, period, dateFrom, dateTo, branchID, paymentMethod, status string, page, pageSize int) (MonthEndReportResult, error) {
 	if user.RoleKey != "super_admin" {
 		return MonthEndReportResult{}, platform.NewError(http.StatusForbidden, "เฉพาะผู้ดูแลระบบสูงสุดเท่านั้น")
 	}
@@ -136,6 +149,12 @@ func (s *Service) MonthEndReport(ctx context.Context, user platform.AuthUser, re
 	}
 	page, pageSize = normalizeMonthEndReportPage(page, pageSize)
 	args := []any{filter.reconciliationArg, filter.dateFromArg, filter.dateToArg, filter.branchArg}
+	// The two row filters page with the bills, not with the items: a bill is the
+	// unit the report folds to, so narrowing by anything finer would page half a
+	// bill onto one screen and half onto the next.
+	rowArgs := append(append([]any{}, args...),
+		platform.NullString(strings.TrimSpace(paymentMethod)),
+		platform.NullString(strings.TrimSpace(status)))
 
 	var reconciliationIDs pq.StringArray
 	var periodStart, periodEnd sql.NullTime
@@ -227,21 +246,27 @@ func (s *Service) MonthEndReport(ctx context.Context, user platform.AuthUser, re
 		SELECT COUNT(*)
 		FROM reconciliation_invoice_snapshots invoice
 		INNER JOIN selected s ON s.id=invoice.reconciliation_id
-		WHERE $4::uuid IS NULL OR invoice.branch_id=$4::uuid
-	`, args...).Scan(&total); err != nil {
+		INNER JOIN invoices current_invoice ON current_invoice.id=invoice.invoice_id
+		WHERE ($4::uuid IS NULL OR invoice.branch_id=$4::uuid)
+		  AND ($5::text IS NULL OR invoice.payment_method=$5::text)
+		  AND ($6::text IS NULL OR $6::text=`+monthEndInvoiceStatusSQL+`)
+	`, rowArgs...).Scan(&total); err != nil {
 		return MonthEndReportResult{}, err
 	}
 
-	queryArgs := append(args, pageSize, (page-1)*pageSize)
+	queryArgs := append(rowArgs, pageSize, (page-1)*pageSize)
 	rows, err := s.db.QueryContext(ctx, `
 		WITH selected AS (`+selectedReconciliationsSQL+`), paged_invoices AS (
 			SELECT invoice.reconciliation_id,invoice.invoice_id
 			FROM reconciliation_invoice_snapshots invoice
 			INNER JOIN selected s ON s.id=invoice.reconciliation_id
 			INNER JOIN branches branch ON branch.id=invoice.branch_id
-			WHERE $4::uuid IS NULL OR invoice.branch_id=$4::uuid
+			INNER JOIN invoices current_invoice ON current_invoice.id=invoice.invoice_id
+			WHERE ($4::uuid IS NULL OR invoice.branch_id=$4::uuid)
+			  AND ($5::text IS NULL OR invoice.payment_method=$5::text)
+			  AND ($6::text IS NULL OR $6::text=`+monthEndInvoiceStatusSQL+`)
 			ORDER BY branch.name,invoice.invoice_created_at,invoice.invoice_id
-			LIMIT $5 OFFSET $6
+			LIMIT $7 OFFSET $8
 		), price_changes AS (
 			SELECT DISTINCT ON (log.reconciliation_id,log.invoice_item_id)
 			       log.reconciliation_id,log.invoice_item_id,log.new_unit_price,log.variance_amount
@@ -349,6 +374,8 @@ func (h *Handler) MonthEndReport(c echo.Context) error {
 		c.QueryParam("date_from"),
 		c.QueryParam("date_to"),
 		c.QueryParam("branch_id"),
+		c.QueryParam("payment_method"),
+		c.QueryParam("status"),
 		page,
 		pageSize,
 	)

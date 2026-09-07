@@ -36,8 +36,19 @@ export async function getBranchSales(scope?: SalesScope) {
 export type BreakdownGroup = {
   amount: number;
   invoice_count: number;
+  after_amount: number;
+  after_count: number;
+  difference: number;
+  difference_count: number;
   adjusted_amount?: number;
   reduction?: number;
+};
+
+export type TenderSplit = {
+  cash_amount: number;
+  transfer_amount: number;
+  total_amount: number;
+  invoice_count: number;
 };
 
 export type DailyBreakdown = {
@@ -45,9 +56,14 @@ export type DailyBreakdown = {
   date_to: string;
   markup_percent: number;
   shows_close: boolean;
+  /** True once a month-end round covers the whole window being shown. */
+  closed: boolean;
+  reconciliation_number?: string;
+  period_start?: string;
+  period_end?: string;
   generated_at: string;
-  overall: Record<string, BreakdownGroup>;
-  branches: Array<Record<string, BreakdownGroup | string>>;
+  overall: Record<string, BreakdownGroup | TenderSplit>;
+  branches: Array<Record<string, BreakdownGroup | TenderSplit | string>>;
 };
 
 /**

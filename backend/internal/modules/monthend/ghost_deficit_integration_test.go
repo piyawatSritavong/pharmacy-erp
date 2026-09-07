@@ -126,7 +126,7 @@ func TestMonthEndRecordsCashBillWithoutGhostStockAtCostMarkup(t *testing.T) {
 		t.Fatal("expected immutable deficit ledger to reject updates")
 	}
 
-	report, err := service.MonthEndReport(ctx, platform.AuthUser{ID: actorID, RoleKey: "super_admin"}, reconciliationID, "", "", "", branchID, 1, 50)
+	report, err := service.MonthEndReport(ctx, platform.AuthUser{ID: actorID, RoleKey: "super_admin"}, reconciliationID, "", "", "", branchID, "", "", 1, 50)
 	if err != nil {
 		t.Fatal(err)
 	}

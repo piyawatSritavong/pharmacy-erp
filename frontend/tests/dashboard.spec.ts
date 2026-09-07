@@ -49,13 +49,17 @@ test.describe("Dashboard", () => {
     await expect(superPage.getByText("มีในสต๊อกผี — ต้องหายไป").first()).toBeVisible();
     await superContext.close();
 
-    // Ghost Stock does not exist for central_admin, on this screen or any other.
+    // central_admin works from the adjusted books: one total, split by how the
+    // money arrived. Ghost Stock does not exist on this screen or any other.
     const centralContext = await browser.newContext();
     const centralPage = await centralContext.newPage();
     await signIn(centralPage, "admin.central@erp.local");
-    await expect(centralPage.getByText("ยอดรวมจริง").first()).toBeVisible();
+    await expect(centralPage.getByText("ยอดรวม", { exact: true }).first()).toBeVisible();
+    await expect(centralPage.getByText("ยอดโอน", { exact: true }).first()).toBeVisible();
+    await expect(centralPage.getByText("ยอดเงินสด", { exact: true }).first()).toBeVisible();
     await expect(centralPage.getByText(/สต๊อกผี/)).toHaveCount(0);
     await expect(centralPage.getByText(/ยอดเข้าเงื่อนไข/)).toHaveCount(0);
+    await expect(centralPage.getByText("ยอดรวมจริง")).toHaveCount(0);
     await expect(centralPage.getByRole("combobox", { name: "กรองตามสถานะการปิดรอบ" })).toHaveCount(0);
     await centralContext.close();
   });
@@ -75,6 +79,17 @@ test.describe("Dashboard", () => {
     await page.getByRole("option", { name: /Hidden/ }).click();
     await page.waitForURL(/close_status=hidden/);
     await expect(page.getByText("ยอดรวมจริง")).toHaveCount(0);
+  });
+
+  test("ช่วงที่ปิดรอบแล้ว ยังเห็นยอดก่อนปรับ–หลังปรับ และส่วนต่าง", async ({ page }) => {
+    await signIn(page, "superadmin@erp.local");
+    await page.goto("/dashboard?date_from=2026-09-01&date_to=2026-09-06");
+    await expect(page.getByText(/สรุปสิ้นเดือนแล้วในรอบ MER-/)).toBeVisible();
+    // The bills the close removed are still counted on the "before" side, which
+    // is the whole point of keeping the round's snapshot.
+    await expect(page.getByText("หลังปรับ").first()).toBeVisible();
+    await expect(page.getByText(/ส่วนต่าง/).first()).toBeVisible();
+    await expect(page.getByText("มีในสต๊อกผี — ต้องหายไป").first()).toBeVisible();
   });
 
   test("สลับธีมมืดได้ และจำค่าไว้ข้ามหน้า", async ({ page }) => {

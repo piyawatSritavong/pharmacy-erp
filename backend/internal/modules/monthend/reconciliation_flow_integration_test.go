@@ -260,7 +260,7 @@ func TestGlobalWarehouseMonthEndFlow(t *testing.T) {
 		t.Fatal("expected POS stock-adjustment history to be forbidden")
 	}
 
-	report, err := service.MonthEndReport(ctx, platform.AuthUser{ID: actorID, RoleKey: "super_admin"}, reconciliationID, "", "", "", branchID, 1, 50)
+	report, err := service.MonthEndReport(ctx, platform.AuthUser{ID: actorID, RoleKey: "super_admin"}, reconciliationID, "", "", "", branchID, "", "", 1, 50)
 	if err != nil {
 		t.Fatalf("load reconciliation report: %v", err)
 	}

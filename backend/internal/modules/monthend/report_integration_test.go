@@ -111,7 +111,7 @@ func TestMonthEndReportCombinesSnapshotsInvoicesAndGhostLogs(t *testing.T) {
 	}
 
 	service := NewService(db, audit.NewService(db))
-	report, err := service.MonthEndReport(ctx, platform.AuthUser{ID: actorID, RoleKey: "super_admin"}, "", "2099-01", "", "", branchID, 1, 50)
+	report, err := service.MonthEndReport(ctx, platform.AuthUser{ID: actorID, RoleKey: "super_admin"}, "", "2099-01", "", "", branchID, "", "", 1, 50)
 	if err != nil {
 		t.Fatalf("load report: %v", err)
 	}

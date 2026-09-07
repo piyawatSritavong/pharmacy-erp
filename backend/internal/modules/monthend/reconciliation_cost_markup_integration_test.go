@@ -186,7 +186,7 @@ func TestCostMarkupMonthEndFlow(t *testing.T) {
 		t.Fatalf("unexpected logs: price=%d invoice=%d old=%.2f new=%.2f variance=%.2f", priceLogs, invoiceLogs, oldPrice, newPrice, variance)
 	}
 
-	report, err := service.MonthEndReport(ctx, superadmin, reconciliationID, "", "", "", branchID, 1, 50)
+	report, err := service.MonthEndReport(ctx, superadmin, reconciliationID, "", "", "", branchID, "", "", 1, 50)
 	if err != nil {
 		t.Fatalf("load reconciliation report: %v", err)
 	}
