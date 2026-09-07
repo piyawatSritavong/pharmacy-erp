@@ -273,7 +273,7 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
       <SectionCard title="เปรียบเทียบใบขายและสินค้า Before / After" description={report ? `${report.date_from} ถึง ${report.date_to} · ${report.pagination.total.toLocaleString("th-TH")} ใบขาย · กดลูกศรเพื่อดูรายการในบิล` : "กำลังโหลดข้อมูล"}>
         <TableContainer>
           <Table>
-            <TableHeader><TableRow><TableHead /><TableHead>สาขา</TableHead><TableHead>Original Invoice No.</TableHead><TableHead>Current Invoice No.</TableHead><TableHead className="text-right">รายการในบิล</TableHead><TableHead className="text-right">ส่วนลดรวมของบิล</TableHead><TableHead>การชำระ</TableHead><TableHead>สถานะ</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead /><TableHead>สาขา</TableHead><TableHead>Original Invoice No.</TableHead><TableHead>Current Invoice No.</TableHead><TableHead className="text-right">รายการในบิล</TableHead><TableHead className="text-right">ส่วนลดรวมของบิล<span className="block text-[10px] font-normal text-muted-foreground">รวม VAT</span></TableHead><TableHead>การชำระ</TableHead><TableHead>สถานะ</TableHead></TableRow></TableHeader>
             <TableBody>
               {loading && !report ? <TableRow><TableCell className="py-12 text-center" colSpan={8}><Loader2 className="mx-auto h-5 w-5 animate-spin" /></TableCell></TableRow> : null}
               {!loading && report?.rows.length === 0 ? <TableRow><TableCell className="py-12 text-center text-muted-foreground" colSpan={8}>ไม่พบรายการในรอบและสาขาที่เลือก</TableCell></TableRow> : null}
@@ -321,7 +321,7 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
                             <p className="text-sm font-semibold">รายการในบิล {invoice.originalNo}</p>
                             <TableContainer className="bg-white">
                               <Table>
-                                <TableHeader><TableRow><TableHead>สินค้า</TableHead><TableHead className="text-right">จำนวน</TableHead><TableHead className="text-right">ราคาเดิม/หน่วย</TableHead><TableHead className="text-right">ราคาหลังปรับ/หน่วย</TableHead><TableHead className="text-right">ส่วนลด</TableHead><TableHead>สถานะ</TableHead><TableHead>แหล่งตัดสต๊อก</TableHead></TableRow></TableHeader>
+                                <TableHeader><TableRow><TableHead>สินค้า</TableHead><TableHead className="text-right">จำนวน</TableHead><TableHead className="text-right">ราคาเดิม/หน่วย<span className="block text-[10px] font-normal text-muted-foreground">ก่อน VAT</span></TableHead><TableHead className="text-right">ราคาหลังปรับ/หน่วย<span className="block text-[10px] font-normal text-muted-foreground">ก่อน VAT</span></TableHead><TableHead className="text-right">ส่วนลด<span className="block text-[10px] font-normal text-muted-foreground">รวม VAT · (เดิม−ใหม่) × จำนวน</span></TableHead><TableHead>สถานะ</TableHead><TableHead>แหล่งตัดสต๊อก</TableHead></TableRow></TableHeader>
                                 <TableBody>
                                   {invoice.items.map((item) => (
                                     <TableRow key={item.invoice_item_id}>
