@@ -90,6 +90,23 @@ test.describe("Dashboard", () => {
     await expect(page.getByText("หลังปรับ").first()).toBeVisible();
     await expect(page.getByText(/ส่วนต่าง/).first()).toBeVisible();
     await expect(page.getByText("มีในสต๊อกผี — ต้องหายไป").first()).toBeVisible();
+
+    // Groups the close left alone state both sides too: "this money was not
+    // touched" is an audit answer, and a tile that omits the second number
+    // does not give it. Two panels plus their eight groups, once for the
+    // company and once per branch.
+    await expect(page.getByText("หลังปรับ")).toHaveCount(60);
+    await expect(page.getByText("ไม่มี", { exact: true }).first()).toBeVisible();
+  });
+
+  test("แต่ละวันในรอบที่ปิดแล้ว มีก่อนปรับ–หลังปรับของวันนั้นเอง", async ({ page }) => {
+    await signIn(page, "superadmin@erp.local");
+    await page.goto("/dashboard?date_from=2026-09-03&date_to=2026-09-03");
+    // A single day inside a closed round reads from the round's snapshot, not
+    // from a plan re-run over rows the close has already rewritten.
+    await expect(page.getByText(/สรุปสิ้นเดือนแล้วในรอบ MER-/)).toBeVisible();
+    await expect(page.getByText("หลังปรับ").first()).toBeVisible();
+    await expect(page.getByText("3 กันยายน 2569", { exact: true })).toBeVisible();
   });
 
   test("สลับธีมมืดได้ และจำค่าไว้ข้ามหน้า", async ({ page }) => {

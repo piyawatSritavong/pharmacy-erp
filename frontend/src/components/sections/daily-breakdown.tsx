@@ -161,7 +161,11 @@ function GroupTile({
   compact?: boolean;
 }) {
   const empty = group.invoice_count === 0;
-  const moved = group.difference !== 0 || group.difference_count !== 0;
+  // Once the round is closed every figure states both sides, even where they
+  // match: "this money was not touched" is an audit answer, and a tile that
+  // simply omits the second number does not give it. While the round is open
+  // there is nothing to say unless the close would move something.
+  const moved = closed || group.difference !== 0 || group.difference_count !== 0;
   return (
     <div className={`rounded-xl border bg-card px-4 ${compact ? "py-3" : "py-4"} ${empty ? "opacity-55" : ""}`}>
       <p className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>{spec.title}</p>
@@ -182,8 +186,14 @@ function GroupTile({
           </p>
           <p className="text-muted-foreground">
             ส่วนต่าง{" "}
-            <span className="font-semibold tabular-nums text-error">−{currency(group.difference)}</span>
-            {group.difference_count > 0 ? <span> · หายไป {bills(group.difference_count)}</span> : null}
+            {group.difference === 0 && group.difference_count === 0 ? (
+              <span className="font-semibold tabular-nums text-foreground">ไม่มี</span>
+            ) : (
+              <>
+                <span className="font-semibold tabular-nums text-error">−{currency(group.difference)}</span>
+                {group.difference_count > 0 ? <span> · หายไป {bills(group.difference_count)}</span> : null}
+              </>
+            )}
           </p>
         </div>
       ) : null}
@@ -250,12 +260,16 @@ function Panel({
             {currency(total.amount)}
             <span className="ml-2 text-xs font-normal text-muted-foreground">{bills(total.invoice_count)}</span>
           </p>
-          {total.difference !== 0 || total.difference_count !== 0 ? (
+          {closed || total.difference !== 0 || total.difference_count !== 0 ? (
             <p className="text-xs text-muted-foreground">
               {closed ? "หลังปรับ" : "ถ้าปิดรอบ"}{" "}
               <span className="font-semibold tabular-nums text-foreground">{currency(total.after_amount)}</span> ·{" "}
               {bills(total.after_count)} · ส่วนต่าง{" "}
-              <span className="font-semibold tabular-nums text-error">−{currency(total.difference)}</span>
+              {total.difference === 0 && total.difference_count === 0 ? (
+                <span className="font-semibold tabular-nums text-foreground">ไม่มี</span>
+              ) : (
+                <span className="font-semibold tabular-nums text-error">−{currency(total.difference)}</span>
+              )}
             </p>
           ) : null}
         </div>
