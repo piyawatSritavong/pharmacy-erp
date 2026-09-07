@@ -139,6 +139,26 @@ test.describe("Dashboard", () => {
     await expect(page.getByText("3 กันยายน 2569", { exact: true })).toBeVisible();
   });
 
+  // Each tile states a total; its link has to land on exactly the bills behind
+  // that total. "adjusted" covers both repriced-whole and struck-lines bills, so
+  // this is also what pins those two apart.
+  for (const [tile, expected] of [
+    ["ไม่มีในสต๊อกผี — ต้องปรับราคา", 23],
+    ["บิลผสม — หายบางรายการ ปรับบางรายการ", 9],
+    ["มีในสต๊อกผี — ต้องหายไป", 14],
+    ["เงินสด + ใบกำกับเต็มรูป", 14],
+  ] as const) {
+    test(`ปุ่มดูบิลของ "${tile}" พาไปยังบิลชุดเดียวกัน`, async ({ page }) => {
+      await signIn(page, "superadmin@erp.local");
+      await page.goto("/dashboard?date_from=2026-09-01&date_to=2026-09-06");
+      const card = page.locator("div.rounded-xl").filter({ hasText: tile }).first();
+      await card.getByRole("link", { name: "ดูบิล" }).click();
+      await page.waitForURL(/\/sales-history\?/);
+      // The list pages at twenty, so the pager's total is what to read.
+      await expect(page.getByText(`ทั้งหมด ${expected} รายการ`)).toBeVisible();
+    });
+  }
+
   test("สลับธีมมืดได้ และจำค่าไว้ข้ามหน้า", async ({ page }) => {
     await signIn(page, "superadmin@erp.local");
     const isDark = () => page.evaluate(() => document.documentElement.classList.contains("dark"));

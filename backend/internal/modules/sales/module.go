@@ -737,8 +737,12 @@ func (s *Service) ListQuotations(ctx context.Context, user platform.AuthUser, go
 
 func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, governmentMode *bool) ([]map[string]any, error) {
 	query := `
-		SELECT i.id, i.invoice_number, i.customer_name, i.payment_status, i.total_amount, i.is_government_mode, i.tax_invoice_type, i.request_full_tax_invoice, b.name, i.issued_at, i.deleted_at, COALESCE(i.hidden_by_id::text,''), COALESCE(i.original_invoice_number,''),
+		SELECT i.id, i.invoice_number, i.customer_name, i.payment_status, i.payment_method, i.total_amount, i.is_government_mode, i.tax_invoice_type, i.request_full_tax_invoice, b.name, i.issued_at, i.deleted_at, COALESCE(i.hidden_by_id::text,''), COALESCE(i.original_invoice_number,''),
 		       EXISTS(SELECT 1 FROM invoice_items ii WHERE ii.invoice_id = i.id AND ii.reconciliation_discount_amount <> 0),
+		       -- A bill the close struck lines from but kept. It reads as
+		       -- 'adjusted' like any repriced bill, so without this the two
+		       -- cannot be told apart and a link meant for one lands on both.
+		       EXISTS(SELECT 1 FROM invoice_items ii WHERE ii.invoice_id = i.id AND ii.reconciliation_removed_at IS NOT NULL),
 		       COALESCE(replaced.invoice_number,'')
 		FROM invoices i
 		INNER JOIN branches b ON b.id = i.branch_id
@@ -768,18 +772,22 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, invoiceNumber, customerName, paymentStatus, taxInvoiceType, branchName, hiddenByID, originalNumber, replacesNumber string
+		var id, invoiceNumber, customerName, paymentStatus, paymentMethod, taxInvoiceType, branchName, hiddenByID, originalNumber, replacesNumber string
 		var totalAmount float64
-		var isGovernment, requestFullTax, repriced bool
+		var isGovernment, requestFullTax, repriced, hasRemovedLines bool
 		var issuedAt time.Time
 		var deletedAt sql.NullTime
-		if err := rows.Scan(&id, &invoiceNumber, &customerName, &paymentStatus, &totalAmount, &isGovernment, &taxInvoiceType, &requestFullTax, &branchName, &issuedAt, &deletedAt, &hiddenByID, &originalNumber, &repriced, &replacesNumber); err != nil {
+		if err := rows.Scan(&id, &invoiceNumber, &customerName, &paymentStatus, &paymentMethod, &totalAmount, &isGovernment, &taxInvoiceType, &requestFullTax, &branchName, &issuedAt, &deletedAt, &hiddenByID, &originalNumber, &repriced, &hasRemovedLines, &replacesNumber); err != nil {
 			return nil, err
 		}
 		item := map[string]any{
-			"id":                       id,
-			"invoice_number":           invoiceNumber,
-			"customer_name":            customerName,
+			"id":             id,
+			"invoice_number": invoiceNumber,
+			"customer_name":  customerName,
+			// How the money actually arrived — cash, transfer, or both on one
+			// bill. The dashboard links here by it, so the list has to know it.
+			"payment_method":           paymentMethod,
+			"has_removed_lines":        hasRemovedLines,
 			"payment_status":           paymentStatus,
 			"total_amount":             totalAmount,
 			"is_government_mode":       isGovernment,

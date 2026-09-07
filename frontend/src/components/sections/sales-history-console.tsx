@@ -2,7 +2,7 @@
 
 import { FormEvent, startTransition, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FileText, RotateCcw, Search } from "lucide-react";
 
 import { DataTable, SectionCard } from "@/components/sections/common";
@@ -48,18 +48,27 @@ export function SalesHistoryConsole({
   const [loading, setLoading] = useState(false);
   // Filter bar + pager, both client-side: GET /invoices returns the branch's
   // history in one response and takes no page or search params.
-  const [search, setSearch] = useState("");
-  const [branchFilter, setBranchFilter] = useState("");
-  const [paymentFilter, setPaymentFilter] = useState("");
-  const [closeStatusFilter, setCloseStatusFilter] = useState("");
+  // Seeded from the query string: the dashboard links here with the tile the
+  // operator clicked already narrowed down, and a link that landed on an
+  // unfiltered list would be an invitation to re-derive it by hand.
+  const params = useSearchParams();
+  const [search, setSearch] = useState(params.get("search") || "");
+  const [branchFilter, setBranchFilter] = useState(params.get("branch") || "");
+  const [paymentFilter, setPaymentFilter] = useState(params.get("payment_status") || "");
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState(params.get("payment_method") || "");
+  const [closeStatusFilter, setCloseStatusFilter] = useState(params.get("close_status") || "");
+  // "adjusted" covers two different outcomes — a bill repriced whole, and one
+  // the close also struck lines from. The dashboard links to each separately,
+  // so the list has to be able to tell them apart.
+  const [removedLinesFilter, setRemovedLinesFilter] = useState(params.get("removed_lines") || "");
   // ใบกำกับภาษีอย่างย่อ -> เต็มรูป, same day only.
   const [fullTaxInvoice, setFullTaxInvoice] = useState<Option | null>(null);
   const [fullTaxName, setFullTaxName] = useState("");
   const [fullTaxId, setFullTaxId] = useState("");
   const [fullTaxBusy, setFullTaxBusy] = useState(false);
-  const [taxFilter, setTaxFilter] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [taxFilter, setTaxFilter] = useState(params.get("tax_invoice_type") || "");
+  const [dateFrom, setDateFrom] = useState(params.get("date_from") || "");
+  const [dateTo, setDateTo] = useState(params.get("date_to") || "");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE_DEFAULT);
 
@@ -82,6 +91,8 @@ export function SalesHistoryConsole({
         if (term && ![invoice.invoice_number, invoice.customer_name].some((value) => String(value || "").toLocaleLowerCase("th").includes(term))) return false;
         if (branchFilter && String(invoice.branch_name) !== branchFilter) return false;
         if (paymentFilter && String(invoice.payment_status) !== paymentFilter) return false;
+        if (paymentMethodFilter && String(invoice.payment_method) !== paymentMethodFilter) return false;
+        if (removedLinesFilter && String(Boolean(invoice.has_removed_lines)) !== String(removedLinesFilter === "1")) return false;
         // Bills the API says nothing about (anyone but the superadmin) are
         // active by definition — nothing has closed over them.
         if (closeStatusFilter && String(invoice.reconciliation_status || "active") !== closeStatusFilter) return false;
@@ -102,7 +113,7 @@ export function SalesHistoryConsole({
         if (byDate !== 0) return byDate;
         return String(b.invoice_number || "").localeCompare(String(a.invoice_number || ""), "th", { numeric: true });
       });
-  }, [branchFilter, closeStatusFilter, dateFrom, dateTo, initialItems, paymentFilter, search, taxFilter]);
+  }, [branchFilter, closeStatusFilter, dateFrom, dateTo, initialItems, paymentFilter, paymentMethodFilter, removedLinesFilter, search, taxFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(Math.max(1, page), totalPages);
@@ -212,6 +223,14 @@ export function SalesHistoryConsole({
               <option value="">ทุกสถานะ</option>
               <option value="paid">ชำระแล้ว</option>
               <option value="unpaid">ค้างชำระ</option>
+            </Select>
+          </Field>
+          <Field className="w-40" label="วิธีชำระเงิน">
+            <Select aria-label="กรองตามวิธีชำระเงิน" onChange={(event) => resetPage(setPaymentMethodFilter)(event.target.value)} value={paymentMethodFilter}>
+              <option value="">ทุกวิธี</option>
+              <option value="cash">เงินสด</option>
+              <option value="bank_transfer">เงินโอน</option>
+              <option value="mixed">เงินสด + โอน ผสม</option>
             </Select>
           </Field>
           {isSuperAdmin ? (

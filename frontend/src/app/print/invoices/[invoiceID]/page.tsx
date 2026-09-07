@@ -75,8 +75,8 @@ export default async function InvoicePrintPage({
               <th className="py-3 pr-3">สินค้าจริง</th>
               <th className="py-3 pr-3">จำนวน</th>
               <th className="py-3 pr-3">Lot</th>
-              <th className="py-3 pr-3 text-right">ราคาต่อหน่วย</th>
-              <th className="py-3 pr-0 text-right">รวม</th>
+              <th className="py-3 pr-3 text-right">ราคาต่อหน่วย<span className="block text-xs font-normal text-muted-foreground">รวม VAT</span></th>
+              <th className="py-3 pr-0 text-right">รวม<span className="block text-xs font-normal text-muted-foreground">รวม VAT</span></th>
             </tr>
           </thead>
           <tbody>
@@ -87,19 +87,13 @@ export default async function InvoicePrintPage({
                 <td className="py-3 pr-3">{String(item.quantity || "-")}</td>
                 <td className="py-3 pr-3"><span className="block">{String(item.lot_number || "-")}</span><span className="text-xs text-muted-foreground">หมดอายุ {item.lot_expires_on ? new Date(String(item.lot_expires_on)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" }) : "ไม่กำหนด"}</span></td>
                 <td className="py-3 pr-3 text-right">
-                  <span className="block">{currency(Number(item.unit_price || 0))}</span>
+                  <span className="block">{currency(unitPriceWithTax(item))}</span>
                   {Number(item.discount_amount || 0) > 0 ? <span className="mt-1 block text-xs text-muted-foreground">ส่วนลดรายการ {currency(Number(item.discount_amount))}</span> : null}
                 </td>
-                {/* Pre-tax, so the column reads as ราคาต่อหน่วย × จำนวน (less any
-                    line discount) and foots to ยอดก่อนภาษี below. line_total
-                    carries VAT and never matched the two columns beside it. */}
-                <td className="py-3 pr-0 text-right">
-                  {currency(
-                    item.line_subtotal == null
-                      ? Number(item.unit_price || 0) * Number(item.quantity || 0) - Number(item.discount_amount || 0)
-                      : Number(item.line_subtotal)
-                  )}
-                </td>
+                {/* Both money columns carry VAT, so what the customer reads on a
+                    line is what that line costs them, and the column foots to
+                    ยอดรวม rather than to ยอดก่อนภาษี two rows further down. */}
+                <td className="py-3 pr-0 text-right">{currency(lineTotalWithTax(item))}</td>
               </tr>
             ))}
           </tbody>
@@ -150,6 +144,28 @@ export default async function InvoicePrintPage({
       </section>
     </main>
   );
+}
+
+/**
+ * line_total is the line with VAT already on it, which is the figure the
+ * customer is actually being asked for. It is taken as stored rather than
+ * recomputed, so the column adds up to ยอดรวม exactly instead of drifting by a
+ * satang of rounding.
+ */
+function lineTotalWithTax(item: Record<string, unknown>) {
+  if (item.line_total != null) return Number(item.line_total);
+  const subtotal =
+    item.line_subtotal == null
+      ? Number(item.unit_price || 0) * Number(item.quantity || 0) - Number(item.discount_amount || 0)
+      : Number(item.line_subtotal);
+  return subtotal * (1 + Number(item.tax_rate || 0) / 100);
+}
+
+/** The per-unit share of that line, so price × quantity reads back to the total. */
+function unitPriceWithTax(item: Record<string, unknown>) {
+  const quantity = Number(item.quantity || 0);
+  if (quantity > 0) return lineTotalWithTax(item) / quantity;
+  return Number(item.unit_price || 0) * (1 + Number(item.tax_rate || 0) / 100);
 }
 
 function paymentTypeLabel(value: string) {

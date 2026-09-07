@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, Receipt } from "lucide-react";
 
 import { SectionCard } from "@/components/sections/common";
 import { currency } from "@/lib/utils";
@@ -26,12 +27,15 @@ type GroupSpec = {
   paymentType: "cash" | "bank_transfer" | "mixed";
   closeStatus: "active" | "adjusted" | "hidden";
   paid: boolean;
+  /** Which tax invoice this group is, where the group is defined by it. */
+  taxInvoice?: "full" | "abbreviated";
 };
 
 // Money that settles as rung up: the close leaves all of these alone.
 const REAL_GROUPS: GroupSpec[] = [
   {
     key: "transfer_abbreviated",
+    taxInvoice: "abbreviated",
     title: "ยอดโอน",
     note: "ใบกำกับภาษีอย่างย่อ",
     paymentType: "bank_transfer",
@@ -40,6 +44,7 @@ const REAL_GROUPS: GroupSpec[] = [
   },
   {
     key: "transfer_full_tax",
+    taxInvoice: "full",
     title: "ยอดโอน + ใบกำกับเต็มรูป",
     note: "ออกใบกำกับภาษีเต็มรูปแล้ว",
     paymentType: "bank_transfer",
@@ -48,6 +53,7 @@ const REAL_GROUPS: GroupSpec[] = [
   },
   {
     key: "cash_full_tax",
+    taxInvoice: "full",
     title: "เงินสด + ใบกำกับเต็มรูป",
     note: "ออกใบกำกับภาษีเต็มรูปแล้ว",
     paymentType: "cash",
@@ -56,6 +62,7 @@ const REAL_GROUPS: GroupSpec[] = [
   },
   {
     key: "mixed_abbreviated",
+    taxInvoice: "abbreviated",
     title: "เงินสด + โอน ผสม",
     note: "ใบกำกับภาษีอย่างย่อ · จ่ายสองทาง จึงไม่เข้าเงื่อนไข",
     paymentType: "mixed",
@@ -64,6 +71,7 @@ const REAL_GROUPS: GroupSpec[] = [
   },
   {
     key: "mixed_full_tax",
+    taxInvoice: "full",
     title: "เงินสด + โอน ผสม + ใบกำกับเต็มรูป",
     note: "จ่ายสองทาง จึงไม่เข้าเงื่อนไข",
     paymentType: "mixed",
@@ -77,6 +85,7 @@ const REAL_GROUPS: GroupSpec[] = [
 const CLOSE_GROUPS: GroupSpec[] = [
   {
     key: "cash_ghost_hidden",
+    taxInvoice: "abbreviated",
     title: "มีในสต๊อกผี — ต้องหายไป",
     note: "ใบกำกับภาษีอย่างย่อ · ทุกรายการมีผีคุ้ม",
     paymentType: "cash",
@@ -85,6 +94,7 @@ const CLOSE_GROUPS: GroupSpec[] = [
   },
   {
     key: "cash_repriced",
+    taxInvoice: "abbreviated",
     title: "ไม่มีในสต๊อกผี — ต้องปรับราคา",
     note: "ใบกำกับภาษีอย่างย่อ · ไม่มีผีคุ้มสักรายการ",
     paymentType: "cash",
@@ -93,6 +103,7 @@ const CLOSE_GROUPS: GroupSpec[] = [
   },
   {
     key: "cash_mixed",
+    taxInvoice: "abbreviated",
     title: "บิลผสม — หายบางรายการ ปรับบางรายการ",
     note: "ใบกำกับภาษีอย่างย่อ · ผีคุ้มบางรายการ",
     paymentType: "cash",
@@ -142,6 +153,38 @@ function bills(count: number) {
 }
 
 /**
+ * A tile states a total; this is how the reader gets to the bills that make it
+ * up. Every filter the group is defined by travels in the link, so the history
+ * page opens already narrowed to exactly this set instead of to everything.
+ */
+function historyHref(spec: GroupSpec, data: { date_from: string; date_to: string }, branchName?: string) {
+  const query = new URLSearchParams({ date_from: data.date_from, date_to: data.date_to });
+  if (spec.key !== "unpaid") query.set("payment_method", spec.paymentType);
+  if (spec.taxInvoice) query.set("tax_invoice_type", spec.taxInvoice);
+  if (spec.key === "unpaid") query.set("payment_status", "unpaid");
+  else query.set("close_status", spec.closeStatus);
+  // Both repriced groups read as "adjusted"; what separates them is whether the
+  // close also struck lines off the bill.
+  if (spec.key === "cash_mixed") query.set("removed_lines", "1");
+  if (spec.key === "cash_repriced") query.set("removed_lines", "0");
+  if (branchName) query.set("branch", branchName);
+  return `/sales-history?${query.toString()}`;
+}
+
+function ViewBillsLink({ href, count }: { href: string; count: number }) {
+  if (count === 0) return null;
+  return (
+    <Link
+      className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-primary transition hover:underline"
+      href={href}
+    >
+      <Receipt className="h-3.5 w-3.5" />
+      ดูบิล
+    </Link>
+  );
+}
+
+/**
  * One measured figure, in the two readings the screen has to support.
  *
  * Before the round is closed the second number is what the close would leave;
@@ -153,12 +196,14 @@ function GroupTile({
   spec,
   group,
   closed,
-  compact
+  compact,
+  href
 }: {
   spec: GroupSpec;
   group: BreakdownGroup;
   closed: boolean;
   compact?: boolean;
+  href: string;
 }) {
   const empty = group.invoice_count === 0;
   // Once the round is closed every figure states both sides, even where they
@@ -201,6 +246,7 @@ function GroupTile({
           </p>
         </div>
       ) : null}
+      <ViewBillsLink count={group.invoice_count} href={href} />
     </div>
   );
 }
@@ -215,7 +261,9 @@ function Panel({
   totalKey,
   closed,
   compact,
-  provisional
+  provisional,
+  window,
+  branchName
 }: {
   title: string;
   note: string;
@@ -226,6 +274,8 @@ function Panel({
   closed: boolean;
   compact?: boolean;
   provisional?: boolean;
+  window: { date_from: string; date_to: string };
+  branchName?: string;
 }) {
   const visible = specs.filter((spec) => keep(spec, filters));
   if (visible.length === 0) return null;
@@ -284,7 +334,14 @@ function Panel({
       </div>
       <div className={`grid gap-3 ${compact ? "sm:grid-cols-2 lg:grid-cols-3" : "md:grid-cols-3"}`}>
         {visible.map((spec) => (
-          <GroupTile closed={closed} compact={compact} group={readGroup(source, spec.key)} key={spec.key} spec={spec} />
+          <GroupTile
+            closed={closed}
+            compact={compact}
+            group={readGroup(source, spec.key)}
+            href={historyHref(spec, window, branchName)}
+            key={spec.key}
+            spec={spec}
+          />
         ))}
       </div>
     </div>
@@ -296,13 +353,17 @@ function Breakdown({
   filters,
   markup,
   closed,
-  compact
+  compact,
+  window,
+  branchName
 }: {
   source: Record<string, unknown>;
   filters: BreakdownFilters;
   markup: number;
   closed: boolean;
   compact?: boolean;
+  window: { date_from: string; date_to: string };
+  branchName?: string;
 }) {
   const unpaid = readGroup(source, "unpaid");
   const day = readGroup(source, "day_total");
@@ -342,6 +403,13 @@ function Breakdown({
                 )}
               </p>
             ) : null}
+            <Link
+              className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-primary transition hover:underline"
+              href={`/sales-history?date_from=${window.date_from}&date_to=${window.date_to}${branchName ? `&branch=${encodeURIComponent(branchName)}` : ""}`}
+            >
+              <Receipt className="h-3.5 w-3.5" />
+              ดูบิลทั้งหมด
+            </Link>
           </div>
         </div>
       ) : null}
@@ -354,6 +422,8 @@ function Breakdown({
         specs={REAL_GROUPS}
         title="ยอดรวมจริง"
         totalKey="real_total"
+        window={window}
+        branchName={branchName}
       />
       <Panel
         closed={closed}
@@ -365,6 +435,8 @@ function Breakdown({
         specs={CLOSE_GROUPS}
         title={`ยอดเข้าเงื่อนไข ต้นทุน + ${markup}%`}
         totalKey="close_total"
+        window={window}
+        branchName={branchName}
       />
       {unpaid.invoice_count > 0 && keep(UNPAID_GROUP, filters) ? (
         <div className="rounded-xl border border-dashed px-4 py-3 text-sm">
@@ -372,6 +444,9 @@ function Breakdown({
           <span className="ml-2 text-muted-foreground">{UNPAID_GROUP.note}</span>
           <span className="ml-3 font-semibold tabular-nums">{currency(unpaid.amount)}</span>
           <span className="ml-2 text-xs text-muted-foreground">{bills(unpaid.invoice_count)}</span>
+          <span className="ml-3 inline-block">
+            <ViewBillsLink count={unpaid.invoice_count} href={historyHref(UNPAID_GROUP, window, branchName)} />
+          </span>
         </div>
       ) : null}
     </div>
@@ -469,7 +544,7 @@ export function DailyBreakdownBoards({
             filters={filters}
             markup={data.markup_percent}
             source={data.overall as Record<string, unknown>}
-
+            window={data}
           />
         ) : (
           <TenderBoard tender={data.overall.tender as TenderSplit} />
@@ -486,11 +561,13 @@ export function DailyBreakdownBoards({
               </p>
               {data.shows_close ? (
                 <Breakdown
+                  branchName={String(branch.branch_name)}
                   closed={data.closed}
                   compact
                   filters={filters}
                   markup={data.markup_percent}
                   source={branch as Record<string, unknown>}
+                  window={data}
                 />
               ) : (
                 <TenderBoard compact tender={branch.tender as TenderSplit} />
