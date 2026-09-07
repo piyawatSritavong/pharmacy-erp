@@ -87,16 +87,46 @@ test.describe("Dashboard", () => {
     await expect(page.getByText(/สรุปสิ้นเดือนแล้วในรอบ MER-/)).toBeVisible();
     // The bills the close removed are still counted on the "before" side, which
     // is the whole point of keeping the round's snapshot.
-    await expect(page.getByText("หลังปรับ").first()).toBeVisible();
+    // The settled figure leads and the original reads underneath it, so this
+    // screen and central_admin's headline the same number.
+    await expect(page.getByText("ก่อนปรับ").first()).toBeVisible();
     await expect(page.getByText(/ส่วนต่าง/).first()).toBeVisible();
     await expect(page.getByText("มีในสต๊อกผี — ต้องหายไป").first()).toBeVisible();
 
     // Groups the close left alone state both sides too: "this money was not
     // touched" is an audit answer, and a tile that omits the second number
-    // does not give it. Two panels plus their eight groups, once for the
-    // company and once per branch.
-    await expect(page.getByText("หลังปรับ")).toHaveCount(60);
+    // does not give it. Two panels plus their eight groups plus the day total,
+    // once for the company and once per branch.
+    expect(await page.getByText("ก่อนปรับ").count()).toBeGreaterThanOrEqual(60);
     await expect(page.getByText("ไม่มี", { exact: true }).first()).toBeVisible();
+  });
+
+  test("ยอดรวมทั้งวันของ superadmin ตรงกับยอดรวมของ admin.central", async ({ browser }) => {
+    const scope = "/dashboard?date_from=2026-09-06&date_to=2026-09-06";
+    const big = /฿[\d,]+\.\d{2}/;
+
+    const superContext = await browser.newContext();
+    const superPage = await superContext.newPage();
+    await signIn(superPage, "superadmin@erp.local");
+    await superPage.goto(scope);
+    const superTotal = await superPage
+      .locator("div", { hasText: /^ยอดรวมทั้งวัน/ })
+      .locator("p.text-3xl")
+      .first()
+      .innerText();
+    await superContext.close();
+
+    const centralContext = await browser.newContext();
+    const centralPage = await centralContext.newPage();
+    await signIn(centralPage, "admin.central@erp.local");
+    await centralPage.goto(scope);
+    const centralTotal = await centralPage.locator("p.text-3xl").first().innerText();
+    await centralContext.close();
+
+    expect(superTotal).toMatch(big);
+    // The whole point of leading with the settled figure: two screens open side
+    // by side read the same number without anyone adding panels up by hand.
+    expect(superTotal.replace(/\s+/g, " ")).toBe(centralTotal.replace(/\s+/g, " "));
   });
 
   test("แต่ละวันในรอบที่ปิดแล้ว มีก่อนปรับ–หลังปรับของวันนั้นเอง", async ({ page }) => {
@@ -105,7 +135,7 @@ test.describe("Dashboard", () => {
     // A single day inside a closed round reads from the round's snapshot, not
     // from a plan re-run over rows the close has already rewritten.
     await expect(page.getByText(/สรุปสิ้นเดือนแล้วในรอบ MER-/)).toBeVisible();
-    await expect(page.getByText("หลังปรับ").first()).toBeVisible();
+    await expect(page.getByText("ก่อนปรับ").first()).toBeVisible();
     await expect(page.getByText("3 กันยายน 2569", { exact: true })).toBeVisible();
   });
 

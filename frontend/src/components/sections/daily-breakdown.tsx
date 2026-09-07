@@ -166,23 +166,27 @@ function GroupTile({
   // simply omits the second number does not give it. While the round is open
   // there is nothing to say unless the close would move something.
   const moved = closed || group.difference !== 0 || group.difference_count !== 0;
+  const lead = closed ? group.after_amount : group.amount;
+  const leadCount = closed ? group.after_count : group.invoice_count;
   return (
     <div className={`rounded-xl border bg-card px-4 ${compact ? "py-3" : "py-4"} ${empty ? "opacity-55" : ""}`}>
       <p className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>{spec.title}</p>
       {compact ? null : <p className="mt-0.5 text-xs text-muted-foreground">{spec.note}</p>}
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className={`font-semibold tabular-nums ${compact ? "text-lg" : "text-2xl"}`}>{currency(group.amount)}</span>
-        <span className="text-xs text-muted-foreground">{bills(group.invoice_count)}</span>
+        <span className={`font-semibold tabular-nums ${compact ? "text-lg" : "text-2xl"}`}>{currency(lead)}</span>
+        <span className="text-xs text-muted-foreground">{bills(leadCount)}</span>
       </div>
 
       {moved ? (
         <div className="mt-2 space-y-1 border-t pt-2 text-xs">
           <p className="flex items-center gap-1.5 text-muted-foreground">
             <ArrowRight className="h-3 w-3 shrink-0" />
-            <span>{closed ? "หลังปรับ" : "ถ้าปิดรอบ"}</span>
-            <span className="font-semibold tabular-nums text-foreground">{currency(group.after_amount)}</span>
-            <span>{bills(group.after_count)}</span>
+            <span>{closed ? "ก่อนปรับ" : "ถ้าปิดรอบ"}</span>
+            <span className="font-semibold tabular-nums text-foreground">
+              {currency(closed ? group.amount : group.after_amount)}
+            </span>
+            <span>{bills(closed ? group.invoice_count : group.after_count)}</span>
           </p>
           <p className="text-muted-foreground">
             ส่วนต่าง{" "}
@@ -257,14 +261,18 @@ function Panel({
         </div>
         <div className="text-right">
           <p className={`font-semibold tabular-nums ${compact ? "text-base" : "text-xl"}`}>
-            {currency(total.amount)}
-            <span className="ml-2 text-xs font-normal text-muted-foreground">{bills(total.invoice_count)}</span>
+            {currency(closed ? total.after_amount : total.amount)}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              {bills(closed ? total.after_count : total.invoice_count)}
+            </span>
           </p>
           {closed || total.difference !== 0 || total.difference_count !== 0 ? (
             <p className="text-xs text-muted-foreground">
-              {closed ? "หลังปรับ" : "ถ้าปิดรอบ"}{" "}
-              <span className="font-semibold tabular-nums text-foreground">{currency(total.after_amount)}</span> ·{" "}
-              {bills(total.after_count)} · ส่วนต่าง{" "}
+              {closed ? "ก่อนปรับ" : "ถ้าปิดรอบ"}{" "}
+              <span className="font-semibold tabular-nums text-foreground">
+                {currency(closed ? total.amount : total.after_amount)}
+              </span>{" "}
+              · {bills(closed ? total.invoice_count : total.after_count)} · ส่วนต่าง{" "}
               {total.difference === 0 && total.difference_count === 0 ? (
                 <span className="font-semibold tabular-nums text-foreground">ไม่มี</span>
               ) : (
@@ -297,8 +305,46 @@ function Breakdown({
   compact?: boolean;
 }) {
   const unpaid = readGroup(source, "unpaid");
+  const day = readGroup(source, "day_total");
+  // The headline is the figure the books currently hold, which is exactly what
+  // central_admin's "ยอดรวม" shows — so the two screens can be opened side by
+  // side and read against each other without adding two panels up by hand. It
+  // is hidden while a filter is narrowing the page, because then it would be a
+  // total for rows that are not on screen.
+  const unfiltered = !filters.closeStatus && !filters.paymentType && !filters.paymentStatus;
   return (
     <div className="space-y-3">
+      {unfiltered && day.invoice_count > 0 ? (
+        <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 rounded-2xl border bg-card px-4 py-3">
+          <div>
+            <p className={`font-semibold ${compact ? "text-sm" : "text-base"}`}>ยอดรวมทั้งวัน</p>
+            {compact ? null : (
+              <p className="text-xs text-muted-foreground">
+                {closed ? "ตัวเลขนี้ตรงกับ “ยอดรวม” ที่ admin.central เห็น" : "ยอดที่ขายไปแล้ว ยังไม่ได้ปิดรอบ"}
+              </p>
+            )}
+          </div>
+          <div className="text-right">
+            <p className={`font-semibold tabular-nums ${compact ? "text-xl" : "text-3xl"}`}>
+              {currency(closed ? day.after_amount : day.amount)}
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {bills(closed ? day.after_count : day.invoice_count)}
+              </span>
+            </p>
+            {closed ? (
+              <p className="text-xs text-muted-foreground">
+                ก่อนปรับ <span className="font-semibold tabular-nums text-foreground">{currency(day.amount)}</span> ·{" "}
+                {bills(day.invoice_count)} · ส่วนต่าง{" "}
+                {day.difference === 0 && day.difference_count === 0 ? (
+                  <span className="font-semibold tabular-nums text-foreground">ไม่มี</span>
+                ) : (
+                  <span className="font-semibold tabular-nums text-error">−{currency(day.difference)}</span>
+                )}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <Panel
         closed={closed}
         compact={compact}
@@ -344,9 +390,11 @@ function TenderBoard({ tender, compact }: { tender: TenderSplit; compact?: boole
   ];
   return (
     <div className="rounded-2xl border bg-muted/20 p-4">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+      {/* Sized to match the Superadmin day total, so the two screens can sit
+          side by side and the eye lands on the same figure in both. */}
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
         <p className={`font-semibold ${compact ? "text-sm" : "text-base"}`}>ยอดรวม</p>
-        <p className={`font-semibold tabular-nums ${compact ? "text-base" : "text-xl"}`}>
+        <p className={`font-semibold tabular-nums ${compact ? "text-xl" : "text-3xl"}`}>
           {currency(tender.total_amount)}
           <span className="ml-2 text-xs font-normal text-muted-foreground">{bills(tender.invoice_count)}</span>
         </p>
