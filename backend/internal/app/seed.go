@@ -152,7 +152,9 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		"branch_pos": {
 			"dashboard.view.self", "products.view", "inventory.view.branch", "price.override.pos", "government.use",
 			"transfer.request.branch", "invoice.create.pos", "invoice.view", "transfer.receive", "payment.collect",
-			"promotion.view", "sales.discount.line",
+			// A branch runs its own promotions; the service pins every write to
+			// the branch the user belongs to.
+			"promotion.view", "promotion.manage", "sales.discount.line",
 		},
 	}
 

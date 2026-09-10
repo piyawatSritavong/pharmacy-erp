@@ -239,6 +239,9 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 		items = appendItemIf(items, has("inventory.view.branch"), "requisitions", "เบิกสินค้า", "/requisitions", "ขอเติมสต๊อกจากผู้ดูแลและติดตามสถานะ")
 		items = appendItemIf(items, has("transfer.receive"), "goods_transfer_receipt", "รับโอนสินค้า", "/transfer-receipts", "ตรวจจำนวนที่ส่งและยืนยันจำนวนสินค้าที่ได้รับจริง")
 		items = appendItem(items, "pos_claims", "เคลม/คืนสินค้า", "/claims", "แจ้งคืนหรือเคลมสินค้าที่ขายไปแล้ว")
+		// A branch runs its own promotions, so the till needs a way in. Head
+		// office's company-wide ones show here too, read-only.
+		items = appendItemIf(items, has("promotion.manage"), "pos_promotions", "โปรโมชั่น", "/promotions", "ตั้งส่วนลด ของแถม และราคาชุดของสาขานี้")
 		items = appendItemIf(items, has("dashboard.view.self"), "daily_sales_summary", "สรุปยอดขาย", "/daily-sales", "ยอดขายและยอดรับชำระประจำวัน")
 		return items
 	}

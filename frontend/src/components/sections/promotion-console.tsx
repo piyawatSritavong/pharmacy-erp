@@ -45,11 +45,18 @@ const ROLES_BY_TYPE: Record<string, PromotionItemRow["role"][]> = {
 export function PromotionConsole({
   promotions,
   products,
-  branches
+  branches,
+  ownBranchName
 }: {
   promotions: Option[];
   products: Option[];
   branches: Option[];
+  /**
+   * Set for a shop, empty for head office. A shop's promotions are its own —
+   * the server pins every write to the branch the user signed in from — so the
+   * branch picker has nothing to ask and says which shop instead.
+   */
+  ownBranchName?: string;
 }) {
   const router = useRouter();
   const [promoType, setPromoType] = useState<keyof typeof TYPE_LABELS>("buy_x_get_y");
@@ -162,13 +169,17 @@ export function PromotionConsole({
           <Field label="ชื่อโปรโมชั่น">
             <Input aria-label="ชื่อโปรโมชั่น" onChange={(event) => setName(event.target.value)} placeholder="เช่น ซื้อ 10 แถม 1" value={name} />
           </Field>
-          <Field label="สาขา">
-            <Select aria-label="สาขาโปรโมชั่น" onChange={(event) => setBranchId(event.target.value)} value={branchId}>
-              <option value="">ทุกสาขา</option>
-              {branches.map((branch) => (
-                <option key={String(branch.id)} value={String(branch.id)}>{String(branch.name)}</option>
-              ))}
-            </Select>
+          <Field hint={ownBranchName ? "โปรโมชั่นนี้ใช้ที่สาขานี้เท่านั้น" : undefined} label="สาขา">
+            {ownBranchName ? (
+              <Input aria-label="สาขาโปรโมชั่น" disabled readOnly value={ownBranchName} />
+            ) : (
+              <Select aria-label="สาขาโปรโมชั่น" onChange={(event) => setBranchId(event.target.value)} value={branchId}>
+                <option value="">ทุกสาขา</option>
+                {branches.map((branch) => (
+                  <option key={String(branch.id)} value={String(branch.id)}>{String(branch.name)}</option>
+                ))}
+              </Select>
+            )}
           </Field>
           <Field label="เริ่มวันที่">
             <Input aria-label="เริ่มวันที่" onChange={(event) => setStartsAt(event.target.value)} type="date" value={startsAt} />
@@ -298,14 +309,20 @@ export function PromotionConsole({
                       {Number(promotion.min_amount) > 0 ? `· ซื้อขั้นต่ำ ${currency(Number(promotion.min_amount))}` : ""}
                     </p>
                   </div>
-                  <Button
-                    aria-label={`ลบโปรโมชั่น ${String(promotion.name)}`}
-                    onClick={() => remove(String(promotion.id))}
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  {promotion.editable === false ? (
+                    <span className="whitespace-nowrap rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                      ตั้งจากสำนักงานใหญ่
+                    </span>
+                  ) : (
+                    <Button
+                      aria-label={`ลบโปรโมชั่น ${String(promotion.name)}`}
+                      onClick={() => remove(String(promotion.id))}
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}

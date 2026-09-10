@@ -80,18 +80,21 @@ test.describe("สิทธิ์และการนำทางสองบ�
     }
 
     const posNav = pos.getByRole("navigation", { name: "เมนูจุดขาย", exact: true });
-    await expect(posNav.getByRole("link")).toHaveCount(7);
     // Non-exact: a nav item may carry a red count badge (e.g. "พักบิล 1"), so
     // the accessible name is the label plus its count.
-    for (const name of [
+    const posLinks = [
       "ขายหน้าร้าน",
       "พักบิล",
       "ประวัติ",
       "เบิกสินค้า",
       "รับโอนสินค้า",
       "เคลม/คืนสินค้า",
+      // A branch runs its own promotions, so the till has a way in.
+      "โปรโมชั่น",
       "สรุปยอดขาย",
-    ]) {
+    ];
+    await expect(posNav.getByRole("link")).toHaveCount(posLinks.length);
+    for (const name of posLinks) {
       await expect(posNav.getByRole("link", { name }).first()).toBeVisible();
     }
     await expect(

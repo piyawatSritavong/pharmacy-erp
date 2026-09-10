@@ -140,9 +140,55 @@ func nullableDate(value string) any {
 	return value
 }
 
+// ownerBranch decides which branch a write belongs to, and refuses the ones that
+// are not the caller's to make.
+//
+// A branch runs its own promotions and only its own: whatever branch_id arrives
+// in the request, a branch user's promotion is pinned to the branch they are
+// signed in to. Head office keeps the wider choice — a named branch, or none at
+// all, which is what a company-wide promotion is.
+func ownerBranch(user platform.AuthUser, requested string) (string, error) {
+	requested = strings.TrimSpace(requested)
+	if user.BranchID == nil || user.Scope == "global" {
+		return requested, nil
+	}
+	if requested != "" && requested != *user.BranchID {
+		return "", platform.NewError(http.StatusForbidden, "ตั้งโปรโมชั่นได้เฉพาะสาขาของตนเอง")
+	}
+	return *user.BranchID, nil
+}
+
+// requireOwnPromotion loads the branch a promotion belongs to and refuses a
+// caller who does not own it. A branch must not edit or delete head office's
+// company-wide promotion, nor another shop's — the promotion is visible to it
+// because it applies, not because it is theirs.
+func (s *Service) requireOwnPromotion(ctx context.Context, user platform.AuthUser, promotionID string) error {
+	var owner sql.NullString
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT branch_id::text FROM promotions WHERE id=$1`, promotionID).Scan(&owner); err != nil {
+		if err == sql.ErrNoRows {
+			return platform.NewError(http.StatusNotFound, "ไม่พบโปรโมชั่น")
+		}
+		return err
+	}
+	if user.BranchID == nil || user.Scope == "global" {
+		return nil
+	}
+	if !owner.Valid {
+		return platform.NewError(http.StatusForbidden, "โปรโมชั่นนี้ตั้งจากสำนักงานใหญ่ แก้ไขที่สาขาไม่ได้")
+	}
+	if owner.String != *user.BranchID {
+		return platform.NewError(http.StatusForbidden, "แก้ไขได้เฉพาะโปรโมชั่นของสาขาตนเอง")
+	}
+	return nil
+}
+
 func (s *Service) Create(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, input Input) (string, error) {
 	clean, err := validate(input)
 	if err != nil {
+		return "", err
+	}
+	if clean.BranchID, err = ownerBranch(user, clean.BranchID); err != nil {
 		return "", err
 	}
 	promotionID := platform.MustUUID()
@@ -175,9 +221,15 @@ func (s *Service) Create(ctx context.Context, user platform.AuthUser, meta audit
 	return promotionID, err
 }
 
-func (s *Service) Update(ctx context.Context, promotionID string, meta audit.LogEntry, input Input) error {
+func (s *Service) Update(ctx context.Context, user platform.AuthUser, promotionID string, meta audit.LogEntry, input Input) error {
+	if err := s.requireOwnPromotion(ctx, user, promotionID); err != nil {
+		return err
+	}
 	clean, err := validate(input)
 	if err != nil {
+		return err
+	}
+	if clean.BranchID, err = ownerBranch(user, clean.BranchID); err != nil {
 		return err
 	}
 	return platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
@@ -238,7 +290,10 @@ func replaceItems(ctx context.Context, tx *sql.Tx, promotionID string, items []I
 	return nil
 }
 
-func (s *Service) Delete(ctx context.Context, promotionID string, meta audit.LogEntry) error {
+func (s *Service) Delete(ctx context.Context, user platform.AuthUser, promotionID string, meta audit.LogEntry) error {
+	if err := s.requireOwnPromotion(ctx, user, promotionID); err != nil {
+		return err
+	}
 	return platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `DELETE FROM promotions WHERE id=$1`, promotionID)
 		if err != nil {
@@ -315,6 +370,10 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 			"discount_percent": discountPercent, "discount_amount": discountAmount,
 			"bundle_price": nullableFloatValue(bundlePrice), "max_uses_per_bill": maxUses,
 			"priority": priority, "notes": notes, "items": []map[string]any{},
+			// A branch sees head office's company-wide promotions because they
+			// apply to it, not because they are its to change. Saying so here
+			// keeps the screen from offering a button the server will refuse.
+			"editable": user.BranchID == nil || user.Scope == "global" || promoBranchID == *user.BranchID,
 		}
 		index[id] = len(items)
 		ids = append(ids, id)
@@ -412,14 +471,14 @@ func (h *Handler) Update(c echo.Context) error {
 	if err := c.Bind(&input); err != nil {
 		return platform.HandleHTTPError(c, platform.NewError(http.StatusBadRequest, "รูปแบบข้อมูลไม่ถูกต้อง"))
 	}
-	if err := h.service.Update(c.Request().Context(), c.Param("promotionID"), audit.MetaFromContext(c), input); err != nil {
+	if err := h.service.Update(c.Request().Context(), platform.CurrentUser(c), c.Param("promotionID"), audit.MetaFromContext(c), input); err != nil {
 		return platform.HandleHTTPError(c, err)
 	}
 	return platform.JSONMessage(c, http.StatusOK, "บันทึกโปรโมชั่นแล้ว")
 }
 
 func (h *Handler) Delete(c echo.Context) error {
-	if err := h.service.Delete(c.Request().Context(), c.Param("promotionID"), audit.MetaFromContext(c)); err != nil {
+	if err := h.service.Delete(c.Request().Context(), platform.CurrentUser(c), c.Param("promotionID"), audit.MetaFromContext(c)); err != nil {
 		return platform.HandleHTTPError(c, err)
 	}
 	return platform.JSONMessage(c, http.StatusOK, "ลบโปรโมชั่นแล้ว")
