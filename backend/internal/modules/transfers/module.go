@@ -288,8 +288,8 @@ func (s *Service) Receive(ctx context.Context, user platform.AuthUser, meta audi
 			}
 			return err
 		}
-		if user.BranchID != nil && user.Scope != "global" && *user.BranchID != destinationBranchID {
-			return platform.NewError(http.StatusForbidden, "รับสินค้าได้เฉพาะรายการที่ส่งมายังสาขาของคุณ")
+		if _, err := platform.MustBranchID(user, destinationBranchID); err != nil {
+			return err
 		}
 		if status != "in_transit" {
 			return platform.NewError(http.StatusConflict, "รายการโอนไม่ได้อยู่ในสถานะรอรับ")

@@ -299,7 +299,10 @@ func (h *Handler) SaveRemoteSession(c echo.Context) error {
 }
 
 func (h *Handler) CancelRemoteSession(c echo.Context) error {
-	branchID := strings.TrimSpace(c.QueryParam("branch_id"))
+	branchID, err := platform.MustBranchID(platform.CurrentUser(c), c.QueryParam("branch_id"))
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
 	if err := h.service.CancelRemoteSession(c.Request().Context(), branchID); err != nil {
 		return platform.HandleHTTPError(c, err)
 	}
@@ -308,7 +311,11 @@ func (h *Handler) CancelRemoteSession(c echo.Context) error {
 
 // AdminRemoteSession lets head office watch the branch it is selling through.
 func (h *Handler) AdminRemoteSession(c echo.Context) error {
-	item, err := h.service.RemoteSessionForBranch(c.Request().Context(), strings.TrimSpace(c.QueryParam("branch_id")))
+	branchID, err := platform.MustBranchID(platform.CurrentUser(c), c.QueryParam("branch_id"))
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
+	item, err := h.service.RemoteSessionForBranch(c.Request().Context(), branchID)
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
 	}

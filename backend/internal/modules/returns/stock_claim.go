@@ -52,8 +52,8 @@ func (s *Service) InitiateStockClaim(ctx context.Context, user platform.AuthUser
 	if err := platform.EnforceGhostClaimPolicy(user, bucket == "ghost"); err != nil {
 		return "", err
 	}
-	if user.BranchID != nil && user.Scope != "global" && *user.BranchID != branchID {
-		return "", platform.NewError(http.StatusForbidden, "เคลมได้เฉพาะสต๊อกของสาขาตนเอง")
+	if _, err := platform.MustBranchID(user, branchID); err != nil {
+		return "", err
 	}
 
 	returnID := platform.MustUUID()
@@ -182,8 +182,8 @@ func (s *Service) Trace(ctx context.Context, user platform.AuthUser, returnID st
 	if bucket == "ghost" && user.RoleKey != "super_admin" {
 		return nil, platform.NewError(http.StatusNotFound, "ไม่พบรายการเคลม")
 	}
-	if user.BranchID != nil && user.Scope != "global" && *user.BranchID != branchID {
-		return nil, platform.NewError(http.StatusForbidden, "ดูได้เฉพาะรายการของสาขาตนเอง")
+	if _, err := platform.MustBranchID(user, branchID); err != nil {
+		return nil, err
 	}
 
 	claim := map[string]any{

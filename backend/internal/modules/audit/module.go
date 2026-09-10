@@ -91,11 +91,15 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 				OR a.before_data->>'to_bucket'='ghost' OR a.after_data->>'to_bucket'='ghost'
 			)`
 	}
+	// This read the other way round: a branch id in the query string was used
+	// as sent, and the clamp below it only applied when none was — so the guard
+	// was skipped by the very request it existed to stop.
+	branchID, err := platform.BranchFilter(user, branchID)
+	if err != nil {
+		return nil, err
+	}
 	if branchID != "" {
 		args = append(args, branchID)
-		query += " AND a.branch_id = $" + strconvI(len(args))
-	} else if user.BranchID != nil && !platform.HasPermission(user, "audit.view.global") {
-		args = append(args, *user.BranchID)
 		query += " AND a.branch_id = $" + strconvI(len(args))
 	}
 	if entityType != "" {

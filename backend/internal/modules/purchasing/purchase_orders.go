@@ -478,6 +478,11 @@ type PurchaseOrderFilter struct {
 }
 
 func (s *Service) ListPurchaseOrders(ctx context.Context, user platform.AuthUser, filter PurchaseOrderFilter) (map[string]any, error) {
+	branchID, err := platform.BranchFilter(user, filter.BranchID)
+	if err != nil {
+		return nil, err
+	}
+	filter.BranchID = branchID
 	args := []any{}
 	conditions := []string{}
 	add := func(condition string, value any) {
@@ -660,8 +665,9 @@ func (s *Service) GetPurchaseOrder(ctx context.Context, user platform.AuthUser, 
 }
 
 func (s *Service) ProductOptions(ctx context.Context, user platform.AuthUser, branchID, bucket, query, cursor string, limit int) (CursorResult, error) {
-	if strings.TrimSpace(branchID) == "" {
-		return CursorResult{}, platform.NewError(http.StatusBadRequest, "branch_id is required")
+	branchID, err := platform.MustBranchID(user, branchID)
+	if err != nil {
+		return CursorResult{}, err
 	}
 	if err := stocklot.ValidateBucket(bucket); err != nil {
 		return CursorResult{}, err

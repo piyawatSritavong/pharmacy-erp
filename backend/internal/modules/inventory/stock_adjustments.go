@@ -40,15 +40,11 @@ func (s *Service) ListMovementHistory(ctx context.Context, user platform.AuthUse
 	if filter.StockBucket == "ghost" && user.RoleKey != "super_admin" {
 		return ListResult{}, platform.NewError(http.StatusForbidden, "ไม่มีสิทธิ์เข้าถึงสต๊อกผี")
 	}
-	if user.RoleKey != "super_admin" && user.Scope != "global" {
-		if user.BranchID == nil || strings.TrimSpace(*user.BranchID) == "" {
-			return ListResult{}, platform.NewError(http.StatusForbidden, "บัญชีนี้ไม่ได้ผูกกับสาขา")
-		}
-		if filter.BranchID != "" && filter.BranchID != *user.BranchID {
-			return ListResult{}, platform.NewError(http.StatusForbidden, "ดูประวัติได้เฉพาะสาขาของตนเอง")
-		}
-		filter.BranchID = *user.BranchID
+	branchID, err := platform.BranchFilter(user, filter.BranchID)
+	if err != nil {
+		return ListResult{}, err
 	}
+	filter.BranchID = branchID
 	args := []any{}
 	conditions := []string{}
 	add := func(template string, value any) {
@@ -135,17 +131,11 @@ func (s *Service) ListStockAdjustments(ctx context.Context, user platform.AuthUs
 	if user.Portal == "pos" || user.RoleKey == "branch_pos" {
 		return ListResult{}, platform.NewError(http.StatusForbidden, "บัญชี POS ไม่มีสิทธิ์ดูประวัติการปรับสต๊อก")
 	}
-	if user.RoleKey != "super_admin" {
-		if user.Scope != "global" {
-			if user.BranchID == nil || strings.TrimSpace(*user.BranchID) == "" {
-				return ListResult{}, platform.NewError(http.StatusForbidden, "บัญชีนี้ไม่ได้ผูกกับสาขา")
-			}
-			if filter.BranchID != "" && filter.BranchID != *user.BranchID {
-				return ListResult{}, platform.NewError(http.StatusForbidden, "ดูประวัติได้เฉพาะสาขาของตนเอง")
-			}
-			filter.BranchID = *user.BranchID
-		}
+	branchID, err := platform.BranchFilter(user, filter.BranchID)
+	if err != nil {
+		return ListResult{}, err
 	}
+	filter.BranchID = branchID
 
 	args := []any{}
 	conditions := []string{}
@@ -239,8 +229,13 @@ func (s *Service) ListStockAdjustments(ctx context.Context, user platform.AuthUs
 func (h *Handler) ListStockAdjustments(c echo.Context) error {
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	pageSize, _ := strconv.Atoi(c.QueryParam("page_size"))
-	result, err := h.service.ListStockAdjustments(c.Request().Context(), platform.CurrentUser(c), StockAdjustmentFilter{
-		BranchID: strings.TrimSpace(c.QueryParam("branch_id")), ProductID: strings.TrimSpace(c.QueryParam("product_id")),
+	user := platform.CurrentUser(c)
+	branchID, err := platform.BranchFilter(user, strings.TrimSpace(c.QueryParam("branch_id")))
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
+	result, err := h.service.ListStockAdjustments(c.Request().Context(), user, StockAdjustmentFilter{
+		BranchID: branchID, ProductID: strings.TrimSpace(c.QueryParam("product_id")),
 		InvoiceID: strings.TrimSpace(c.QueryParam("invoice_id")), ReconciliationID: strings.TrimSpace(c.QueryParam("reconciliation_id")),
 		Page: page, PageSize: pageSize,
 	})
@@ -256,8 +251,13 @@ func (h *Handler) ListStockAdjustments(c echo.Context) error {
 func (h *Handler) ListMovementHistory(c echo.Context) error {
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	pageSize, _ := strconv.Atoi(c.QueryParam("page_size"))
-	result, err := h.service.ListMovementHistory(c.Request().Context(), platform.CurrentUser(c), MovementHistoryFilter{
-		BranchID: strings.TrimSpace(c.QueryParam("branch_id")), ProductID: strings.TrimSpace(c.QueryParam("product_id")),
+	user := platform.CurrentUser(c)
+	branchID, err := platform.BranchFilter(user, strings.TrimSpace(c.QueryParam("branch_id")))
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
+	result, err := h.service.ListMovementHistory(c.Request().Context(), user, MovementHistoryFilter{
+		BranchID: branchID, ProductID: strings.TrimSpace(c.QueryParam("product_id")),
 		StockBucket: strings.TrimSpace(c.QueryParam("stock_bucket")),
 		Page:        page, PageSize: pageSize,
 	})

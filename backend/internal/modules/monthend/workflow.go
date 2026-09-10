@@ -343,7 +343,7 @@ func populateLineSemantics(line *Line) {
 
 func (s *Service) CreatePeriod(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, input PeriodInput) (map[string]any, error) {
 	input.Month = strings.TrimSpace(input.Month)
-	source, err := s.Source(ctx, input.Month, strings.TrimSpace(input.BranchID))
+	source, err := s.Source(ctx, user, input.Month, strings.TrimSpace(input.BranchID))
 	if err != nil {
 		return nil, err
 	}

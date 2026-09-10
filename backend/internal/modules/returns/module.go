@@ -87,8 +87,8 @@ func (s *Service) Initiate(ctx context.Context, user platform.AuthUser, meta aud
 		if invoiceStatus != "issued" {
 			return platform.NewError(http.StatusBadRequest, "ใบขายนี้ไม่ได้อยู่ในสถานะออกเอกสารแล้ว")
 		}
-		if user.BranchID != nil && user.Scope != "global" && *user.BranchID != branchID {
-			return platform.NewError(http.StatusForbidden, "รับคืนได้เฉพาะรายการของสาขาตนเอง")
+		if _, err := platform.MustBranchID(user, branchID); err != nil {
+			return err
 		}
 		// A sale is only ever drawn from real stock, so this is belt-and-braces
 		// against a line that somehow is not. Ghost never reaches a customer
@@ -181,10 +181,14 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, status strin
 		LEFT JOIN suppliers s ON s.id = pr.supplier_id
 		LEFT JOIN products rp ON rp.id = pr.replacement_product_id
 	`
+	own, err := platform.BranchFilter(user, "")
+	if err != nil {
+		return nil, err
+	}
 	args := []any{}
 	conditions := []string{}
-	if user.BranchID != nil && user.Scope != "global" {
-		args = append(args, *user.BranchID)
+	if own != "" {
+		args = append(args, own)
 		conditions = append(conditions, "pr.branch_id = $1")
 	}
 	if status != "" {
@@ -480,8 +484,8 @@ func validateReturnVisibility(user platform.AuthUser, branchID, stockBucket stri
 	if err := platform.EnforceGhostClaimPolicy(user, stockBucket == "ghost"); err != nil {
 		return err
 	}
-	if user.BranchID != nil && user.Scope != "global" && *user.BranchID != branchID {
-		return platform.NewError(http.StatusForbidden, "ดำเนินการได้เฉพาะรายการของสาขาตนเอง")
+	if _, err := platform.MustBranchID(user, branchID); err != nil {
+		return err
 	}
 	return nil
 }

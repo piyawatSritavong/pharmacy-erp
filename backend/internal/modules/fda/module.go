@@ -165,10 +165,14 @@ func (h *Handler) Summary(c echo.Context) error {
 	if raw := c.QueryParams()["product_id"]; len(raw) > 0 {
 		productIDs = raw
 	}
+	branchID, err := platform.BranchFilter(platform.CurrentUser(c), c.QueryParam("branch_id"))
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
 	filter := ReportFilter{
 		DateFrom:   c.QueryParam("date_from"),
 		DateTo:     c.QueryParam("date_to"),
-		BranchID:   c.QueryParam("branch_id"),
+		BranchID:   branchID,
 		CategoryID: c.QueryParam("category_id"),
 		ProductIDs: productIDs,
 	}

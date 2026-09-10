@@ -88,7 +88,7 @@ func (s *Service) loadSalesSummary(ctx context.Context, user platform.AuthUser, 
 	result := salesSummaryResult{Start: start, End: end, StartLabel: startLabel, EndLabel: endLabel}
 	// A cashier's summary is their own till; a global-scope back-office user has
 	// no sales of their own and wants the whole company's instead.
-	everyone := user.Scope == "global"
+	everyone := platform.IsGlobalScope(user)
 	if err := s.db.QueryRowContext(ctx, `
 			SELECT COUNT(*), COALESCE(SUM(total_amount), 0)
 		FROM invoices

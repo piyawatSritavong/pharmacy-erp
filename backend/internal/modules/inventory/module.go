@@ -91,10 +91,8 @@ func NewService(db *sql.DB, auditService *audit.Service) *Service {
 }
 
 func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID string, filter ListFilter) (ListResult, error) {
-	if branchID == "" && user.BranchID != nil {
-		branchID = *user.BranchID
-	}
-	if err := validateBranchScope(user, branchID); err != nil {
+	branchID, err := platform.BranchFilter(user, branchID)
+	if err != nil {
 		return ListResult{}, err
 	}
 	args := []any{}
@@ -259,7 +257,8 @@ func inventoryAvailability(sellable, threshold int) string {
 }
 
 func (s *Service) ListLots(ctx context.Context, user platform.AuthUser, branchID, productID, bucket string, includeDepleted bool) ([]map[string]any, error) {
-	if err := validateBranchScope(user, branchID); err != nil {
+	branchID, err := platform.MustBranchID(user, branchID)
+	if err != nil {
 		return nil, err
 	}
 	if bucket == "ghost" && user.RoleKey != "super_admin" {
@@ -549,9 +548,11 @@ func (s *Service) Rebalance(ctx context.Context, user platform.AuthUser, meta au
 	if err := platform.EnforceGhostWritePolicy(user, true); err != nil {
 		return err
 	}
-	if err := validateBranchScope(user, input.BranchID); err != nil {
+	branchID, err := platform.MustBranchID(user, input.BranchID)
+	if err != nil {
 		return err
 	}
+	input.BranchID = branchID
 	return platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
 		var qtyReal, qtyGhost int
 		if err := tx.QueryRowContext(ctx, `
@@ -634,13 +635,15 @@ func (s *Service) Adjust(ctx context.Context, user platform.AuthUser, meta audit
 	if strings.TrimSpace(input.BranchID) == "" {
 		return platform.NewError(http.StatusBadRequest, "branch_id is required")
 	}
+	branchID, err := platform.MustBranchID(user, input.BranchID)
+	if err != nil {
+		return err
+	}
+	input.BranchID = branchID
 	if input.StockBucket == "ghost" {
 		if err := ensureGhostWarehouse(ctx, s.db, input.BranchID); err != nil {
 			return err
 		}
-	}
-	if err := validateBranchScope(user, input.BranchID); err != nil {
-		return err
 	}
 	return platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
 		var qtyReal, qtyGhost int
@@ -772,13 +775,15 @@ func (s *Service) Receive(ctx context.Context, user platform.AuthUser, meta audi
 	if strings.TrimSpace(input.BranchID) == "" {
 		return platform.NewError(http.StatusBadRequest, "branch_id is required")
 	}
+	branchID, err := platform.MustBranchID(user, input.BranchID)
+	if err != nil {
+		return err
+	}
+	input.BranchID = branchID
 	if input.GhostQuantity != 0 {
 		if err := ensureGhostWarehouse(ctx, s.db, input.BranchID); err != nil {
 			return err
 		}
-	}
-	if err := validateBranchScope(user, input.BranchID); err != nil {
-		return err
 	}
 	return platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
 		var productExists, tracksExpiry bool
@@ -881,16 +886,6 @@ func applyAdjustmentResult(qtyReal, qtyGhost int, stockBucket string, quantityDe
 		return 0, 0, platform.NewError(http.StatusConflict, "ghost stock would become negative")
 	}
 	return qtyReal, qtyGhost + quantityDelta, nil
-}
-
-func validateBranchScope(user platform.AuthUser, branchID string) error {
-	if branchID == "" {
-		return nil
-	}
-	if user.BranchID != nil && user.Scope != "global" && *user.BranchID != branchID {
-		return platform.NewError(http.StatusForbidden, "branch scope mismatch")
-	}
-	return nil
 }
 
 func ensureGhostWarehouse(ctx context.Context, db platform.DBTX, branchID string) error {

@@ -80,8 +80,8 @@ func (s *Service) UpgradeToFullTaxInvoice(ctx context.Context, user platform.Aut
 			return err
 		}
 
-		if user.BranchID != nil && user.Scope != "global" && branchID != *user.BranchID {
-			return platform.NewError(http.StatusForbidden, "ออกใบกำกับภาษีข้ามสาขาไม่ได้")
+		if _, err := platform.MustBranchID(user, branchID); err != nil {
+			return err
 		}
 		if deletedAt.Valid || invoiceStatus != "issued" {
 			return platform.NewError(http.StatusConflict, "ใบขายนี้ถูกยกเลิกหรือถูกซ่อนไปแล้ว")

@@ -64,9 +64,13 @@ func (s *Service) ListOrders(ctx context.Context, user platform.AuthUser) ([]map
 		INNER JOIN marketplace_providers mp ON mp.id = mo.provider_id
 		INNER JOIN branches b ON b.id = mo.branch_id
 	`
+	own, err := platform.BranchFilter(user, "")
+	if err != nil {
+		return nil, err
+	}
 	args := []any{}
-	if user.BranchID != nil && user.Scope != "global" {
-		args = append(args, *user.BranchID)
+	if own != "" {
+		args = append(args, own)
 		query += " WHERE mo.branch_id = $1"
 	}
 	query += " ORDER BY mo.placed_at DESC"
@@ -147,9 +151,11 @@ func (s *Service) TestConnection(ctx context.Context, input ConnectionInput) (ma
 }
 
 func (s *Service) UpsertConnection(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, input ConnectionInput) error {
-	if user.BranchID != nil && user.Scope != "global" && *user.BranchID != input.BranchID {
-		return platform.NewError(http.StatusForbidden, "branch scope mismatch")
+	branchID, err := platform.MustBranchID(user, input.BranchID)
+	if err != nil {
+		return err
 	}
+	input.BranchID = branchID
 	// Part B, Rule 3: only branches with online_sales_enabled may sell
 	// online — enforced server-side, not just filtered out of the picker,
 	// since a direct request should be rejected the same way any other

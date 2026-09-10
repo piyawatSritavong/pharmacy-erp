@@ -366,14 +366,19 @@ func (s *Service) MonthEndReport(ctx context.Context, user platform.AuthUser, re
 func (h *Handler) MonthEndReport(c echo.Context) error {
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	pageSize, _ := strconv.Atoi(c.QueryParam("page_size"))
+	user := platform.CurrentUser(c)
+	branchID, err := platform.BranchFilter(user, c.QueryParam("branch_id"))
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
 	result, err := h.service.MonthEndReport(
 		c.Request().Context(),
-		platform.CurrentUser(c),
+		user,
 		c.QueryParam("reconciliation_id"),
 		c.QueryParam("period"),
 		c.QueryParam("date_from"),
 		c.QueryParam("date_to"),
-		c.QueryParam("branch_id"),
+		branchID,
 		c.QueryParam("payment_method"),
 		c.QueryParam("status"),
 		page,

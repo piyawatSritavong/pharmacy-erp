@@ -103,7 +103,11 @@ func (s *Service) Preview(ctx context.Context, input Input) (Calculation, error)
 	return s.buildCalculation(ctx, s.db, input)
 }
 
-func (s *Service) Source(ctx context.Context, month, branchID string) (Calculation, error) {
+func (s *Service) Source(ctx context.Context, user platform.AuthUser, month, branchID string) (Calculation, error) {
+	branchID, err := platform.BranchFilter(user, branchID)
+	if err != nil {
+		return Calculation{}, err
+	}
 	calculation, err := s.buildCalculation(ctx, s.db, Input{Month: month, BranchID: branchID, MarkupPercent: 5})
 	if err != nil {
 		return Calculation{}, err
@@ -679,7 +683,7 @@ func (h *Handler) Preview(c echo.Context) error {
 }
 
 func (h *Handler) Source(c echo.Context) error {
-	result, err := h.service.Source(c.Request().Context(), c.QueryParam("month"), c.QueryParam("branch_id"))
+	result, err := h.service.Source(c.Request().Context(), platform.CurrentUser(c), c.QueryParam("month"), c.QueryParam("branch_id"))
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
 	}

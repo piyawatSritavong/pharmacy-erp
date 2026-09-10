@@ -545,7 +545,12 @@ func (h *Handler) DailyBreakdown(c echo.Context) error {
 			input.AdjustmentPercent = value
 		}
 	}
-	if branch := strings.TrimSpace(c.QueryParam("branch_id")); branch != "" {
+	user := platform.CurrentUser(c)
+	branch, err := platform.BranchFilter(user, c.QueryParam("branch_id"))
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
+	if branch != "" {
 		input.BranchIDs = []string{branch}
 	}
 	// No window asked for means today, in Bangkok — the dashboard's default is

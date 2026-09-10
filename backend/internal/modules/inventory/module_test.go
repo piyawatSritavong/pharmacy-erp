@@ -37,19 +37,6 @@ func TestApplyAdjustmentResult(t *testing.T) {
 	}
 }
 
-func TestValidateBranchScope(t *testing.T) {
-	branchID := "branch-a"
-	otherBranchID := "branch-b"
-	user := platform.AuthUser{RoleKey: "branch_pos", BranchID: &branchID}
-
-	if err := validateBranchScope(user, branchID); err != nil {
-		t.Fatalf("expected same-branch access to pass: %v", err)
-	}
-	if err := validateBranchScope(user, otherBranchID); err == nil {
-		t.Fatal("expected cross-branch access to be rejected")
-	}
-}
-
 func TestOperationalInventoryWritesRejectGhostBeforeDatabaseAccess(t *testing.T) {
 	service := &Service{}
 	for _, test := range []struct {

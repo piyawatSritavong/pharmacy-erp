@@ -509,6 +509,10 @@ func (s *Service) UpdateProduct(ctx context.Context, productID string, user plat
 }
 
 func (s *Service) GetBranchSettings(ctx context.Context, user platform.AuthUser, productID, branchID string) (map[string]any, error) {
+	branchID, err := platform.MustBranchID(user, branchID)
+	if err != nil {
+		return nil, err
+	}
 	var sellingPrice, maxDiscount sql.NullFloat64
 	var warehousePrice float64
 	var realThreshold, ghostThreshold sql.NullInt64
@@ -516,7 +520,7 @@ func (s *Service) GetBranchSettings(ctx context.Context, user platform.AuthUser,
 	if user.RoleKey != "super_admin" {
 		ghostExpression = "NULL::integer"
 	}
-	err := s.db.QueryRowContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 		SELECT bpp.selling_price,p.base_selling_price,bps.max_discount_amount,bps.low_stock_real_threshold,`+ghostExpression+`
 		FROM products p CROSS JOIN branches b
 		LEFT JOIN branch_product_prices bpp ON bpp.product_id=p.id AND bpp.branch_id=b.id
@@ -573,6 +577,10 @@ func nullableInt(value sql.NullInt64) any {
 }
 
 func (s *Service) UpdateBranchSettings(ctx context.Context, user platform.AuthUser, productID, branchID string, meta audit.LogEntry, input BranchSettingsInput) error {
+	branchID, err := platform.MustBranchID(user, branchID)
+	if err != nil {
+		return err
+	}
 	if input.SellingPrice.Present && input.SellingPrice.Value != nil && *input.SellingPrice.Value < 0 {
 		return platform.NewError(http.StatusBadRequest, "ราคาขายต้องไม่ติดลบ")
 	}
@@ -1062,7 +1070,14 @@ func (s *Service) SaveProductImage(ctx context.Context, productID string, branch
 // ListProductImages returns the catalog images (branch_id IS NULL) plus, when
 // branchID is given, that branch's own added images — the stock pages show
 // both, catalog first (business-flow.md รูปภาพ rule).
-func (s *Service) ListProductImages(ctx context.Context, productID string, branchID string) ([]map[string]any, error) {
+//
+// The branch is resolved against the caller rather than taken as sent: a till
+// asking for another shop's id used to be handed that shop's own photographs.
+func (s *Service) ListProductImages(ctx context.Context, user platform.AuthUser, productID string, branchID string) ([]map[string]any, error) {
+	branchID, err := platform.BranchFilter(user, branchID)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id::text,storage_key,mime_type,alt_text,is_primary,sort_order,
 		       COALESCE(source_branch_code,''),COALESCE(source_name,''),branch_id IS NOT NULL
@@ -1202,13 +1217,10 @@ func productIDList(raw string) []string {
 }
 
 func (h *Handler) List(c echo.Context) error {
-	branchID := strings.TrimSpace(c.QueryParam("branch_id"))
 	user := platform.CurrentUser(c)
-	if branchID == "" && user.BranchID != nil {
-		branchID = *user.BranchID
-	}
-	if user.BranchID != nil && user.Scope != "global" && branchID != "" && branchID != *user.BranchID {
-		return platform.HandleHTTPError(c, platform.NewError(http.StatusForbidden, "ไม่มีสิทธิ์เข้าถึงสาขานี้"))
+	branchID, err := platform.BranchFilter(user, c.QueryParam("branch_id"))
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
 	}
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	pageSize, _ := strconv.Atoi(c.QueryParam("page_size"))
@@ -1235,14 +1247,10 @@ func (h *Handler) ListCategories(c echo.Context) error {
 }
 
 func (h *Handler) ListAliases(c echo.Context) error {
-	branchID := strings.TrimSpace(c.QueryParam("branch_id"))
 	productID := strings.TrimSpace(c.QueryParam("product_id"))
-	user := platform.CurrentUser(c)
-	if branchID == "" && user.BranchID != nil && user.Scope != "global" {
-		branchID = *user.BranchID
-	}
-	if user.BranchID != nil && user.Scope != "global" && branchID != "" && branchID != *user.BranchID {
-		return platform.HandleHTTPError(c, platform.NewError(http.StatusForbidden, "ไม่มีสิทธิ์เข้าถึงสาขานี้"))
+	branchID, err := platform.BranchFilter(platform.CurrentUser(c), c.QueryParam("branch_id"))
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
 	}
 	items, err := h.service.ListAliases(c.Request().Context(), branchID, productID)
 	if err != nil {
@@ -1405,7 +1413,7 @@ func (h *Handler) ProductImage(c echo.Context) error {
 }
 
 func (h *Handler) ListProductImages(c echo.Context) error {
-	items, err := h.service.ListProductImages(c.Request().Context(), c.Param("productID"), c.QueryParam("branch_id"))
+	items, err := h.service.ListProductImages(c.Request().Context(), platform.CurrentUser(c), c.Param("productID"), c.QueryParam("branch_id"))
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
 	}

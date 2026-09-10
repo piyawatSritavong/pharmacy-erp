@@ -69,13 +69,6 @@ func BoolPointer(value bool) *bool {
 	return &copy
 }
 
-func MustBranchID(user AuthUser) (string, error) {
-	if user.BranchID == nil || *user.BranchID == "" {
-		return "", NewError(400, "branch context is required")
-	}
-	return *user.BranchID, nil
-}
-
 var bangkokLocation = time.FixedZone("ICT", 7*60*60)
 
 func InBangkok(value time.Time) time.Time {

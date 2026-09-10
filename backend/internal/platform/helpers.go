@@ -70,7 +70,16 @@ func EnforceGhostClaimPolicy(user AuthUser, touchesGhost bool) error {
 	return nil
 }
 
+// WrapError gives a bare error a status and a message for the caller. A
+// deliberate refusal underneath is kept as it stands: handlers commonly wrap
+// whatever a service returns as "โหลด...ไม่สำเร็จ" with a 500, which would
+// otherwise report a 403 branch-scope refusal as a server fault and hide the
+// reason from the operator who could act on it.
 func WrapError(code int, message string, err error) *AppError {
+	var appErr *AppError
+	if errors.As(err, &appErr) && appErr.Code < http.StatusInternalServerError {
+		return appErr
+	}
 	return &AppError{Code: code, Message: message, WrappedErr: err}
 }
 

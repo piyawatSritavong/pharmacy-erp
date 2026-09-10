@@ -479,6 +479,9 @@ func (h *Handler) Create(c echo.Context) error {
 }
 
 func (h *Handler) Update(c echo.Context) error {
+	if err := platform.RequireGlobalScope(platform.CurrentUser(c)); err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
 	var input BranchInput
 	if err := c.Bind(&input); err != nil {
 		return platform.HandleHTTPError(c, platform.NewError(http.StatusBadRequest, "invalid request body"))
@@ -491,6 +494,9 @@ func (h *Handler) Update(c echo.Context) error {
 }
 
 func (h *Handler) DeletionImpact(c echo.Context) error {
+	if err := platform.RequireGlobalScope(platform.CurrentUser(c)); err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
 	impact, err := h.service.DeletionImpact(c.Request().Context(), c.Param("branchID"))
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
@@ -499,6 +505,9 @@ func (h *Handler) DeletionImpact(c echo.Context) error {
 }
 
 func (h *Handler) Delete(c echo.Context) error {
+	if err := platform.RequireGlobalScope(platform.CurrentUser(c)); err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
 	var input deleteRequest
 	if err := c.Bind(&input); err != nil {
 		return platform.HandleHTTPError(c, platform.NewError(http.StatusBadRequest, "ข้อมูลยืนยันการลบไม่ถูกต้อง"))
@@ -518,6 +527,9 @@ func (h *Handler) ListSequences(c echo.Context) error {
 }
 
 func (h *Handler) UpdateSequence(c echo.Context) error {
+	if err := platform.RequireGlobalScope(platform.CurrentUser(c)); err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
 	var input UpdateSequenceRequest
 	if err := c.Bind(&input); err != nil {
 		return platform.HandleHTTPError(c, platform.NewError(http.StatusBadRequest, "invalid request body"))

@@ -164,7 +164,8 @@ func canOverride(user platform.AuthUser) bool {
 }
 
 func (s *Service) Preview(ctx context.Context, user platform.AuthUser, branchID string, isGovernment bool, items []LineInput, billDiscount float64) (map[string]any, error) {
-	if err := validateBranchScope(user, branchID); err != nil {
+	branchID, err := platform.MustBranchID(user, branchID)
+	if err != nil {
 		return nil, err
 	}
 	if err := validateSalesBranch(ctx, s.db, branchID); err != nil {
@@ -193,7 +194,8 @@ func (s *Service) Preview(ctx context.Context, user platform.AuthUser, branchID 
 }
 
 func (s *Service) PreviewSale(ctx context.Context, user platform.AuthUser, branchID string, isGovernment bool, items []LineInput, billDiscount float64) (map[string]any, error) {
-	if err := validateBranchScope(user, branchID); err != nil {
+	branchID, err := platform.MustBranchID(user, branchID)
+	if err != nil {
 		return nil, err
 	}
 	if err := validateSalesBranch(ctx, s.db, branchID); err != nil {
@@ -293,14 +295,16 @@ func nullableSQLTime(value sql.NullTime) any {
 }
 
 func (s *Service) CreateQuotation(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, input QuoteRequest) (string, error) {
-	if err := validateBranchScope(user, input.BranchID); err != nil {
+	branchID, err := platform.MustBranchID(user, input.BranchID)
+	if err != nil {
 		return "", err
 	}
+	input.BranchID = branchID
 	if err := validateSalesBranch(ctx, s.db, input.BranchID); err != nil {
 		return "", err
 	}
 	var quoteID string
-	err := platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
+	err = platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
 		createdAt := time.Now().UTC()
 		vatRate, err := platform.GetSettingFloat(ctx, tx, "vat_rate", 7)
 		if err != nil {
@@ -347,9 +351,11 @@ func (s *Service) CreateQuotation(ctx context.Context, user platform.AuthUser, m
 }
 
 func (s *Service) CreateInvoice(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, input InvoiceRequest) (string, error) {
-	if err := validateBranchScope(user, input.BranchID); err != nil {
+	branchID, err := platform.MustBranchID(user, input.BranchID)
+	if err != nil {
 		return "", err
 	}
+	input.BranchID = branchID
 	if input.FullTaxInvoice && strings.TrimSpace(input.CustomerTaxID) == "" {
 		return "", platform.NewError(http.StatusBadRequest, "ใบกำกับภาษีเต็มรูปต้องระบุเลขประจำตัวผู้เสียภาษี")
 	}
@@ -357,7 +363,7 @@ func (s *Service) CreateInvoice(ctx context.Context, user platform.AuthUser, met
 		return "", err
 	}
 	var invoiceID string
-	err := platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
+	err = platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
 		issuedAt := time.Now().UTC()
 		vatRate, err := platform.GetSettingFloat(ctx, tx, "vat_rate", 7)
 		if err != nil {
@@ -514,9 +520,11 @@ func (s *Service) Checkout(ctx context.Context, user platform.AuthUser, meta aud
 	if user.Portal != "pos" && !platform.HasPermission(user, "invoice.create.remote") {
 		return nil, platform.NewError(http.StatusForbidden, "เฉพาะพนักงานขายหน้าร้านหรือสำนักงานใหญ่เท่านั้น")
 	}
-	if err := validateBranchScope(user, input.BranchID); err != nil {
+	resolvedBranch, err := platform.MustBranchID(user, input.BranchID)
+	if err != nil {
 		return nil, err
 	}
+	input.BranchID = resolvedBranch
 	if err := validateSalesBranch(ctx, s.db, input.BranchID); err != nil {
 		return nil, err
 	}
@@ -524,7 +532,7 @@ func (s *Service) Checkout(ctx context.Context, user platform.AuthUser, meta aud
 		return nil, platform.NewError(http.StatusBadRequest, "ใบกำกับภาษีเต็มรูปต้องระบุเลขประจำตัวผู้เสียภาษี")
 	}
 	result := map[string]any{}
-	err := platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
+	err = platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
 		issuedAt := time.Now().UTC()
 		vatRate, err := platform.GetSettingFloat(ctx, tx, "vat_rate", 7)
 		if err != nil {
@@ -646,7 +654,7 @@ func (s *Service) CollectPayment(ctx context.Context, user platform.AuthUser, me
 		`, invoiceID).Scan(&branchID, &totalAmount, &paymentStatus); err != nil {
 			return err
 		}
-		if err := validateBranchScope(user, branchID); err != nil {
+		if _, err := platform.MustBranchID(user, branchID); err != nil {
 			return err
 		}
 		if paymentStatus == "paid" {
@@ -693,10 +701,14 @@ func (s *Service) ListQuotations(ctx context.Context, user platform.AuthUser, go
 		FROM quotations q
 		INNER JOIN branches b ON b.id = q.branch_id
 	`
+	own, err := platform.BranchFilter(user, "")
+	if err != nil {
+		return nil, err
+	}
 	args := []any{}
 	conditions := []string{}
-	if user.BranchID != nil && user.Scope != "global" {
-		args = append(args, *user.BranchID)
+	if own != "" {
+		args = append(args, own)
 		conditions = append(conditions, fmt.Sprintf("q.branch_id = $%d", len(args)))
 	}
 	if governmentMode != nil {
@@ -753,8 +765,12 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 	if user.RoleKey != "super_admin" {
 		conditions = append(conditions, "i.deleted_at IS NULL")
 	}
-	if user.BranchID != nil && user.Scope != "global" {
-		args = append(args, *user.BranchID)
+	own, err := platform.BranchFilter(user, "")
+	if err != nil {
+		return nil, err
+	}
+	if own != "" {
+		args = append(args, own)
 		conditions = append(conditions, fmt.Sprintf("i.branch_id = $%d", len(args)))
 	}
 	if governmentMode != nil {
@@ -835,7 +851,7 @@ func (s *Service) GetQuotation(ctx context.Context, user platform.AuthUser, quot
 		}
 		return nil, err
 	}
-	if err := validateBranchScope(user, branchID); err != nil {
+	if _, err := platform.MustBranchID(user, branchID); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `
@@ -895,7 +911,7 @@ func (s *Service) GetInvoice(ctx context.Context, user platform.AuthUser, invoic
 		}
 		return nil, err
 	}
-	if err := validateBranchScope(user, branchID); err != nil {
+	if _, err := platform.MustBranchID(user, branchID); err != nil {
 		return nil, err
 	}
 	payload := map[string]any{
@@ -1057,7 +1073,7 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 		}
 		return nil, err
 	}
-	if err := validateBranchScope(user, branchID); err != nil {
+	if _, err := platform.MustBranchID(user, branchID); err != nil {
 		return nil, err
 	}
 
@@ -1259,7 +1275,7 @@ func (s *Service) ConvertQuotation(ctx context.Context, user platform.AuthUser, 
 		}
 		return "", err
 	}
-	if err := validateBranchScope(user, branchID); err != nil {
+	if _, err := platform.MustBranchID(user, branchID); err != nil {
 		return "", err
 	}
 
@@ -1631,13 +1647,6 @@ func (s *Service) DeleteQuotation(ctx context.Context, user platform.AuthUser, m
 		meta.After = map[string]any{"deleted": true, "related_invoices": len(invoiceIDs)}
 		return s.audit.Log(ctx, tx, meta)
 	})
-}
-
-func validateBranchScope(user platform.AuthUser, branchID string) error {
-	if user.BranchID != nil && user.Scope != "global" && *user.BranchID != branchID {
-		return platform.NewError(http.StatusForbidden, "branch scope mismatch")
-	}
-	return nil
 }
 
 func validateSalesBranch(ctx context.Context, db platform.DBTX, branchID string) error {
@@ -2058,7 +2067,8 @@ func (s *Service) lockAndApplyStock(ctx context.Context, tx *sql.Tx, branchID, i
 }
 
 func (s *Service) LotOptions(ctx context.Context, user platform.AuthUser, branchID, productID, bucket string) ([]map[string]any, error) {
-	if err := validateBranchScope(user, branchID); err != nil {
+	branchID, err := platform.MustBranchID(user, branchID)
+	if err != nil {
 		return nil, err
 	}
 	if err := validateSalesBranch(ctx, s.db, branchID); err != nil {
@@ -2129,9 +2139,9 @@ func NewHandler(service *Service) *Handler {
 
 func (h *Handler) LotOptions(c echo.Context) error {
 	user := platform.CurrentUser(c)
-	branchID := strings.TrimSpace(c.QueryParam("branch_id"))
-	if branchID == "" && user.BranchID != nil {
-		branchID = *user.BranchID
+	branchID, err := platform.MustBranchID(user, c.QueryParam("branch_id"))
+	if err != nil {
+		return platform.HandleHTTPError(c, err)
 	}
 	items, err := h.service.LotOptions(c.Request().Context(), user, branchID, strings.TrimSpace(c.QueryParam("product_id")), strings.TrimSpace(c.QueryParam("stock_bucket")))
 	if err != nil {

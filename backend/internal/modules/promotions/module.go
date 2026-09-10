@@ -148,14 +148,7 @@ func nullableDate(value string) any {
 // signed in to. Head office keeps the wider choice — a named branch, or none at
 // all, which is what a company-wide promotion is.
 func ownerBranch(user platform.AuthUser, requested string) (string, error) {
-	requested = strings.TrimSpace(requested)
-	if user.BranchID == nil || user.Scope == "global" {
-		return requested, nil
-	}
-	if requested != "" && requested != *user.BranchID {
-		return "", platform.NewError(http.StatusForbidden, "ตั้งโปรโมชั่นได้เฉพาะสาขาของตนเอง")
-	}
-	return *user.BranchID, nil
+	return platform.BranchFilter(user, requested)
 }
 
 // requireOwnPromotion loads the branch a promotion belongs to and refuses a
@@ -171,7 +164,7 @@ func (s *Service) requireOwnPromotion(ctx context.Context, user platform.AuthUse
 		}
 		return err
 	}
-	if user.BranchID == nil || user.Scope == "global" {
+	if platform.IsGlobalScope(user) {
 		return nil
 	}
 	if !owner.Valid {
@@ -316,8 +309,11 @@ func (s *Service) Delete(ctx context.Context, user platform.AuthUser, promotionI
 // List returns campaigns for the management screen. activeOnly restricts to
 // campaigns currently in their date window, which is what POS asks for.
 func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID string, activeOnly bool) ([]map[string]any, error) {
-	if branchID == "" && user.BranchID != nil {
-		branchID = *user.BranchID
+	// A shop sees head office's promotions and its own, and asking by id for
+	// another shop's is refused rather than answered.
+	branchID, err := platform.BranchFilter(user, branchID)
+	if err != nil {
+		return nil, err
 	}
 	conditions := []string{"TRUE"}
 	args := []any{}
@@ -373,7 +369,7 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 			// A branch sees head office's company-wide promotions because they
 			// apply to it, not because they are its to change. Saying so here
 			// keeps the screen from offering a button the server will refuse.
-			"editable": user.BranchID == nil || user.Scope == "global" || promoBranchID == *user.BranchID,
+			"editable": platform.IsGlobalScope(user) || promoBranchID == platform.OwnBranchID(user),
 		}
 		index[id] = len(items)
 		ids = append(ids, id)

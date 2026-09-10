@@ -7,6 +7,18 @@ import (
 	"pharmacy-erp/backend/internal/platform"
 )
 
+// A signed-in caller of the given role, standing at the branch the claims below
+// belong to. The scope and the branch are what a real token carries, and the
+// branch guard now reads both: a fixture that omits them is not a token anyone
+// could present.
+func claimant(role string) platform.AuthUser {
+	if role == "super_admin" || role == "central_admin" {
+		return platform.AuthUser{RoleKey: role, Scope: "global"}
+	}
+	branchID := "branch"
+	return platform.AuthUser{RoleKey: role, Scope: "branch", BranchID: &branchID}
+}
+
 // Resolving a claim has to be able to reach Ghost, or every qty_ghost branch in
 // this package is unreachable — which is what it was before stock claims
 // existed. Everyone below Superadmin is still refused outright.
@@ -22,7 +34,7 @@ func TestGhostClaimReachesSuperadminAndNobodyElse(t *testing.T) {
 		{role: "branch_admin", code: http.StatusForbidden},
 		{role: "branch_pos", code: http.StatusForbidden},
 	} {
-		err := validateReturnVisibility(platform.AuthUser{RoleKey: test.role}, "branch", "ghost")
+		err := validateReturnVisibility(claimant(test.role), "branch", "ghost")
 		if test.allowed {
 			if err != nil {
 				t.Fatalf("role %s: expected Ghost to be permitted, got %v", test.role, err)
@@ -39,7 +51,7 @@ func TestGhostClaimReachesSuperadminAndNobodyElse(t *testing.T) {
 // Real stock is every role's business, so the Ghost guard must not touch it.
 func TestRealClaimIsOpenToEveryRoleInScope(t *testing.T) {
 	for _, role := range []string{"super_admin", "central_admin", "branch_admin", "branch_pos"} {
-		if err := validateReturnVisibility(platform.AuthUser{RoleKey: role}, "branch", "real"); err != nil {
+		if err := validateReturnVisibility(claimant(role), "branch", "real"); err != nil {
 			t.Fatalf("role %s: real stock should pass, got %v", role, err)
 		}
 	}
