@@ -1,10 +1,11 @@
 import { cookies } from "next/headers";
 
 import { AUTH_COOKIE } from "@/lib/auth";
-import { backendURL } from "@/lib/backend-url";
+import { resolveBackendURL } from "@/lib/backend-url";
 
 
 export async function apiServer<T>(path: string, init?: RequestInit): Promise<T> {
+  const backendURL = resolveBackendURL();
   const token = (await cookies()).get(AUTH_COOKIE)?.value;
   const response = await fetch(`${backendURL}/api/v1${path}`, {
     ...init,
