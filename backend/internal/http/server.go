@@ -1,8 +1,10 @@
 package http
 
 import (
+	stdcontext "context"
 	"database/sql"
 	"net/http"
+	"time"
 
 	"pharmacy-erp/backend/internal/config"
 	appMiddleware "pharmacy-erp/backend/internal/http/middleware"
@@ -28,6 +30,10 @@ import (
 	echoMiddleware "github.com/labstack/echo/v4/middleware"
 )
 
+// healthProbeTimeout bounds /healthz. It is well under Cloud Run's own probe
+// timeout so the platform reads a considered 503 rather than a hung request.
+const healthProbeTimeout = 2 * time.Second
+
 type Server struct {
 	engine *echo.Echo
 }
@@ -38,6 +44,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	engine.Use(echoMiddleware.Recover())
 	engine.Use(echoMiddleware.RequestID())
 	engine.Use(appMiddleware.RequestInfo())
+	engine.Use(appMiddleware.AccessLog())
 	engine.Use(echoMiddleware.CORSWithConfig(echoMiddleware.CORSConfig{
 		AllowOrigins:     []string{cfg.FrontendURL, "http://localhost:3000"},
 		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderXRequestID},
@@ -64,6 +71,36 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	monthEndWorkflowHandler := monthend.NewWorkflowHandler(monthend.NewService(db, auditService))
 	auditHandler := audit.NewHandler(auditService)
 	parkedBillHandler := parkedbills.NewHandler(parkedbills.NewService(db))
+
+	// The container probe: unauthenticated, outside /api/v1, and it answers for
+	// the database as well as the process. A Cloud Run instance that is up but
+	// cannot reach the pooler serves nothing but errors, and a probe that only
+	// proves the process is listening would keep sending it traffic.
+	engine.GET("/healthz", func(c echo.Context) error {
+		ctx, cancel := stdcontext.WithTimeout(c.Request().Context(), healthProbeTimeout)
+		defer cancel()
+
+		// The ping is raced against the deadline rather than trusted to honour
+		// it. lib/pq cancels an in-flight query by opening a second connection
+		// and asking the server to abandon the first — so when the server is
+		// the thing that has stopped answering, the cancellation is stuck in
+		// exactly the same way, and PingContext returns long after its context
+		// expired. Measured against a paused database: ten seconds, and then a
+		// cheerful 200. The buffered channel lets that goroutine finish into
+		// nothing whenever the driver finally gives up.
+		pinged := make(chan error, 1)
+		go func() { pinged <- db.PingContext(ctx) }()
+
+		select {
+		case err := <-pinged:
+			if err != nil {
+				return c.JSON(http.StatusServiceUnavailable, map[string]any{"status": "unavailable", "database": "unreachable"})
+			}
+			return c.JSON(http.StatusOK, map[string]any{"status": "ok", "database": "ok"})
+		case <-ctx.Done():
+			return c.JSON(http.StatusServiceUnavailable, map[string]any{"status": "unavailable", "database": "timeout"})
+		}
+	})
 
 	api := engine.Group("/api/v1")
 	api.GET("/health", func(c echo.Context) error {
@@ -265,4 +302,11 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 
 func (s *Server) Start(address string) error {
 	return s.engine.Start(address)
+}
+
+// Handler exposes the routed engine so the process can run it under an
+// http.Server it configures itself — Echo's Start applies no timeouts at all,
+// which leaves a slow or stalled client holding an instance open indefinitely.
+func (s *Server) Handler() http.Handler {
+	return s.engine
 }

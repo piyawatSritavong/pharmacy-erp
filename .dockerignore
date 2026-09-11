@@ -14,3 +14,16 @@ reference-branch
 backups
 scripts
 prompt.txt
+
+# Build context hygiene. Everything below is either rebuilt inside the image or
+# has no business being shipped to a registry.
+**/node_modules
+frontend/.turbo
+backend/uploads
+backend/tmp
+docs
+deploy/*.md
+Architecture.md
+*.log
+.vscode
+.idea

@@ -47,6 +47,7 @@ func JWT(secret string) echo.MiddlewareFunc {
 				BranchCode:  claims.BranchCode,
 				BranchName:  claims.BranchName,
 				Permissions: claims.Permissions,
+				ScopeAudit:  platform.BranchAuditFrom(c),
 			})
 		},
 		ErrorHandlerWithContext: func(err error, c echo.Context) error {

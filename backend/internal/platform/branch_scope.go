@@ -3,6 +3,7 @@ package platform
 import (
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // Branch scope lives here and nowhere else.
@@ -42,6 +43,15 @@ func OwnBranchID(user AuthUser) string {
 // resolveBranch applies the rule. The result is the branch the caller may act
 // on, or "" meaning every branch — which only a global caller can ever be given.
 func resolveBranch(user AuthUser, requested string) (string, error) {
+	branchID, err := decideBranch(user, requested)
+	// Every decision is recorded, refusals included, so the access log can say
+	// afterwards which branch the request acted on. Recording is all this adds:
+	// the value and the error returned are exactly what decideBranch decided.
+	user.ScopeAudit.record(branchID, err)
+	return branchID, err
+}
+
+func decideBranch(user AuthUser, requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
 	if IsGlobalScope(user) {
 		return requested, nil
@@ -91,4 +101,64 @@ func RequireGlobalScope(user AuthUser) error {
 		return nil
 	}
 	return NewError(http.StatusForbidden, "ต้องใช้สิทธิ์ระดับสำนักงานใหญ่")
+}
+
+// BranchAudit records what the rule above decided, so the access log can state
+// the branch a request actually acted on and not merely the one it asked for.
+//
+// This is the gap the forensics found: when two endpoints were handing out
+// another shop's rows, nothing anywhere recorded which branch a request
+// resolved to, so there was no way to ask afterwards who had used them. The
+// recorder is written here, where the decision is made, and read by the access
+// log once the handler has returned.
+//
+// A nil *BranchAudit is valid and records nothing, so a caller outside a
+// request — a seed, a test, a CLI command — needs no recorder.
+type BranchAudit struct {
+	mu       sync.Mutex
+	resolved []string
+	refused  bool
+}
+
+// EveryBranch is what the log shows when the rule resolved to "no narrowing",
+// which only a global caller can be given. It is distinct from an empty field,
+// which means the request never asked about a branch at all.
+const EveryBranch = "*"
+
+func NewBranchAudit() *BranchAudit {
+	return &BranchAudit{}
+}
+
+func (a *BranchAudit) record(branchID string, err error) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err != nil {
+		a.refused = true
+		return
+	}
+	if branchID == "" {
+		branchID = EveryBranch
+	}
+	for _, seen := range a.resolved {
+		if seen == branchID {
+			return
+		}
+	}
+	a.resolved = append(a.resolved, branchID)
+}
+
+// Resolved reports every distinct branch the rule settled on during the
+// request, in the order decided, and whether it refused at any point. One
+// request may resolve more than once — a handler that reads a row and then
+// writes it — and all of them are kept rather than the first.
+func (a *BranchAudit) Resolved() (branches []string, refused bool) {
+	if a == nil {
+		return nil, false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.resolved...), a.refused
 }

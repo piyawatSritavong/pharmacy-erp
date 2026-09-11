@@ -3,12 +3,24 @@ package app
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"log"
+	stdhttp "net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"pharmacy-erp/backend/internal/config"
 	"pharmacy-erp/backend/internal/database"
 	"pharmacy-erp/backend/internal/http"
 )
+
+// ShutdownDrain is how long in-flight requests get to finish after SIGTERM.
+// Cloud Run's default grace period is 10 seconds, so anything longer would be
+// cut short by the platform rather than honoured here.
+const ShutdownDrain = 10 * time.Second
 
 type App struct {
 	Config config.Config
@@ -58,7 +70,56 @@ func (a *App) ReplaceOchaCatalog(ctx context.Context, confirmation string) (Repl
 	return ReplaceOchaCatalog(ctx, a.DB, a.Config, confirmation)
 }
 
+// Serve runs the API until the process is asked to stop, then drains.
+//
+// The timeouts are the ones an instance needs when it faces the public
+// internet: Echo's own Start sets none, so a client that opens a connection and
+// then stalls holds a slot on that instance for as long as it likes.
+//
+// Cloud Run's shutdown is SIGTERM followed by a grace period, and it can still
+// route a request to an instance for a moment after sending it. So the listener
+// is closed first and the drain window is spent finishing what is already in
+// flight, rather than exiting the moment the signal lands and cutting off a
+// sale that was halfway through being rung up.
 func (a *App) Serve() error {
-	server := http.NewServer(a.Config, a.DB)
-	return server.Start(fmt.Sprintf(":%s", a.Config.HTTPPort))
+	server := stdhttp.Server{
+		Addr:              fmt.Sprintf(":%s", a.Config.HTTPPort),
+		Handler:           http.NewServer(a.Config, a.DB).Handler(),
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(stop)
+
+	serveErr := make(chan error, 1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, stdhttp.ErrServerClosed) {
+			serveErr <- err
+			return
+		}
+		serveErr <- nil
+	}()
+
+	select {
+	case err := <-serveErr:
+		return err
+	case <-stop:
+	}
+
+	log.Println("shutdown signal received; draining")
+	ctx, cancel := context.WithTimeout(context.Background(), ShutdownDrain)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		// The window expired with requests still running. They are cut off
+		// here; saying so is the point, since a truncated sale is exactly the
+		// thing an operator would otherwise have to guess at.
+		log.Printf("drain did not finish within %s: %v", ShutdownDrain, err)
+		return server.Close()
+	}
+	log.Println("drained cleanly")
+	return nil
 }

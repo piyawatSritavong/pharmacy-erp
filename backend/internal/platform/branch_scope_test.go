@@ -121,3 +121,69 @@ func TestWrapErrorKeepsARefusal(t *testing.T) {
 type errPlain struct{}
 
 func (errPlain) Error() string { return "boom" }
+
+// The recorder exists so the access log can answer the question the forensics
+// could not: which branch did this request actually act on.
+func TestBranchAuditRecordsWhatTheRuleDecided(t *testing.T) {
+	audit := NewBranchAudit()
+	user := branchUser("branch-a")
+	user.ScopeAudit = audit
+
+	if _, err := MustBranchID(user, ""); err != nil {
+		t.Fatalf("own branch should resolve: %v", err)
+	}
+	resolved, refused := audit.Resolved()
+	if len(resolved) != 1 || resolved[0] != "branch-a" {
+		t.Fatalf("expected the caller's own branch to be recorded, got %v", resolved)
+	}
+	if refused {
+		t.Fatal("nothing was refused")
+	}
+
+	// A refusal is recorded too — a till reaching for another shop is exactly
+	// what someone would come looking for afterwards.
+	if _, err := MustBranchID(user, "branch-b"); err == nil {
+		t.Fatal("expected a cross-branch request to be refused")
+	}
+	if _, refused = audit.Resolved(); !refused {
+		t.Fatal("expected the refusal to be recorded")
+	}
+}
+
+func TestBranchAuditDistinguishesEveryBranchFromNoBranch(t *testing.T) {
+	audit := NewBranchAudit()
+	user := globalUser()
+	user.ScopeAudit = audit
+
+	if _, err := BranchFilter(user, ""); err != nil {
+		t.Fatalf("head office may see every branch: %v", err)
+	}
+	resolved, _ := audit.Resolved()
+	if len(resolved) != 1 || resolved[0] != EveryBranch {
+		t.Fatalf("expected %q for an unnarrowed listing, got %v", EveryBranch, resolved)
+	}
+
+	// A second resolution in the same request is kept alongside the first, and
+	// a repeat of one already seen is not duplicated.
+	if _, err := BranchFilter(user, "branch-b"); err != nil {
+		t.Fatalf("head office may name a branch: %v", err)
+	}
+	if _, err := BranchFilter(user, "branch-b"); err != nil {
+		t.Fatalf("head office may name a branch: %v", err)
+	}
+	resolved, _ = audit.Resolved()
+	if len(resolved) != 2 || resolved[1] != "branch-b" {
+		t.Fatalf("expected both decisions recorded once each, got %v", resolved)
+	}
+}
+
+// A caller outside a request carries no recorder, and the rule must not care.
+func TestBranchRuleWorksWithoutARecorder(t *testing.T) {
+	if _, err := MustBranchID(branchUser("branch-a"), ""); err != nil {
+		t.Fatalf("a nil recorder must not change the decision: %v", err)
+	}
+	var audit *BranchAudit
+	if resolved, refused := audit.Resolved(); resolved != nil || refused {
+		t.Fatal("a nil recorder reports nothing")
+	}
+}

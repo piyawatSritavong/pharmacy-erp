@@ -3,9 +3,18 @@ package platform
 import "github.com/labstack/echo/v4"
 
 const (
-	ContextUserKey      = "auth_user"
-	ContextRequestIDKey = "request_id"
+	ContextUserKey        = "auth_user"
+	ContextRequestIDKey   = "request_id"
+	ContextBranchAuditKey = "branch_audit"
+	ContextServerErrorKey = "server_error"
 )
+
+// BranchAuditFrom returns the request's branch-decision recorder, or nil when
+// the request is not running under the access log (a test, a CLI command).
+func BranchAuditFrom(c echo.Context) *BranchAudit {
+	audit, _ := c.Get(ContextBranchAuditKey).(*BranchAudit)
+	return audit
+}
 
 type AuthUser struct {
 	ID       string `json:"id"`
@@ -22,6 +31,11 @@ type AuthUser struct {
 	BranchCode  *string  `json:"branch_code"`
 	BranchName  *string  `json:"branch_name"`
 	Permissions []string `json:"permissions"`
+
+	// ScopeAudit is the request's branch-decision recorder, attached by the
+	// access log and written by the branch rule. It is not part of the user and
+	// never crosses the wire; a zero AuthUser carries none and records nothing.
+	ScopeAudit *BranchAudit `json:"-"`
 }
 
 func CurrentUser(c echo.Context) AuthUser {

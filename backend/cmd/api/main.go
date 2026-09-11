@@ -11,6 +11,11 @@ import (
 	"pharmacy-erp/backend/internal/config"
 )
 
+// migrationTimeout bounds the one-shot commands. It is generous because a
+// migration against a cold managed database is slow, and nothing waits on it:
+// it is a deploy step, not something in the path of a first request.
+const migrationTimeout = 5 * time.Minute
+
 func main() {
 	cfg := config.Load()
 
@@ -27,7 +32,10 @@ func main() {
 		command = os.Args[1]
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// The one-shot commands get a bounded context. serve does not: it is not a
+	// task that finishes, and a deadline on it would stop the server after a
+	// minute.
+	ctx, cancel := context.WithTimeout(context.Background(), migrationTimeout)
 	defer cancel()
 
 	switch command {
@@ -36,6 +44,18 @@ func main() {
 			log.Fatalf("migrate: %v", err)
 		}
 		log.Println("migrations applied")
+	case "migrate-and-seed":
+		// What serve used to do implicitly, kept as something you run on
+		// purpose: the compose stack and a fresh environment both need the
+		// schema and the seed in one step.
+		if err := application.Migrate(ctx); err != nil {
+			log.Fatalf("migrate: %v", err)
+		}
+		log.Println("migrations applied")
+		if err := application.Seed(ctx); err != nil {
+			log.Fatalf("seed: %v", err)
+		}
+		log.Println("seed completed")
 	case "seed":
 		if err := application.Seed(ctx); err != nil {
 			log.Fatalf("seed: %v", err)
@@ -98,16 +118,19 @@ func main() {
 			log.Println("Ocha catalog replacement completed")
 		}
 	case "serve":
-		if err := application.Migrate(ctx); err != nil {
-			log.Fatalf("migrate before serve: %v", err)
-		}
-		if err := application.Seed(ctx); err != nil {
-			log.Fatalf("seed before serve: %v", err)
-		}
+		// serve serves. It used to run Migrate then Seed on every boot, which
+		// is wrong anywhere more than one copy of the process starts at once:
+		// Cloud Run brings up instances in parallel and they would race each
+		// other through the same migrations, against a schema_migrations table
+		// that has no lock and decides what to apply by reading the row first.
+		// Cold start made it worse — the whole of migrate and seed had to fit
+		// inside one 60-second context before the first request could be
+		// served. Migrations are now a deploy step: `migrate`, run once.
+		cancel()
 		if err := application.Serve(); err != nil {
 			log.Fatalf("serve: %v", err)
 		}
 	default:
-		log.Fatalf("unknown command %q", command)
+		log.Fatalf("unknown command %q (serve, migrate, migrate-and-seed, seed, seed-inventory-floor, reset-operational-data, replace-ocha-catalog)", command)
 	}
 }

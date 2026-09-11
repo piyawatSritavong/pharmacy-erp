@@ -25,8 +25,10 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		AppEnv:                    getenv("APP_ENV", "development"),
-		HTTPPort:                  getenv("HTTP_PORT", "8080"),
+		AppEnv: getenv("APP_ENV", "development"),
+		// Cloud Run injects PORT and requires the container to listen on it.
+		// HTTP_PORT stays for the compose stack, which predates that.
+		HTTPPort:                  getenv("PORT", getenv("HTTP_PORT", "8080")),
 		DatabaseURL:               getenv("DATABASE_URL", "postgres://pharmacy:pharmacy@localhost:5432/pharmacy_erp?sslmode=disable"),
 		JWTSecret:                 getenv("JWT_SECRET", "pharmacy-erp-dev-secret"),
 		FrontendURL:               getenv("FRONTEND_URL", "http://localhost:3000"),

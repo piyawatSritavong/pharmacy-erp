@@ -107,8 +107,17 @@ func HandleHTTPError(c echo.Context, err error) error {
 // actual cause nowhere at all — a failing endpoint could only be diagnosed by
 // re-deriving it from the outside. The cause belongs in the server log, where
 // the operator cannot see it and whoever is on call can.
+//
+// It is handed to the access log rather than printed, so a failed request is
+// one JSON line carrying its cause alongside its path, status and user, instead
+// of a plain-text line that has to be correlated with one by hand. Where no
+// access log is running — a test, a CLI command — it falls back to printing.
 func logServerError(c echo.Context, err error) {
 	if err == nil {
+		return
+	}
+	if _, ok := c.Get(ContextBranchAuditKey).(*BranchAudit); ok {
+		c.Set(ContextServerErrorKey, err.Error())
 		return
 	}
 	request := c.Request()
