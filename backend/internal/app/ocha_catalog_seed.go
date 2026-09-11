@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"path"
 	"pharmacy-erp/backend/internal/platform/objectstore"
 	"strings"
@@ -269,6 +270,9 @@ func InstallOchaImageAssets(ctx context.Context, images *objectstore.Client, man
 			return uploaded, skipped, fmt.Errorf("upload Ocha image %s: %w", image.AssetName, err)
 		}
 		uploaded++
+		if uploaded%50 == 0 {
+			log.Printf("  ... %d uploaded", uploaded)
+		}
 	}
 	return uploaded, skipped, nil
 }

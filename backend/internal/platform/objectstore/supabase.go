@@ -115,22 +115,98 @@ func (c *Client) objectURL(prefix, objectPath string) string {
 	return c.baseURL + "/storage/v1/" + prefix + "/" + strings.Join(segments, "/")
 }
 
+// maxAttempts bounds the retries below. A migration run is hundreds of
+// sequential requests, and one rate-limit response partway through should not
+// end it — the command is idempotent, but making somebody re-run it for a
+// hiccup is not the same as handling the hiccup.
+const maxAttempts = 3
+
 func (c *Client) do(request *http.Request) (*http.Response, error) {
 	request.Header.Set("Authorization", "Bearer "+c.key)
 	// Supabase's gateway wants the key in both places; sending only the bearer
 	// token works today and has broken on past gateway versions.
 	request.Header.Set("apikey", c.key)
-	return c.http.Do(request)
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if attempt > 1 {
+			// The body was consumed by the previous attempt, so rewind it.
+			// GetBody is set for us because every request here is built over a
+			// bytes.Reader; a request without one is not retried.
+			if request.Body != nil {
+				if request.GetBody == nil {
+					return nil, lastErr
+				}
+				body, err := request.GetBody()
+				if err != nil {
+					return nil, err
+				}
+				request.Body = body
+			}
+			select {
+			case <-request.Context().Done():
+				return nil, request.Context().Err()
+			case <-time.After(time.Duration(attempt-1) * 500 * time.Millisecond):
+			}
+		}
+
+		response, err := c.http.Do(request)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if !worthRetrying(response.StatusCode) || attempt == maxAttempts {
+			return response, nil
+		}
+		// Drain and close so the connection can be reused for the retry.
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 2048))
+		response.Body.Close()
+		lastErr = fmt.Errorf("supabase storage: %s", response.Status)
+	}
+	return nil, lastErr
 }
 
-// readError turns a non-2xx storage response into an error carrying enough to
-// diagnose it, without letting a multi-megabyte body into the log.
-func readError(response *http.Response) error {
-	body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+// worthRetrying covers the answers that mean "not now" rather than "no": rate
+// limiting and the gateway being briefly unavailable. A 4xx about the request
+// itself is not retried, because it will fail identically every time.
+func worthRetrying(status int) bool {
+	return status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
+}
+
+// classify reads a failed response and says whether it means "no such object".
+//
+// Supabase does not signal that with an HTTP 404. The object/info endpoint
+// answers 400 Bad Request and puts the real answer in the body:
+//
+//	{"statusCode":"404","error":"not_found","message":"Object not found","code":"NoSuchKey"}
+//
+// Reading only the HTTP status therefore turns the ordinary "this object is not
+// here yet" — which is every object, the first time the migration runs against
+// an empty bucket — into a hard failure.
+func classify(response *http.Response) (body []byte, notFound bool) {
+	body, _ = io.ReadAll(io.LimitReader(response.Body, 2048))
 	if response.StatusCode == http.StatusNotFound {
-		return ErrNotFound
+		return body, true
 	}
-	return fmt.Errorf("supabase storage: %s: %s", response.Status, strings.TrimSpace(string(body)))
+	var reported struct {
+		StatusCode string `json:"statusCode"`
+		Error      string `json:"error"`
+		Code       string `json:"code"`
+	}
+	if json.Unmarshal(body, &reported) == nil {
+		if reported.StatusCode == "404" || reported.Error == "not_found" || reported.Code == "NoSuchKey" {
+			return body, true
+		}
+	}
+	return body, false
+}
+
+// failure turns a non-2xx response into an error. It takes the body already
+// read by classify rather than reading the response again: a response body can
+// only be consumed once, and re-reading it yields nothing, which stripped the
+// cause out of every error that had been classified first.
+func failure(status string, body []byte) error {
+	return fmt.Errorf("supabase storage: %s: %s", status, strings.TrimSpace(string(body)))
 }
 
 // Upload writes an object, replacing anything already at that path. Upsert is
@@ -154,7 +230,11 @@ func (c *Client) Upload(ctx context.Context, objectPath string, content []byte, 
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return readError(response)
+		body, notFound := classify(response)
+		if notFound {
+			return ErrNotFound
+		}
+		return failure(response.Status, body)
 	}
 	return nil
 }
@@ -183,7 +263,11 @@ func (c *Client) SignedURL(ctx context.Context, objectPath string, ttl time.Dura
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return "", readError(response)
+		body, notFound := classify(response)
+		if notFound {
+			return "", ErrNotFound
+		}
+		return "", failure(response.Status, body)
 	}
 
 	var signed struct {
@@ -214,13 +298,15 @@ func (c *Client) Delete(ctx context.Context, objectPath string) error {
 		return err
 	}
 	defer response.Body.Close()
-	if response.StatusCode == http.StatusNotFound {
+	if response.StatusCode >= 200 && response.StatusCode <= 299 {
 		return nil
 	}
-	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return readError(response)
+	// Already gone satisfies the caller's intent either way.
+	body, notFound := classify(response)
+	if notFound {
+		return nil
 	}
-	return nil
+	return failure(response.Status, body)
 }
 
 // Exists reports whether the bucket holds an object at that path. The migration
@@ -238,13 +324,14 @@ func (c *Client) Exists(ctx context.Context, objectPath string) (bool, error) {
 		return false, err
 	}
 	defer response.Body.Close()
-	if response.StatusCode == http.StatusNotFound {
+	if response.StatusCode >= 200 && response.StatusCode <= 299 {
+		return true, nil
+	}
+	body, notFound := classify(response)
+	if notFound {
 		return false, nil
 	}
-	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return false, readError(response)
-	}
-	return true, nil
+	return false, failure(response.Status, body)
 }
 
 func ensureLeadingSlash(value string) string {

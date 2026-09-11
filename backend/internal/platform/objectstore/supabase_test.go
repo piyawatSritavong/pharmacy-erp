@@ -282,3 +282,122 @@ func TestADatabaseURLIsNotMistakenForTheAPIURL(t *testing.T) {
 		})
 	}
 }
+
+// The exact response Supabase's object/info endpoint gives for an object that
+// is not there: HTTP 400, with the real answer in the body. Reading only the
+// status turned "this object does not exist yet" — which is every object, the
+// first time the migration runs against an empty bucket — into a hard failure
+// that stopped the run on its first image.
+const notFoundInTheBody = `{"statusCode":"404","error":"not_found","message":"Object not found","code":"NoSuchKey"}`
+
+func TestNotFoundIsReadFromTheBodyNotOnlyTheStatus(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusNotFound} {
+		rec := &recorder{status: status, response: notFoundInTheBody}
+		server := rec.server(t)
+		client := New(server.URL, "k", "product-images")
+
+		exists, err := client.Exists(context.Background(), "missing.jpg")
+		if err != nil {
+			t.Fatalf("status %d: a missing object must not be an error: %v", status, err)
+		}
+		if exists {
+			t.Fatalf("status %d: expected the object to be reported absent", status)
+		}
+		if err := client.Delete(context.Background(), "missing.jpg"); err != nil {
+			t.Fatalf("status %d: deleting a missing object must not be an error: %v", status, err)
+		}
+		if _, err := client.SignedURL(context.Background(), "missing.jpg", time.Minute); err != ErrNotFound {
+			t.Fatalf("status %d: expected ErrNotFound, got %v", status, err)
+		}
+		server.Close()
+	}
+}
+
+// A genuine failure that happens to carry a 400 must still be a failure — the
+// body check must not swallow everything.
+func TestAFourHundredThatIsNotANotFoundStaysAnError(t *testing.T) {
+	rec := &recorder{status: http.StatusBadRequest, response: `{"statusCode":"400","error":"InvalidMimeType","message":"mime type not supported"}`}
+	server := rec.server(t)
+	defer server.Close()
+	client := New(server.URL, "k", "product-images")
+
+	exists, err := client.Exists(context.Background(), "a.jpg")
+	if err == nil {
+		t.Fatal("a real error must not be reported as a clean absence")
+	}
+	if exists {
+		t.Fatal("nothing should be reported present")
+	}
+	if !strings.Contains(err.Error(), "mime type not supported") {
+		t.Fatalf("the cause must survive: %v", err)
+	}
+}
+
+// A rate limit partway through a several-hundred-image run should cost a pause,
+// not the run.
+func TestTransientFailuresAreRetried(t *testing.T) {
+	var attempts int
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		body, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(body))
+		if attempts < 3 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	if err := New(server.URL, "k", "b").Upload(context.Background(), "a.jpg", []byte("payload"), "image/jpeg"); err != nil {
+		t.Fatalf("upload should have survived the rate limit: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected three attempts, got %d", attempts)
+	}
+	// Every attempt must carry the whole body; a retry that sends an empty one
+	// would upload a truncated image and report success.
+	for i, body := range bodies {
+		if body != "payload" {
+			t.Fatalf("attempt %d sent %q instead of the payload", i+1, body)
+		}
+	}
+}
+
+// A request that is wrong will be wrong again; retrying it just delays the
+// error and multiplies the load.
+func TestClientErrorsAreNotRetried(t *testing.T) {
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":"InvalidMimeType"}`)
+	}))
+	defer server.Close()
+
+	if err := New(server.URL, "k", "b").Upload(context.Background(), "a.jpg", []byte("x"), "image/tiff"); err == nil {
+		t.Fatal("expected the error to surface")
+	}
+	if attempts != 1 {
+		t.Fatalf("expected exactly one attempt, got %d", attempts)
+	}
+}
+
+func TestRetriesGiveUpAndReportTheLastStatus(t *testing.T) {
+	var attempts int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = io.WriteString(w, `upstream is down`)
+	}))
+	defer server.Close()
+
+	err := New(server.URL, "k", "b").Upload(context.Background(), "a.jpg", []byte("x"), "image/jpeg")
+	if err == nil || !strings.Contains(err.Error(), "502") {
+		t.Fatalf("expected the final status to be reported, got %v", err)
+	}
+	if attempts != maxAttempts {
+		t.Fatalf("expected %d attempts, got %d", maxAttempts, attempts)
+	}
+}
