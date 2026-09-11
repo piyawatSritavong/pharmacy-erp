@@ -11,11 +11,13 @@
 
 | บทบาท | อีเมล | รหัสผ่าน |
 |---|---|---|
-| ผู้ดูแลระบบ | `superadmin@erp.local` | `DevPassword123!` |
-| POS คลังหลัก MES | `pos.mes@erp.local` | `DevPassword123!` |
-| POS หน้ารพ.พหลฯ | `pos.phahol@erp.local` | `DevPassword123!` |
-| POS หน้าตลาดผาสุก | `pos.phasuk@erp.local` | `DevPassword123!` |
-| POS จังหวัดนครปฐม | `pos.nakhonpathom@erp.local` | `DevPassword123!` |
+| ผู้ดูแลระบบ | `superadmin@erp.local` | ค่าของ `SEED_ADMIN_PASSWORD` |
+| POS คลังหลัก MES | `pos.mes@erp.local` | ค่าของ `SEED_POS_PASSWORD` |
+| POS หน้ารพ.พหลฯ | `pos.phahol@erp.local` | ค่าของ `SEED_POS_PASSWORD` |
+| POS หน้าตลาดผาสุก | `pos.phasuk@erp.local` | ค่าของ `SEED_POS_PASSWORD` |
+| POS จังหวัดนครปฐม | `pos.nakhonpathom@erp.local` | ค่าของ `SEED_POS_PASSWORD` |
+
+รหัสผ่านไม่ได้เขียนไว้ที่นี่เพราะไม่มีค่า default อีกแล้ว — ดูค่าที่ใช้ตอน dev ได้จาก `deploy/docker-compose.yml`
 
 ช่อง “ผลจริง” และ “ผ่าน/ไม่ผ่าน” เว้นไว้สำหรับผู้ทดสอบบันทึกเอง
 

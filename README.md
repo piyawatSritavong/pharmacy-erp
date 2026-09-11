@@ -12,17 +12,23 @@
 
 ## บัญชีทดสอบ
 
-| บทบาท | อีเมล | รหัสผ่าน | หน้าแรก |
-|---|---|---|---|
-| ผู้ดูแลระบบสูงสุด | `superadmin@erp.local` | `DevPassword123!` | `/dashboard` |
-| ผู้ดูแลระบบส่วนกลาง | `admin.central@erp.local` | `DevPassword123!` | `/dashboard` |
-| ผู้ดูแลสาขา MES | `admin.mes@erp.local` | `DevPassword123!` | `/dashboard` |
-| POS คลังหลัก MES | `pos.mes@erp.local` | `DevPassword123!` | `/sales` |
-| POS หน้ารพ.พหลฯ | `pos.phahol@erp.local` | `DevPassword123!` | `/sales` |
-| POS หน้าตลาดผาสุก | `pos.phasuk@erp.local` | `DevPassword123!` | `/sales` |
-| POS จังหวัดนครปฐม | `pos.nakhonpathom@erp.local` | `DevPassword123!` | `/sales` |
+`seed` สร้าง 7 บัญชี รหัสผ่านมาจาก environment เท่านั้น **ไม่มีค่า default**
 
-บัญชีผู้ดูแลสาขาอื่นใช้รูปแบบ `admin.<branch>@erp.local` ตามข้อมูล seed ส่วนรหัสผ่านบัญชี seed กำหนดผ่าน `SEED_POS_PASSWORD`; ค่า fallback สำหรับ development คือ `DevPassword123!`
+| บทบาท | อีเมล | รหัสผ่านมาจาก | หน้าแรก |
+|---|---|---|---|
+| ผู้ดูแลระบบสูงสุด | `superadmin@erp.local` | `SEED_ADMIN_PASSWORD` | `/dashboard` |
+| ผู้ดูแลระบบส่วนกลาง | `admin.central@erp.local` | `SEED_ADMIN_PASSWORD` | `/dashboard` |
+| POS คลังหลัก MES | `pos.mes@erp.local` | `SEED_POS_PASSWORD` | `/sales` |
+| POS หน้ารพ.พหลฯ | `pos.phahol@erp.local` | `SEED_POS_PASSWORD` | `/sales` |
+| POS หน้าตลาดผาสุก | `pos.phasuk@erp.local` | `SEED_POS_PASSWORD` | `/sales` |
+| POS จังหวัดนครปฐม | `pos.nakhonpathom@erp.local` | `SEED_POS_PASSWORD` | `/sales` |
+| POS คณาเภสัช | `pos.knp@erp.local` | `SEED_POS_PASSWORD` | `/sales` |
+
+ทั้งสองตัวแปร**บังคับ** ต้องยาวอย่างน้อย 16 ตัวอักษร และต้องไม่ซ้ำกัน — ถ้าซ้ำ เครื่อง POS จะถือรหัสผ่านของสำนักงานใหญ่ `seed` จะปฏิเสธก่อนเปิด transaction พร้อมบอกชื่อตัวแปรที่ขาด
+
+ค่าสำหรับ development อยู่ใน `deploy/docker-compose.yml` และ `backend/configs/app.example.env` ส่วน production ตั้งใน Render dashboard (`sync: false`) และควรเปลี่ยนรหัสผ่านผ่านหน้าจอทันทีหลัง seed เสร็จ
+
+> ไม่มีบทบาท `branch_admin` แล้ว เหลือ 3 บทบาท: `super_admin`, `central_admin`, `branch_pos`
 
 เมนู **สต๊อกจริง** และ **สต๊อกผี** แยกหน้าจอและการทำงานออกจากกัน สต๊อกผีเป็น bucket ภายใน `WH` ที่ Superadmin ใช้ค้นหา ดูยอด ประวัติ และ Lot เท่านั้น โดยไม่มีตัวเลือกสาขาหรือการปรับยอด ปริมาณสต๊อกผีเปลี่ยนได้เฉพาะวงจรใบสั่งซื้อเข้าและสรุปสิ้นเดือน ส่วนเมนู **สรุปสิ้นเดือน** จำกัดเฉพาะ `super_admin`: เลือกช่วงวันที่และสาขาขาย, ซ่อนบิล `issued + paid + cash only + ไม่ขอใบกำกับภาษีเต็มรูป` ทั้งหมด, ส่ง Real คืน `WH`, รับ Real เข้า `WH`, ตัด Ghost และเก็บ deficit/audit ใน transaction เดียว ช่องยอดเป้าหมายและเปอร์เซ็นต์เป็น Legacy แบบ disabled และไม่มีผลกับรอบใหม่
 
