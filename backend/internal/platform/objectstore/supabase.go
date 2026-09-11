@@ -45,13 +45,41 @@ type Client struct {
 	http    *http.Client
 }
 
-// New returns a client, or nil when the credentials are absent. A nil *Client
-// is usable: every method returns ErrNotConfigured, so callers do not need a
-// separate "is storage on" flag threaded through them.
+// ErrNotAnAPIURL is returned when SUPABASE_URL holds something that is not the
+// project's REST endpoint — most often the database connection string, which
+// sits a few lines away from it in the Supabase dashboard and is the easier of
+// the two to copy by mistake.
+var ErrNotAnAPIURL = errors.New("SUPABASE_URL must be the project API URL (https://<ref>.supabase.co), not a database connection string")
+
+// ValidateURL reports whether a configured SUPABASE_URL can address the Storage
+// API at all. It exists so the mistake is caught once, at startup, rather than
+// surfacing as "unsupported protocol scheme" partway through an upload run.
+func ValidateURL(supabaseURL string) error {
+	supabaseURL = strings.TrimSpace(supabaseURL)
+	if supabaseURL == "" {
+		return ErrNotConfigured
+	}
+	parsed, err := url.Parse(supabaseURL)
+	if err != nil {
+		return ErrNotAnAPIURL
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return ErrNotAnAPIURL
+	}
+	if parsed.Host == "" || parsed.User != nil {
+		return ErrNotAnAPIURL
+	}
+	return nil
+}
+
+// New returns a client, or nil when the credentials are absent or the URL is
+// not an API URL. A nil *Client is usable: every method returns
+// ErrNotConfigured, so callers do not need a separate "is storage on" flag
+// threaded through them.
 func New(supabaseURL, serviceRoleKey, bucket string) *Client {
 	supabaseURL = strings.TrimRight(strings.TrimSpace(supabaseURL), "/")
 	serviceRoleKey = strings.TrimSpace(serviceRoleKey)
-	if supabaseURL == "" || serviceRoleKey == "" {
+	if serviceRoleKey == "" || ValidateURL(supabaseURL) != nil {
 		return nil
 	}
 	return &Client{
@@ -67,21 +95,24 @@ func New(supabaseURL, serviceRoleKey, bucket string) *Client {
 // Configured reports whether uploads and reads can happen at all.
 func (c *Client) Configured() bool { return c != nil }
 
-func (c *Client) storageURL(parts ...string) string {
-	escaped := make([]string, 0, len(parts))
-	for _, part := range parts {
-		escaped = append(escaped, url.PathEscape(part))
-	}
-	return c.baseURL + "/storage/v1/" + strings.Join(escaped, "/")
-}
-
-// objectURL builds a URL for one object. The path may contain slashes, and each
-// segment is escaped separately so that a "/" in a key stays a path separator
-// while everything else is encoded.
+// objectURL builds a URL for one object.
+//
+// The endpoint prefix ("object", "object/sign", "object/info") is a fixed part
+// of the API's shape and goes in as written. Only the bucket and the object
+// path are escaped, segment by segment, so a "/" inside a key stays a path
+// separator while everything else is encoded.
+//
+// Escaping the prefix too — which is what this did at first — turns
+// "object/sign" into "object%2Fsign", and Supabase answers 404 for an endpoint
+// that does not exist. It survived the tests because they asserted on
+// http.Request.URL.Path, which decodes %2F back to "/" before you see it; the
+// tests now read RequestURI, which is the raw request line.
 func (c *Client) objectURL(prefix, objectPath string) string {
-	segments := []string{prefix, c.bucket}
-	segments = append(segments, strings.Split(strings.TrimPrefix(objectPath, "/"), "/")...)
-	return c.storageURL(segments...)
+	segments := []string{url.PathEscape(c.bucket)}
+	for _, part := range strings.Split(strings.TrimPrefix(objectPath, "/"), "/") {
+		segments = append(segments, url.PathEscape(part))
+	}
+	return c.baseURL + "/storage/v1/" + prefix + "/" + strings.Join(segments, "/")
 }
 
 func (c *Client) do(request *http.Request) (*http.Response, error) {

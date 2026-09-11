@@ -9,6 +9,7 @@ import (
 	stdhttp "net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -59,6 +60,18 @@ func (a *App) SeedMonthEnd(ctx context.Context) error {
 	return SeedMonthEnd(ctx, a.DB, a.Config)
 }
 
+// redactURL keeps a misconfigured value legible without printing a password
+// that a connection string would carry.
+func redactURL(value string) string {
+	value = strings.TrimSpace(value)
+	if at := strings.LastIndex(value, "@"); at > 0 {
+		if scheme := strings.Index(value, "://"); scheme >= 0 && scheme+3 < at {
+			return value[:scheme+3] + "***@" + value[at+1:]
+		}
+	}
+	return value
+}
+
 // UploadProductImages puts the catalog photographs into the bucket. It is the
 // migration off local disk, and it is idempotent, so it is also what a new
 // environment runs to fill an empty bucket.
@@ -66,6 +79,12 @@ func (a *App) UploadProductImages(ctx context.Context) (uploaded int, skipped in
 	manifest, err := LoadOchaCatalog()
 	if err != nil {
 		return 0, 0, err
+	}
+	if err := objectstore.ValidateURL(a.Config.SupabaseURL); err != nil {
+		return 0, 0, fmt.Errorf("SUPABASE_URL=%q: %w", redactURL(a.Config.SupabaseURL), err)
+	}
+	if strings.TrimSpace(a.Config.SupabaseServiceRoleKey) == "" {
+		return 0, 0, errors.New("SUPABASE_SERVICE_ROLE_KEY is empty; copy the service_role key from the Supabase dashboard under Settings → API")
 	}
 	images := objectstore.New(a.Config.SupabaseURL, a.Config.SupabaseServiceRoleKey, a.Config.ProductImageBucket)
 	return InstallOchaImageAssets(ctx, images, manifest)

@@ -17,6 +17,7 @@ import (
 type recorder struct {
 	method      string
 	path        string
+	requestURI  string
 	auth        string
 	apikey      string
 	contentType string
@@ -31,6 +32,7 @@ func (r *recorder) server(t *testing.T) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		r.method = req.Method
 		r.path = req.URL.Path
+		r.requestURI = req.RequestURI
 		r.auth = req.Header.Get("Authorization")
 		r.apikey = req.Header.Get("apikey")
 		r.contentType = req.Header.Get("Content-Type")
@@ -57,8 +59,8 @@ func TestUploadSendsTheObjectWithServiceCredentials(t *testing.T) {
 	if rec.method != http.MethodPost {
 		t.Fatalf("expected POST, got %s", rec.method)
 	}
-	if rec.path != "/storage/v1/object/product-images/a.jpg" {
-		t.Fatalf("unexpected path %s", rec.path)
+	if rec.requestURI != "/storage/v1/object/product-images/a.jpg" {
+		t.Fatalf("unexpected request line %s", rec.requestURI)
 	}
 	if rec.auth != "Bearer service-key" || rec.apikey != "service-key" {
 		t.Fatalf("credentials not sent: auth=%q apikey=%q", rec.auth, rec.apikey)
@@ -172,8 +174,8 @@ func TestATrailingSlashOnTheProjectURLDoesNotDoubleUp(t *testing.T) {
 	if err := New(server.URL+"/", "k", "product-images").Upload(context.Background(), "a.jpg", []byte("x"), "image/jpeg"); err != nil {
 		t.Fatalf("upload: %v", err)
 	}
-	if strings.Contains(rec.path, "//") {
-		t.Fatalf("path has a doubled slash: %s", rec.path)
+	if strings.Contains(rec.requestURI, "//") {
+		t.Fatalf("request line has a doubled slash: %s", rec.requestURI)
 	}
 }
 
@@ -185,8 +187,9 @@ func TestNestedObjectPathsKeepTheirSeparators(t *testing.T) {
 		t.Fatalf("upload: %v", err)
 	}
 	// Slashes stay separators; everything else is escaped.
-	if rec.path != "/storage/v1/object/product-images/catalog/2026/a b.jpg" {
-		t.Fatalf("unexpected path %q", rec.path)
+	// A space is escaped; the separators are not.
+	if rec.requestURI != "/storage/v1/object/product-images/catalog/2026/a%20b.jpg" {
+		t.Fatalf("unexpected request line %q", rec.requestURI)
 	}
 }
 
@@ -197,5 +200,85 @@ func TestAServerErrorIsReportedWithItsCause(t *testing.T) {
 	err := New(server.URL, "k", "b").Upload(context.Background(), "a.jpg", []byte("x"), "image/jpeg")
 	if err == nil || !strings.Contains(err.Error(), "quota exceeded") {
 		t.Fatalf("expected the cause to survive, got %v", err)
+	}
+}
+
+// The endpoint prefix is part of the API's shape and must reach the server as
+// written. Escaping it turned "object/sign" into "object%2Fsign", which
+// Supabase answers 404 for; the first version of these tests missed it because
+// they read URL.Path, and net/http decodes %2F back to "/" before a handler
+// sees it. RequestURI is the raw line.
+func TestEndpointPrefixesAreNotEscaped(t *testing.T) {
+	rec := &recorder{response: `{"signedURL":"/object/sign/product-images/a.jpg?token=t"}`}
+	server := rec.server(t)
+	defer server.Close()
+	client := New(server.URL, "k", "product-images")
+
+	for _, test := range []struct {
+		name string
+		call func() error
+		want string
+	}{
+		{
+			name: "sign",
+			call: func() error { _, err := client.SignedURL(context.Background(), "a.jpg", time.Minute); return err },
+			want: "/storage/v1/object/sign/product-images/a.jpg",
+		},
+		{
+			name: "info",
+			call: func() error { _, err := client.Exists(context.Background(), "a.jpg"); return err },
+			want: "/storage/v1/object/info/product-images/a.jpg",
+		},
+		{
+			name: "delete",
+			call: func() error { return client.Delete(context.Background(), "a.jpg") },
+			want: "/storage/v1/object/product-images/a.jpg",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.call(); err != nil {
+				t.Fatalf("%s: %v", test.name, err)
+			}
+			if rec.requestURI != test.want {
+				t.Fatalf("expected %s, got %s", test.want, rec.requestURI)
+			}
+			if strings.Contains(rec.requestURI, "%2F") || strings.Contains(rec.requestURI, "%2f") {
+				t.Fatalf("a path separator was escaped: %s", rec.requestURI)
+			}
+		})
+	}
+}
+
+// The database connection string sits beside the API URL in the Supabase
+// dashboard and is the easier one to copy by mistake. Pasting it produced
+// "unsupported protocol scheme \"postgresql\"" partway through an upload run,
+// which names neither the variable at fault nor the value it wanted.
+func TestADatabaseURLIsNotMistakenForTheAPIURL(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		url  string
+		ok   bool
+	}{
+		{name: "the project API url", url: "https://ref.supabase.co", ok: true},
+		{name: "a trailing slash is fine", url: "https://ref.supabase.co/", ok: true},
+		{name: "http for a local stack", url: "http://127.0.0.1:54321", ok: true},
+		{name: "the pooler connection string", url: "postgresql://postgres.ref:pw@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"},
+		{name: "the direct connection string", url: "postgres://postgres:pw@db.ref.supabase.co:5432/postgres"},
+		{name: "a bare host with no scheme", url: "ref.supabase.co"},
+		{name: "empty", url: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateURL(test.url)
+			if test.ok && err != nil {
+				t.Fatalf("expected %q to be accepted, got %v", test.url, err)
+			}
+			if !test.ok && err == nil {
+				t.Fatalf("expected %q to be refused", test.url)
+			}
+			// A refused URL must not yield a client that then fails obscurely.
+			if client := New(test.url, "key", "bucket"); test.ok != client.Configured() {
+				t.Fatalf("New disagreed with ValidateURL for %q", test.url)
+			}
+		})
 	}
 }
