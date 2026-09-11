@@ -27,7 +27,10 @@ RUN mkdir -p /app/uploads && chown -R pharmacy:pharmacy /app
 
 USER pharmacy
 
-# No EXPOSE: Cloud Run tells the container which port to listen on through PORT,
-# and a hardcoded 8080 here only misleads anyone reading the file.
+# Documentation, not configuration. Render sets PORT in the environment and the
+# process listens on whatever it says (config.Load reads PORT, then HTTP_PORT,
+# then falls back to 8080) — so this line states the default and nothing binds
+# to it if the platform asks for another.
+EXPOSE 8080
 
 CMD ["./pharmacy-erp", "serve"]

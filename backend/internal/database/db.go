@@ -10,12 +10,20 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// MaxOpenConnsPerInstance is deliberately small. Cloud Run runs many instances
-// of this process and each one holds its own pool, so the ceiling that matters
-// is instances × this number against the Supabase pooler's limit — not what a
-// single box could keep busy. Twenty here, at a max-instances of ten, is two
-// hundred connections for a pooler that will not give them.
-const MaxOpenConnsPerInstance = 5
+// The pool is sized for one long-lived instance, because that is what Render
+// runs: a service with a fixed instance count, not containers the platform
+// brings up and tears down under load.
+//
+// It was briefly 5. That was correct for Cloud Run, where the number that
+// matters is instances × pool size against the pooler's limit, and ten
+// instances of twenty would have asked for two hundred connections. On a single
+// instance the same 5 is just a queue: the sixth concurrent request waits for a
+// connection instead of a database. Do not reduce these without first changing
+// how many instances run — the two numbers are one decision.
+const (
+	MaxOpenConns = 20
+	MaxIdleConns = 10
+)
 
 func Open(databaseURL string) (*sql.DB, error) {
 	db, err := sql.Open("postgres", EnsureSSLMode(databaseURL))
@@ -23,8 +31,8 @@ func Open(databaseURL string) (*sql.DB, error) {
 		return nil, err
 	}
 
-	db.SetMaxOpenConns(MaxOpenConnsPerInstance)
-	db.SetMaxIdleConns(2)
+	db.SetMaxOpenConns(MaxOpenConns)
+	db.SetMaxIdleConns(MaxIdleConns)
 	db.SetConnMaxLifetime(30 * time.Minute)
 	db.SetConnMaxIdleTime(5 * time.Minute)
 

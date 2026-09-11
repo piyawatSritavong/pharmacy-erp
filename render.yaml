@@ -1,0 +1,51 @@
+# Render blueprint for the Pharmacy ERP API.
+#
+# The service serves and nothing else. Migrations run as preDeployCommand, which
+# Render executes once per deploy before any new instance takes traffic — so the
+# schema is in place before the first request and no two processes race each
+# other through schema_migrations.
+services:
+  - type: web
+    name: pharmacy-erp-api
+    runtime: docker
+    dockerfilePath: deploy/backend.Dockerfile
+    # The build context is the repo root: the Dockerfile copies backend/ from
+    # there, and .dockerignore at the root is what keeps the context small.
+    dockerContext: .
+    region: singapore
+    plan: starter
+    healthCheckPath: /healthz
+    preDeployCommand: "./pharmacy-erp migrate"
+    autoDeploy: false
+    envVars:
+      # Set these in the Render dashboard. sync:false keeps the value out of the
+      # repository and stops a blueprint apply from overwriting what is there.
+      #
+      # DATABASE_URL must be the Supabase transaction pooler on 6543, not a
+      # direct 5432 connection. It needs no sslmode: the code defaults an
+      # unspecified DSN to require, because lib/pq's own default is "prefer",
+      # which drops to plaintext without saying so.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: APP_ENV
+        value: production
+      - key: FRONTEND_URL
+        value: https://mes.ihavepro.com
+      # Host-only cookie. COOKIE_DOMAIN is deliberately absent — setting it
+      # would widen the cookie across subdomains.
+      - key: COOKIE_NAME
+        value: pharmacy_erp_auth
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: DEFAULT_VAT_PCT
+        value: "7"
+      # Every destructive path stays shut in production. Each of these is a
+      # second lock on a command that also demands an explicit --confirm.
+      - key: ALLOW_DESTRUCTIVE_SEED
+        value: "false"
+      - key: ALLOW_OPERATIONAL_DATA_RESET
+        value: "false"
+      - key: ALLOW_MASTER_DATA_RESET
+        value: "false"
