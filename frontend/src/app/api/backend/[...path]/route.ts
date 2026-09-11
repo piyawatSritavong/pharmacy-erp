@@ -94,21 +94,6 @@ async function proxy(request: NextRequest, path: string[]) {
       secure,
       path: "/"
     });
-
-    // DIAG — temporary. Everything a browser uses to decide whether to store
-    // and return this cookie, so one login in production tells us which side
-    // is refusing. The token value is replaced by its length: it is a live
-    // session credential and Render keeps these logs, and its bytes carry no
-    // diagnostic information — the attributes after it are what matter.
-    const setCookie = proxied.headers.get("set-cookie") ?? "";
-    console.log(JSON.stringify({
-      DIAG: "login.set-cookie",
-      set_cookie: setCookie.replace(/^([^=]+)=([^;]*)/, (_m, name, value) => `${name}=<token:${value.length} bytes>`),
-      secure,
-      x_forwarded_proto: request.headers.get("x-forwarded-proto"),
-      host: request.headers.get("host"),
-      request_url_protocol: request.nextUrl.protocol
-    }));
   }
 
   if (path.join("/") === "auth/logout") {

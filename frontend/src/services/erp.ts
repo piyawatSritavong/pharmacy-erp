@@ -1,44 +1,27 @@
-import { cookies } from "next/headers";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 
-import { AUTH_COOKIE } from "@/lib/auth";
-import { resolveBackendURL } from "@/lib/backend-url";
 import { apiServer } from "@/services/api-server";
 import type { Session } from "@/types";
 
-export async function getSession() {
-  return apiServer<Session>("/me");
-}
+/**
+ * The session for the current request, fetched once.
+ *
+ * (app)/layout.tsx asks for it to draw the shell, and every page under it asks
+ * again to gate its own data — a layout and a page cannot pass props to each
+ * other, so each had to fetch. That was two /me round-trips per authenticated
+ * page load, thirty-two pages over. React's cache() is request-scoped in
+ * server components: every call in one render shares one promise, so the
+ * second caller gets the first caller's result (or its rejection) without
+ * touching the network. Next's own fetch dedup does not apply here because
+ * apiServer sends cache: "no-store".
+ */
+export const getSession = cache(async () => apiServer<Session>("/me"));
 
 export async function requireSession(): Promise<Session> {
   try {
     return await getSession();
-  } catch (error) {
-    // DIAG — temporary. This is the only redirect to /login on the render path
-    // and it fires on *any* failure of the /me call, reason discarded. A fetch
-    // that never reached the API rejects with the real network error in
-    // `cause` (ECONNREFUSED, ENOTFOUND, an undici code); a 4xx/5xx arrives as
-    // the API's message. The backend URL is resolved again here because
-    // resolving it is itself one of the things that can throw.
-    let backendURL: string | null = null;
-    let resolveError: string | null = null;
-    try {
-      backendURL = resolveBackendURL();
-    } catch (caught) {
-      resolveError = caught instanceof Error ? caught.message : String(caught);
-    }
-    const cause = (error as { cause?: { code?: string; message?: string } })?.cause;
-    console.log(JSON.stringify({
-      DIAG: "requireSession.redirect",
-      to: "/login",
-      error_name: error instanceof Error ? error.name : typeof error,
-      error_message: error instanceof Error ? error.message : String(error),
-      cause_code: cause?.code ?? null,
-      cause_message: cause?.message ?? null,
-      backend_url: backendURL,
-      resolve_error: resolveError,
-      had_cookie: (await cookies()).has(AUTH_COOKIE)
-    }));
+  } catch {
     redirect("/login");
   }
 }
