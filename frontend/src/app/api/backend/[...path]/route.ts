@@ -2,11 +2,8 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 import { AUTH_COOKIE } from "@/lib/auth";
+import { backendURL } from "@/lib/backend-url";
 
-const backendURL =
-  process.env.BACKEND_INTERNAL_URL ||
-  process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "http://localhost:8080";
 
 async function proxy(request: NextRequest, path: string[]) {
   const token = (await cookies()).get(AUTH_COOKIE)?.value;

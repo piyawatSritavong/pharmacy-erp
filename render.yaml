@@ -49,3 +49,29 @@ services:
         value: "false"
       - key: ALLOW_MASTER_DATA_RESET
         value: "false"
+
+  - type: web
+    name: pharmacy-erp-web
+    runtime: docker
+    dockerfilePath: deploy/frontend.Dockerfile
+    dockerContext: .
+    region: singapore
+    plan: starter
+    # NOT "/". Measured against the built image: / returns 307, because the
+    # middleware redirects an unauthenticated visitor to the login page, and a
+    # health check that never returns 2xx can leave the service permanently
+    # unhealthy. /login renders 200, needs no session, and — verified with the
+    # API container stopped — still returns 200 when the backend is down, which
+    # is what a liveness probe for *this* service should do. The API has its
+    # own /healthz.
+    healthCheckPath: /login
+    autoDeploy: false
+    envVars:
+      # The Go API's public URL, e.g. https://pharmacy-erp-api.onrender.com.
+      # Set it in the dashboard once the backend service exists and has one.
+      #
+      # Read on the server, not inlined into a client bundle: the browser talks
+      # only to /api/backend/* on its own origin, and the Next route handler
+      # forwards from there.
+      - key: NEXT_PUBLIC_API_URL
+        sync: false

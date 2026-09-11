@@ -4,6 +4,7 @@ import (
 	stdcontext "context"
 	"database/sql"
 	"net/http"
+	"strings"
 	"time"
 
 	"pharmacy-erp/backend/internal/config"
@@ -30,6 +31,34 @@ import (
 	echoMiddleware "github.com/labstack/echo/v4/middleware"
 )
 
+// allowedOrigins is the exact list of origins allowed to make credentialed
+// cross-origin calls. Never a wildcard: with AllowCredentials the browser would
+// refuse a wildcard anyway, and an echoed-back origin would let any site on the
+// internet make authenticated requests with the user's cookie.
+//
+// The dev origin used to be in this list unconditionally, production included.
+// That is a real hole rather than an untidy one — anything a victim can be led
+// to load on http://localhost:3000, which is every developer's default port,
+// could have called the live API as them.
+func allowedOrigins(cfg config.Config) []string {
+	origins := []string{}
+	seen := map[string]bool{}
+	add := func(origin string) {
+		origin = strings.TrimRight(strings.TrimSpace(origin), "/")
+		if origin == "" || seen[origin] {
+			return
+		}
+		seen[origin] = true
+		origins = append(origins, origin)
+	}
+
+	add(cfg.FrontendURL)
+	if cfg.AppEnv != "production" {
+		add("http://localhost:3000")
+	}
+	return origins
+}
+
 // healthProbeTimeout bounds /healthz. It is well under Cloud Run's own probe
 // timeout so the platform reads a considered 503 rather than a hung request.
 const healthProbeTimeout = 2 * time.Second
@@ -46,7 +75,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	engine.Use(appMiddleware.RequestInfo())
 	engine.Use(appMiddleware.AccessLog())
 	engine.Use(echoMiddleware.CORSWithConfig(echoMiddleware.CORSConfig{
-		AllowOrigins:     []string{cfg.FrontendURL, "http://localhost:3000"},
+		AllowOrigins:     allowedOrigins(cfg),
 		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderXRequestID},
 		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
 		AllowCredentials: true,
