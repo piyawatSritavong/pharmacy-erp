@@ -22,6 +22,7 @@ type Config struct {
 	AllowDestructiveSeed      bool
 	AllowOperationalDataReset bool
 	AllowMasterDataReset      bool
+	SeedAdminPassword         string
 	SeedPOSPassword           string
 }
 
@@ -44,7 +45,8 @@ func Load() Config {
 		AllowDestructiveSeed:      getenvBool("ALLOW_DESTRUCTIVE_SEED", false),
 		AllowOperationalDataReset: getenvBool("ALLOW_OPERATIONAL_DATA_RESET", false),
 		AllowMasterDataReset:      getenvBool("ALLOW_MASTER_DATA_RESET", false),
-		SeedPOSPassword:           getenv("SEED_POS_PASSWORD", "DevPassword123!"),
+		SeedAdminPassword:         getenv("SEED_ADMIN_PASSWORD", ""),
+		SeedPOSPassword:           getenv("SEED_POS_PASSWORD", ""),
 	}
 }
 

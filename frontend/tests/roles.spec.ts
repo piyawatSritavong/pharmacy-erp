@@ -1,7 +1,7 @@
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 
-const password = "DevPassword123!";
+import { passwordFor } from "./credentials";
 
 type SessionHandle = {
   context: BrowserContext;
@@ -11,7 +11,7 @@ type SessionHandle = {
 async function signIn(page: Page, email: string, expectedPath: string) {
   await page.goto("/login");
   await page.getByLabel("อีเมล").fill(email);
-  await page.getByLabel("รหัสผ่าน").fill(password);
+  await page.getByLabel("รหัสผ่าน").fill(passwordFor(email));
   await page.getByRole("button", { name: "เข้าสู่ระบบ" }).click();
   await page.waitForURL(new RegExp(`${expectedPath}$`));
 }
@@ -31,17 +31,32 @@ test.describe("สิทธิ์และการนำทางสองบ�
   test.describe.configure({ mode: "serial" });
   test.skip(!process.env.E2E_RUN, "กำหนด E2E_RUN=1 เมื่อเปิดบริการแล้ว");
 
-  test("หน้าเข้าสู่ระบบแสดงเฉพาะบัญชีผู้ดูแลและพนักงานขาย", async ({
-    page,
-  }) => {
+  // This used to assert that the login page listed every account and its
+  // password, which is the opposite of what a public page should do. It now
+  // asserts they are absent: the page is reachable without a session, so
+  // anything on it is published to anyone who visits.
+  test("หน้าเข้าสู่ระบบต้องไม่เปิดเผยบัญชีหรือรหัสผ่าน", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByText("superadmin@erp.local")).toBeVisible();
-    await expect(page.getByText("pos.mes@erp.local")).toBeVisible();
-    await expect(page.getByText("pos.phahol@erp.local")).toBeVisible();
-    await expect(page.getByText("pos.phasuk@erp.local")).toBeVisible();
-    await expect(page.getByText("pos.nakhonpathom@erp.local")).toBeVisible();
-    await expect(page.getByText(/Branch Admin/i)).toHaveCount(0);
-    await expect(page.getByText(/ผู้ดูแลสาขา/)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "เข้าสู่ระบบ" })).toBeVisible();
+
+    for (const account of [
+      "superadmin@erp.local",
+      "admin.central@erp.local",
+      "pos.mes@erp.local",
+      "pos.phahol@erp.local",
+      "pos.phasuk@erp.local",
+      "pos.nakhonpathom@erp.local",
+      "pos.knp@erp.local"
+    ]) {
+      await expect(page.getByText(account)).toHaveCount(0);
+    }
+    await expect(page.getByText(/รหัสผ่านทดสอบ/)).toHaveCount(0);
+    await expect(page.getByText(/DevPassword/i)).toHaveCount(0);
+
+    // And the form starts empty, so a visitor cannot submit somebody else's
+    // account by pressing the button.
+    await expect(page.getByLabel("อีเมล")).toHaveValue("");
+    await expect(page.getByLabel("รหัสผ่าน")).toHaveValue("");
   });
 
   test("ผู้ใช้สองบทบาทเข้าสู่ระบบพร้อมกันและเห็นเมนูของตนเอง", async ({

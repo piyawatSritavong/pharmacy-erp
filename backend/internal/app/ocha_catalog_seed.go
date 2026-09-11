@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"path"
@@ -49,11 +50,13 @@ func seedFreshOchaCatalogTx(ctx context.Context, tx *sql.Tx, cfg config.Config, 
 		return err
 	}
 
-	superHash, err := bcrypt.GenerateFromPassword([]byte("DevPassword123!"), bcrypt.DefaultCost)
+	// Both come from the environment and neither has a default; Seed has
+	// already refused if either is missing or too short.
+	superHash, err := bcrypt.GenerateFromPassword([]byte(strings.TrimSpace(cfg.SeedAdminPassword)), bcrypt.DefaultCost)
 	if err != nil {
-		return err
+		return fmt.Errorf("hash SEED_ADMIN_PASSWORD: %w", err)
 	}
-	posHash, err := bcrypt.GenerateFromPassword([]byte(cfg.SeedPOSPassword), bcrypt.DefaultCost)
+	posHash, err := bcrypt.GenerateFromPassword([]byte(strings.TrimSpace(cfg.SeedPOSPassword)), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("hash SEED_POS_PASSWORD: %w", err)
 	}
@@ -64,11 +67,17 @@ func seedFreshOchaCatalogTx(ctx context.Context, tx *sql.Tx, cfg config.Config, 
 	`, superUserID, roleByKey["super_admin"], string(superHash)); err != nil {
 		return fmt.Errorf("seed super administrator: %w", err)
 	}
+	// A separate hash of the same password: two accounts sharing one bcrypt
+	// hash tells anyone who reads the table that the passwords are identical.
+	centralHash, err := bcrypt.GenerateFromPassword([]byte(strings.TrimSpace(cfg.SeedAdminPassword)), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash SEED_ADMIN_PASSWORD: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO users (id,role_id,branch_id,full_name,email,password_hash,active,created_at,updated_at)
 		SELECT $1,role.id,NULL,'แอดมินกลาง','admin.central@erp.local',$2,TRUE,NOW(),NOW()
 		FROM roles role WHERE role.role_key='central_admin'
-	`, platform.MustUUID(), string(superHash)); err != nil {
+	`, platform.MustUUID(), string(centralHash)); err != nil {
 		return fmt.Errorf("seed central administrator: %w", err)
 	}
 	if err := replacePOSAccountsTx(ctx, tx, roleByKey["branch_pos"], string(posHash)); err != nil {
@@ -418,10 +427,17 @@ func verifyOchaCatalogTx(ctx context.Context, tx *sql.Tx, manifest OchaCatalogMa
 	return nil
 }
 
+// normalizedPOSPassword hashes SEED_POS_PASSWORD. There is no fallback: it used
+// to substitute "DevPassword123!" when the variable was unset, so forgetting to
+// set it produced working tills with a password published on the login page and
+// nothing anywhere saying so.
 func normalizedPOSPassword(cfg config.Config) (string, error) {
 	password := strings.TrimSpace(cfg.SeedPOSPassword)
 	if password == "" {
-		password = "DevPassword123!"
+		return "", errors.New("SEED_POS_PASSWORD is not set; it becomes the password for every POS account and has no default")
+	}
+	if len([]rune(password)) < MinSeedPasswordLength {
+		return "", fmt.Errorf("SEED_POS_PASSWORD is shorter than %d characters", MinSeedPasswordLength)
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {

@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"pharmacy-erp/backend/internal/config"
@@ -18,7 +20,57 @@ type seedRole struct {
 	Scope  string
 }
 
+// MinSeedPasswordLength is the floor for the accounts the seed creates. They
+// are the first credentials on a new system and two of them carry global
+// scope, so they are not a place for something short.
+const MinSeedPasswordLength = 16
+
+// ErrAlreadySeeded reports that the database already has users and the seed
+// did nothing.
+//
+// It is a distinct error rather than a silent success because the two outcomes
+// are indistinguishable from the outside and lead to opposite next steps: one
+// means the accounts are ready, the other means somebody else's accounts are
+// already there and this run changed nothing.
+var ErrAlreadySeeded = errors.New("database already has users; seed made no changes")
+
+// validateSeedPasswords refuses before anything is opened or written.
+//
+// The admin password used to be the string literal "DevPassword123!", compiled
+// in, shared by superadmin@erp.local and admin.central@erp.local — both global
+// scope — and printed on the public login page. No environment variable could
+// change it. The POS password had an environment variable but fell back to the
+// same literal when unset, so forgetting it was silent.
+func validateSeedPasswords(cfg config.Config) error {
+	for _, candidate := range []struct {
+		variable string
+		value    string
+		accounts string
+	}{
+		{"SEED_ADMIN_PASSWORD", cfg.SeedAdminPassword, "superadmin@erp.local, admin.central@erp.local"},
+		{"SEED_POS_PASSWORD", cfg.SeedPOSPassword, "pos.*@erp.local"},
+	} {
+		value := strings.TrimSpace(candidate.value)
+		if value == "" {
+			return fmt.Errorf("%s is not set; it becomes the password for %s and has no default", candidate.variable, candidate.accounts)
+		}
+		if len([]rune(value)) < MinSeedPasswordLength {
+			return fmt.Errorf("%s is shorter than %d characters; it becomes the password for %s", candidate.variable, MinSeedPasswordLength, candidate.accounts)
+		}
+	}
+	if strings.TrimSpace(cfg.SeedAdminPassword) == strings.TrimSpace(cfg.SeedPOSPassword) {
+		return errors.New("SEED_ADMIN_PASSWORD and SEED_POS_PASSWORD are the same; the tills would hold the head-office password")
+	}
+	return nil
+}
+
 func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
+	// Before the transaction, before the connection is used for anything: a
+	// seed that cannot set a real password should not have started.
+	if err := validateSeedPasswords(cfg); err != nil {
+		return err
+	}
+
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -34,7 +86,11 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 		return err
 	}
 	if usersCount > 0 {
-		return tx.Commit()
+		if err = tx.Commit(); err != nil {
+			return err
+		}
+		err = ErrAlreadySeeded
+		return err
 	}
 
 	roles := []seedRole{
@@ -203,9 +259,12 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 	if err = seedFreshOchaCatalogTx(ctx, tx, cfg, roleByKey); err != nil {
 		return err
 	}
-	if _, err = seedInventoryFloorTx(ctx, tx, inventorySeedMinimum); err != nil {
-		return err
-	}
+	// seedInventoryFloorTx used to run here. It invents a supplier
+	// ("บริษัททดสอบรับสินค้าเข้าสต๊อก") and posts purchase orders against it to
+	// give every product a floor quantity — fabricated purchasing history, in a
+	// customer's own supplier list and purchase reports, created by a command
+	// whose job is the catalog. It remains available as `seed-inventory-floor`
+	// for development, where that is what you want.
 	err = tx.Commit()
 	return err
 

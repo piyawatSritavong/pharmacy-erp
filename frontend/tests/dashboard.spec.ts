@@ -1,11 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const password = "DevPassword123!";
+import { passwordFor } from "./credentials";
 
 async function signIn(page: Page, email: string) {
   await page.goto("/login");
   await page.getByLabel("อีเมล").fill(email);
-  await page.getByLabel("รหัสผ่าน").fill(password);
+  await page.getByLabel("รหัสผ่าน").fill(passwordFor(email));
   await page.getByRole("button", { name: "เข้าสู่ระบบ" }).click();
   await page.waitForURL(/\/dashboard$/);
 }

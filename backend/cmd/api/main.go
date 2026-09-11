@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 	"strings"
@@ -52,10 +53,17 @@ func main() {
 			log.Fatalf("migrate: %v", err)
 		}
 		log.Println("migrations applied")
-		if err := application.Seed(ctx); err != nil {
+		// This one is the setup convenience the compose stack runs on every
+		// start, so an already-seeded database is the expected steady state and
+		// not a failure — but it still says which of the two happened.
+		switch err := application.Seed(ctx); {
+		case errors.Is(err, app.ErrAlreadySeeded):
+			log.Printf("seed skipped: %v", err)
+		case err != nil:
 			log.Fatalf("seed: %v", err)
+		default:
+			log.Println("seed completed: accounts created")
 		}
-		log.Println("seed completed")
 	case "upload-product-images":
 		// The one-off move from UPLOAD_DIR to Supabase Storage, and the step a
 		// fresh environment runs to fill an empty bucket. Safe to repeat: what
@@ -66,10 +74,19 @@ func main() {
 		}
 		log.Printf("product images: %d uploaded, %d already present", uploaded, skipped)
 	case "seed":
-		if err := application.Seed(ctx); err != nil {
+		// Skipping and seeding used to be indistinguishable: both printed
+		// "seed completed" and exited 0. On a database that already had users
+		// — someone else's — that read as success while nothing had happened.
+		switch err := application.Seed(ctx); {
+		case errors.Is(err, app.ErrAlreadySeeded):
+			log.Printf("seed SKIPPED: %v", err)
+			log.Println("no accounts were created and no password was set; nothing changed")
+			os.Exit(2)
+		case err != nil:
 			log.Fatalf("seed: %v", err)
+		default:
+			log.Println("seed completed: accounts created")
 		}
-		log.Println("seed completed")
 	case "seed-inventory-floor":
 		if err := application.Migrate(ctx); err != nil {
 			log.Fatalf("migrate before inventory floor seed: %v", err)

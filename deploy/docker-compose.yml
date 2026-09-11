@@ -29,7 +29,10 @@ services:
     environment:
       APP_ENV: development
       DATABASE_URL: postgres://pharmacy:pharmacy@database:5432/pharmacy_erp?sslmode=disable
-      SEED_POS_PASSWORD: "DevPassword123!"
+      # Local development only. Both are required and must be at least 16
+      # characters; production sets its own in the Render dashboard.
+      SEED_ADMIN_PASSWORD: "LocalDevAdmin-2026!"
+      SEED_POS_PASSWORD: "LocalDevTill-2026!"
     command: ["./pharmacy-erp", "migrate-and-seed"]
     restart: "no"
 
@@ -54,7 +57,10 @@ services:
       DEFAULT_VAT_PCT: "7"
       ALLOW_OPERATIONAL_DATA_RESET: "false"
       ALLOW_MASTER_DATA_RESET: "false"
-      SEED_POS_PASSWORD: "DevPassword123!"
+      # Local development only. Both are required and must be at least 16
+      # characters; production sets its own in the Render dashboard.
+      SEED_ADMIN_PASSWORD: "LocalDevAdmin-2026!"
+      SEED_POS_PASSWORD: "LocalDevTill-2026!"
       # Product images live in Supabase Storage. Passed through from the host
       # rather than written here: the service role key never belongs in a file
       # under version control. Unset means the image endpoints answer with a

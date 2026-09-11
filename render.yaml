@@ -51,6 +51,14 @@ services:
       # service role key bypasses RLS, which is the only way into a bucket with
       # no policies on it — treat it exactly as you would the database password.
       # SUPABASE_URL is https://<project-ref>.supabase.co.
+      # Only `seed` reads these, and it is a one-off job rather than something
+      # the service does at boot — but they belong beside the other secrets so
+      # a one-off shell has them. No defaults: the seed refuses to run without
+      # both, they must be at least 16 characters, and they must differ.
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: SEED_POS_PASSWORD
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY

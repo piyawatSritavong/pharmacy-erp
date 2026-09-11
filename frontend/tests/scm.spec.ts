@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const password = "DevPassword123!";
+import { passwordFor } from "./credentials";
 
 /** The sidebar is an accordion, so a link is only clickable once its group is
  *  open. Opening the group that already holds the current route would close it. */
@@ -34,7 +34,7 @@ test.describe("Supply Chain Management", () => {
 
     await page.goto("/login");
     await page.getByLabel("อีเมล").fill("superadmin@erp.local");
-    await page.getByLabel("รหัสผ่าน").fill(password);
+    await page.getByLabel("รหัสผ่าน").fill(passwordFor("superadmin@erp.local"));
     await page.getByRole("button", { name: "เข้าสู่ระบบ" }).click();
     await page.waitForURL(/\/dashboard$/);
 

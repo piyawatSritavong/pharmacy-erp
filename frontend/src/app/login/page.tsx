@@ -8,8 +8,8 @@ import { proxyClient } from "@/services/api";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("superadmin@erp.local");
-  const [password, setPassword] = useState("DevPassword123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,14 +72,6 @@ export default function LoginPage() {
                 {loading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
               </Button>
             </form>
-            <div className="mt-6 rounded-md border bg-muted/50 p-4 text-sm text-muted-foreground">
-              <p><strong>ผู้ดูแลระบบ:</strong> superadmin@erp.local</p>
-              <p><strong>POS MES:</strong> pos.mes@erp.local</p>
-              <p><strong>POS หน้ารพ.พหลฯ:</strong> pos.phahol@erp.local</p>
-              <p><strong>POS หน้าตลาดผาสุก:</strong> pos.phasuk@erp.local</p>
-              <p><strong>POS จังหวัดนครปฐม:</strong> pos.nakhonpathom@erp.local</p>
-              <p className="mt-1">รหัสผ่านทดสอบ: DevPassword123!</p>
-            </div>
           </CardBody>
         </Card>
       </section>

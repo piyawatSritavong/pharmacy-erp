@@ -23,7 +23,7 @@ func TestLoginAgainstConfiguredDatabase(t *testing.T) {
 	cfg := config.Load()
 	service := NewService(db, cfg)
 	result, err := service.Login(context.Background(), LoginRequest{
-		Email: "pos.mes@erp.local", Password: "DevPassword123!",
+		Email: "pos.mes@erp.local", Password: "LocalDevTill-2026!",
 	})
 	if err != nil {
 		t.Fatalf("login: %v", err)
