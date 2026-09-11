@@ -1,5 +1,8 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { AUTH_COOKIE } from "@/lib/auth";
+import { resolveBackendURL } from "@/lib/backend-url";
 import { apiServer } from "@/services/api-server";
 import type { Session } from "@/types";
 
@@ -10,7 +13,32 @@ export async function getSession() {
 export async function requireSession(): Promise<Session> {
   try {
     return await getSession();
-  } catch {
+  } catch (error) {
+    // DIAG — temporary. This is the only redirect to /login on the render path
+    // and it fires on *any* failure of the /me call, reason discarded. A fetch
+    // that never reached the API rejects with the real network error in
+    // `cause` (ECONNREFUSED, ENOTFOUND, an undici code); a 4xx/5xx arrives as
+    // the API's message. The backend URL is resolved again here because
+    // resolving it is itself one of the things that can throw.
+    let backendURL: string | null = null;
+    let resolveError: string | null = null;
+    try {
+      backendURL = resolveBackendURL();
+    } catch (caught) {
+      resolveError = caught instanceof Error ? caught.message : String(caught);
+    }
+    const cause = (error as { cause?: { code?: string; message?: string } })?.cause;
+    console.log(JSON.stringify({
+      DIAG: "requireSession.redirect",
+      to: "/login",
+      error_name: error instanceof Error ? error.name : typeof error,
+      error_message: error instanceof Error ? error.message : String(error),
+      cause_code: cause?.code ?? null,
+      cause_message: cause?.message ?? null,
+      backend_url: backendURL,
+      resolve_error: resolveError,
+      had_cookie: (await cookies()).has(AUTH_COOKIE)
+    }));
     redirect("/login");
   }
 }

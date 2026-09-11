@@ -7,6 +7,13 @@ import type { Session } from "@/types";
  * case something still needs a literal role-key check. */
 export function requireRole(session: Session, roles: string[]) {
   if (!roles.includes(session.user.role_key)) {
+    // DIAG — temporary.
+    console.log(JSON.stringify({
+      DIAG: "requireRole.redirect",
+      to: session.home_path,
+      role_key: session.user.role_key,
+      required_roles: roles
+    }));
     redirect(session.home_path);
   }
   return session;
@@ -21,6 +28,14 @@ export function requireRole(session: Session, roles: string[]) {
 export function requirePermission(session: Session, permissionKeys: string[]) {
   const allowed = permissionKeys.some((key) => session.user.permissions.includes(key));
   if (!allowed) {
+    // DIAG — temporary. Which gate, which role, what it held, what it needed.
+    console.log(JSON.stringify({
+      DIAG: "requirePermission.redirect",
+      to: session.home_path,
+      role_key: session.user.role_key,
+      required_permissions: permissionKeys,
+      permission_count: session.user.permissions.length
+    }));
     redirect(session.home_path);
   }
   return session;
