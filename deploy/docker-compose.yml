@@ -52,8 +52,6 @@ services:
       DATABASE_URL: postgres://pharmacy:pharmacy@database:5432/pharmacy_erp?sslmode=disable
       JWT_SECRET: pharmacy-erp-dev-secret
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
-      COOKIE_NAME: pharmacy_erp_auth
-      COOKIE_SECURE: "false"
       DEFAULT_VAT_PCT: "7"
       ALLOW_OPERATIONAL_DATA_RESET: "false"
       ALLOW_MASTER_DATA_RESET: "false"

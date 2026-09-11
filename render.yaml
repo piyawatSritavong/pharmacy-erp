@@ -45,8 +45,6 @@ services:
       # why.
       - key: FRONTEND_URL
         sync: false
-      # Host-only cookie. COOKIE_DOMAIN is deliberately absent — setting it
-      # would widen the cookie across subdomains.
       # Product photographs live in a private Supabase Storage bucket. The
       # service role key bypasses RLS, which is the only way into a bucket with
       # no policies on it — treat it exactly as you would the database password.
@@ -63,10 +61,6 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-      - key: COOKIE_NAME
-        value: pharmacy_erp_auth
-      - key: COOKIE_SECURE
-        value: "true"
       - key: DEFAULT_VAT_PCT
         value: "7"
       # Every destructive path stays shut in production. Each of these is a

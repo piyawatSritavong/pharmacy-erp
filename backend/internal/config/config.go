@@ -12,9 +12,6 @@ type Config struct {
 	DatabaseURL               string
 	JWTSecret                 string
 	FrontendURL               string
-	CookieName                string
-	CookieSecure              bool
-	CookieDomain              string
 	DefaultVATPct             float64
 	SupabaseURL               string
 	SupabaseServiceRoleKey    string
@@ -35,9 +32,6 @@ func Load() Config {
 		DatabaseURL:               getenv("DATABASE_URL", "postgres://pharmacy:pharmacy@localhost:5432/pharmacy_erp?sslmode=disable"),
 		JWTSecret:                 getenv("JWT_SECRET", "pharmacy-erp-dev-secret"),
 		FrontendURL:               getenv("FRONTEND_URL", "http://localhost:3000"),
-		CookieName:                getenv("COOKIE_NAME", "pharmacy_erp_auth"),
-		CookieSecure:              getenvBool("COOKIE_SECURE", false),
-		CookieDomain:              os.Getenv("COOKIE_DOMAIN"),
 		DefaultVATPct:             getenvFloat("DEFAULT_VAT_PCT", 7),
 		SupabaseURL:               getenv("SUPABASE_URL", ""),
 		SupabaseServiceRoleKey:    getenv("SUPABASE_SERVICE_ROLE_KEY", ""),

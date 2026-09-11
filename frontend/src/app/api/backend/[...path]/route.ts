@@ -13,6 +13,32 @@ import { BackendURLNotConfiguredError, resolveBackendURL } from "@/lib/backend-u
  */
 export const dynamic = "force-dynamic";
 
+/**
+ * Whether the browser reached us over TLS.
+ *
+ * Render terminates TLS at its edge and forwards plain HTTP to the container,
+ * so the request URL always says http:// in production and cannot be used to
+ * decide this. The edge records the original scheme in x-forwarded-proto;
+ * that is read first, and the URL's own scheme is the fallback for anything
+ * that runs without a proxy in front of it. When several proxies have
+ * appended to the header it is a comma-separated list and the first entry is
+ * the one the browser used.
+ *
+ * The Secure attribute used to be `process.env.NODE_ENV === "production"`,
+ * which the build folds to a constant: true everywhere, including on a plain
+ * HTTP origin, where a browser will store the cookie and then never send it.
+ * Deriving it from the real scheme cannot weaken anything on HTTPS — there
+ * the answer is the same as before — and stops the cookie being unusable on
+ * HTTP.
+ */
+function requestIsHTTPS(request: NextRequest): boolean {
+  const forwarded = request.headers.get("x-forwarded-proto");
+  if (forwarded) {
+    return forwarded.split(",")[0].trim().toLowerCase() === "https";
+  }
+  return request.nextUrl.protocol === "https:";
+}
+
 async function proxy(request: NextRequest, path: string[]) {
   let backendURL: string;
   try {
@@ -61,12 +87,28 @@ async function proxy(request: NextRequest, path: string[]) {
 
 	if (path.join("/") === "auth/login" && response.ok) {
 		const login = JSON.parse(new TextDecoder().decode(payload)) as { token: string };
+		const secure = requestIsHTTPS(request);
 		proxied.cookies.set(AUTH_COOKIE, login.token, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure,
       path: "/"
     });
+
+    // DIAG — temporary. Everything a browser uses to decide whether to store
+    // and return this cookie, so one login in production tells us which side
+    // is refusing. The token value is replaced by its length: it is a live
+    // session credential and Render keeps these logs, and its bytes carry no
+    // diagnostic information — the attributes after it are what matter.
+    const setCookie = proxied.headers.get("set-cookie") ?? "";
+    console.log(JSON.stringify({
+      DIAG: "login.set-cookie",
+      set_cookie: setCookie.replace(/^([^=]+)=([^;]*)/, (_m, name, value) => `${name}=<token:${value.length} bytes>`),
+      secure,
+      x_forwarded_proto: request.headers.get("x-forwarded-proto"),
+      host: request.headers.get("host"),
+      request_url_protocol: request.nextUrl.protocol
+    }));
   }
 
   if (path.join("/") === "auth/logout") {
