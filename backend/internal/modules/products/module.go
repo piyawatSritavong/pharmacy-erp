@@ -4,17 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
 	"pharmacy-erp/backend/internal/modules/audit"
 	"pharmacy-erp/backend/internal/platform"
+	"pharmacy-erp/backend/internal/platform/objectstore"
 
 	"github.com/labstack/echo/v4"
 )
@@ -111,13 +111,13 @@ type ListResult struct {
 }
 
 type Service struct {
-	db        *sql.DB
-	audit     *audit.Service
-	uploadDir string
+	db     *sql.DB
+	audit  *audit.Service
+	images *objectstore.Client
 }
 
-func NewService(db *sql.DB, auditService *audit.Service, uploadDir string) *Service {
-	return &Service{db: db, audit: auditService, uploadDir: uploadDir}
+func NewService(db *sql.DB, auditService *audit.Service, images *objectstore.Client) *Service {
+	return &Service{db: db, audit: auditService, images: images}
 }
 
 func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID string, filter ListFilter) (ListResult, error) {
@@ -930,10 +930,14 @@ func (s *Service) DeleteProduct(ctx context.Context, productID string, confirmat
 		return s.audit.Log(ctx, tx, meta)
 	})
 	if err == nil && imageKey != "" {
-		_ = os.Remove(filepath.Join(s.uploadDir, filepath.Base(imageKey)))
+		_ = s.images.Delete(ctx, imageKey)
 	}
 	return name, err
 }
+
+// maxImageBytes matches the bucket's own file_size_limit, so a file this side
+// accepts is one the bucket will take.
+const maxImageBytes = 10 << 20
 
 func validateImage(file *multipart.FileHeader) (string, string, error) {
 	if file.Size <= 0 || file.Size > maxProductImageSize {
@@ -971,34 +975,29 @@ func (s *Service) SaveProductImage(ctx context.Context, productID string, branch
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.uploadDir, 0o755); err != nil {
+	if err := s.requireImageStore(); err != nil {
 		return err
 	}
 	storageKey := platform.MustUUID() + extension
-	temporaryPath := filepath.Join(s.uploadDir, storageKey+".tmp")
-	finalPath := filepath.Join(s.uploadDir, storageKey)
 	source, err := file.Open()
 	if err != nil {
 		return err
 	}
-	destination, err := os.Create(temporaryPath)
+	// Bounded read: validateImage has already checked the declared size, and
+	// this stops a lying Content-Length from pulling an unbounded body into
+	// memory.
+	content, err := io.ReadAll(io.LimitReader(source, maxImageBytes+1))
+	source.Close()
 	if err != nil {
-		source.Close()
 		return err
 	}
-	_, copyErr := io.Copy(destination, source)
-	closeErr := destination.Close()
-	source.Close()
-	if copyErr != nil {
-		_ = os.Remove(temporaryPath)
-		return copyErr
+	if int64(len(content)) > maxImageBytes {
+		return platform.NewError(http.StatusRequestEntityTooLarge, "ไฟล์รูปต้องไม่เกิน 10 MB")
 	}
-	if closeErr != nil {
-		_ = os.Remove(temporaryPath)
-		return closeErr
-	}
-	if err := os.Rename(temporaryPath, finalPath); err != nil {
-		_ = os.Remove(temporaryPath)
+	// The object goes up before the row goes in. The other order can leave a
+	// row pointing at nothing, which is exactly the failure this migration
+	// exists to end.
+	if err := s.images.Upload(ctx, storageKey, content, mimeType); err != nil {
 		return err
 	}
 
@@ -1061,7 +1060,8 @@ func (s *Service) SaveProductImage(ctx context.Context, productID string, branch
 		return s.audit.Log(ctx, tx, meta)
 	})
 	if err != nil {
-		_ = os.Remove(finalPath)
+		// The row never landed, so the object has nothing pointing at it.
+		_ = s.images.Delete(ctx, storageKey)
 		return err
 	}
 	return nil
@@ -1107,6 +1107,9 @@ func (s *Service) ListProductImages(ctx context.Context, user platform.AuthUser,
 	return items, rows.Err()
 }
 
+// ProductGalleryImage returns a short-lived signed URL for one gallery image.
+// The bucket is private, so this is the only way to read an object, and the URL
+// is minted per request rather than stored.
 func (s *Service) ProductGalleryImage(ctx context.Context, productID, imageID string) (string, string, error) {
 	var storageKey, mimeType string
 	if err := s.db.QueryRowContext(ctx, `SELECT storage_key,mime_type FROM product_images WHERE id=$1 AND product_id=$2`, imageID, productID).Scan(&storageKey, &mimeType); err != nil {
@@ -1115,7 +1118,7 @@ func (s *Service) ProductGalleryImage(ctx context.Context, productID, imageID st
 		}
 		return "", "", err
 	}
-	return filepath.Join(s.uploadDir, filepath.Base(storageKey)), mimeType, nil
+	return s.signImage(ctx, storageKey, mimeType)
 }
 
 func (s *Service) ProductImage(ctx context.Context, productID string) (string, string, error) {
@@ -1132,7 +1135,36 @@ func (s *Service) ProductImage(ctx context.Context, productID string) (string, s
 	if storageKey == "" {
 		return "", "", platform.NewError(http.StatusNotFound, "สินค้านี้ยังไม่มีรูป")
 	}
-	return filepath.Join(s.uploadDir, filepath.Base(storageKey)), mimeType, nil
+	return s.signImage(ctx, storageKey, mimeType)
+}
+
+// signImage turns a stored object path into a URL a browser can follow for the
+// next few minutes.
+//
+// A row whose object is missing reads as 404 rather than 500: after the move
+// off local disk that means "this picture did not survive", which is a fact
+// about the data and not a fault in the request.
+func (s *Service) signImage(ctx context.Context, storageKey, mimeType string) (string, string, error) {
+	if err := s.requireImageStore(); err != nil {
+		return "", "", err
+	}
+	signed, err := s.images.SignedURL(ctx, storageKey, objectstore.SignedURLTTL)
+	if err != nil {
+		if errors.Is(err, objectstore.ErrNotFound) {
+			return "", "", platform.NewError(http.StatusNotFound, "ไม่พบไฟล์รูปสินค้า")
+		}
+		return "", "", err
+	}
+	return signed, mimeType, nil
+}
+
+// requireImageStore turns an unconfigured deployment into one clear answer
+// instead of a different confusing one at each call site.
+func (s *Service) requireImageStore() error {
+	if s.images.Configured() {
+		return nil
+	}
+	return platform.NewError(http.StatusServiceUnavailable, "ยังไม่ได้ตั้งค่าที่เก็บรูปสินค้า (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)")
 }
 
 func (s *Service) DeleteProductImage(ctx context.Context, productID string, meta audit.LogEntry) error {
@@ -1178,7 +1210,7 @@ func (s *Service) DeleteProductImage(ctx context.Context, productID string, meta
 	if err == nil && storageKey != "" {
 		var referenced bool
 		if scanErr := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM product_images WHERE storage_key=$1)`, storageKey).Scan(&referenced); scanErr == nil && !referenced {
-			_ = os.Remove(filepath.Join(s.uploadDir, filepath.Base(storageKey)))
+			_ = s.images.Delete(ctx, storageKey)
 		}
 	}
 	return err
@@ -1402,14 +1434,15 @@ func (h *Handler) UploadProductImage(c echo.Context) error {
 	return platform.JSONMessage(c, http.StatusOK, "อัปโหลดรูปสินค้าแล้ว")
 }
 
+// ProductImage redirects to a signed URL rather than streaming the bytes back.
+// The bucket is private, the URL expires in minutes, and the redirect keeps
+// megabytes of image data off this instance entirely.
 func (h *Handler) ProductImage(c echo.Context) error {
-	path, mimeType, err := h.service.ProductImage(c.Request().Context(), c.Param("productID"))
+	signed, mimeType, err := h.service.ProductImage(c.Request().Context(), c.Param("productID"))
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
 	}
-	c.Response().Header().Set(echo.HeaderContentType, mimeType)
-	c.Response().Header().Set(echo.HeaderCacheControl, "private, max-age=300")
-	return c.File(path)
+	return redirectToImage(c, signed, mimeType)
 }
 
 func (h *Handler) ListProductImages(c echo.Context) error {
@@ -1421,13 +1454,25 @@ func (h *Handler) ListProductImages(c echo.Context) error {
 }
 
 func (h *Handler) ProductGalleryImage(c echo.Context) error {
-	path, mimeType, err := h.service.ProductGalleryImage(c.Request().Context(), c.Param("productID"), c.Param("imageID"))
+	signed, mimeType, err := h.service.ProductGalleryImage(c.Request().Context(), c.Param("productID"), c.Param("imageID"))
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
 	}
-	c.Response().Header().Set(echo.HeaderContentType, mimeType)
-	c.Response().Header().Set(echo.HeaderCacheControl, "private, max-age=86400")
-	return c.File(path)
+	return redirectToImage(c, signed, mimeType)
+}
+
+// redirectToImage sends the caller to a short-lived signed URL.
+//
+// Cache-Control is private and no longer than the signature lasts: caching a
+// redirect past its expiry would hand a browser a URL that has already stopped
+// working, and caching it publicly would let a shared proxy serve one user's
+// signed URL to the next.
+func redirectToImage(c echo.Context, signedURL, mimeType string) error {
+	if mimeType != "" {
+		c.Response().Header().Set("X-Image-Content-Type", mimeType)
+	}
+	c.Response().Header().Set(echo.HeaderCacheControl, "private, max-age=60")
+	return c.Redirect(http.StatusFound, signedURL)
 }
 
 func (h *Handler) DeleteProductImage(c echo.Context) error {

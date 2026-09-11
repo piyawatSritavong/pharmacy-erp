@@ -30,11 +30,8 @@ services:
       APP_ENV: development
       DATABASE_URL: postgres://pharmacy:pharmacy@database:5432/pharmacy_erp?sslmode=disable
       SEED_POS_PASSWORD: "DevPassword123!"
-      UPLOAD_DIR: /app/uploads
     command: ["./pharmacy-erp", "migrate-and-seed"]
     restart: "no"
-    volumes:
-      - pharmacy_erp_uploads:/app/uploads
 
   backend:
     build:
@@ -58,11 +55,14 @@ services:
       ALLOW_OPERATIONAL_DATA_RESET: "false"
       ALLOW_MASTER_DATA_RESET: "false"
       SEED_POS_PASSWORD: "DevPassword123!"
-      UPLOAD_DIR: /app/uploads
+      # Product images live in Supabase Storage. Passed through from the host
+      # rather than written here: the service role key never belongs in a file
+      # under version control. Unset means the image endpoints answer with a
+      # clear "storage is not configured" and the rest of the app is unaffected.
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
     ports:
       - "${BACKEND_HOST_PORT:-8080}:8080"
-    volumes:
-      - pharmacy_erp_uploads:/app/uploads
 
   frontend:
     build:
@@ -80,4 +80,3 @@ services:
 
 volumes:
   pharmacy_erp_db:
-  pharmacy_erp_uploads:

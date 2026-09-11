@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
+	"path"
+	"pharmacy-erp/backend/internal/platform/objectstore"
 	"strings"
 
 	"pharmacy-erp/backend/internal/config"
@@ -34,9 +34,6 @@ var ochaPOSAccounts = []branchAccount{
 func seedFreshOchaCatalogTx(ctx context.Context, tx *sql.Tx, cfg config.Config, roleByKey map[string]string) error {
 	manifest, err := LoadOchaCatalog()
 	if err != nil {
-		return err
-	}
-	if err := installOchaImageAssets(cfg.UploadDir, manifest); err != nil {
 		return err
 	}
 	// Migrations install four legacy categories before fresh seed. A new empty
@@ -235,31 +232,45 @@ func insertOchaMasterDataTx(ctx context.Context, tx *sql.Tx, manifest OchaCatalo
 	return nil
 }
 
-func installOchaImageAssets(uploadDir string, manifest OchaCatalogManifest) error {
-	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
-		return fmt.Errorf("create product upload directory: %w", err)
+// InstallOchaImageAssets pushes the catalog photographs into object storage.
+//
+// The pictures are embedded in the binary, not read off a disk, which is what
+// makes this reproducible anywhere: the same command run against an empty
+// bucket puts back exactly what the manifest describes, whether or not any
+// machine still has the old uploads directory.
+//
+// Objects already present are skipped, so re-running costs one HEAD per image
+// rather than re-sending ninety megabytes.
+func InstallOchaImageAssets(ctx context.Context, images *objectstore.Client, manifest OchaCatalogManifest) (uploaded int, skipped int, err error) {
+	if !images.Configured() {
+		return 0, 0, objectstore.ErrNotConfigured
 	}
-	written := map[string]bool{}
+	seen := map[string]bool{}
 	for _, image := range manifest.ProductImages {
-		if written[image.StorageKey] {
+		if seen[image.StorageKey] {
 			continue
 		}
-		payload, err := ochaImageAssets.ReadFile("seeddata/ocha_images/" + filepath.Base(image.AssetName))
+		seen[image.StorageKey] = true
+
+		present, err := images.Exists(ctx, image.StorageKey)
 		if err != nil {
-			return fmt.Errorf("read embedded Ocha image %s: %w", image.AssetName, err)
+			return uploaded, skipped, fmt.Errorf("check Ocha image %s: %w", image.StorageKey, err)
 		}
-		target := filepath.Join(uploadDir, filepath.Base(image.StorageKey))
-		temporary := target + ".tmp"
-		if err := os.WriteFile(temporary, payload, 0o644); err != nil {
-			return fmt.Errorf("stage Ocha image %s: %w", image.AssetName, err)
+		if present {
+			skipped++
+			continue
 		}
-		if err := os.Rename(temporary, target); err != nil {
-			_ = os.Remove(temporary)
-			return fmt.Errorf("install Ocha image %s: %w", image.AssetName, err)
+
+		payload, err := ochaImageAssets.ReadFile("seeddata/ocha_images/" + path.Base(image.AssetName))
+		if err != nil {
+			return uploaded, skipped, fmt.Errorf("read embedded Ocha image %s: %w", image.AssetName, err)
 		}
-		written[image.StorageKey] = true
+		if err := images.Upload(ctx, image.StorageKey, payload, image.MimeType); err != nil {
+			return uploaded, skipped, fmt.Errorf("upload Ocha image %s: %w", image.AssetName, err)
+		}
+		uploaded++
 	}
-	return nil
+	return uploaded, skipped, nil
 }
 
 func replacePOSAccountsTx(ctx context.Context, tx *sql.Tx, roleID string, passwordHash string) error {

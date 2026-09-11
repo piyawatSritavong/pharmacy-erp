@@ -15,6 +15,7 @@ import (
 	"pharmacy-erp/backend/internal/config"
 	"pharmacy-erp/backend/internal/database"
 	"pharmacy-erp/backend/internal/http"
+	"pharmacy-erp/backend/internal/platform/objectstore"
 )
 
 // ShutdownDrain is how long in-flight requests get to finish after SIGTERM.
@@ -56,6 +57,18 @@ func (a *App) SeedDemo(ctx context.Context) error {
 
 func (a *App) SeedMonthEnd(ctx context.Context) error {
 	return SeedMonthEnd(ctx, a.DB, a.Config)
+}
+
+// UploadProductImages puts the catalog photographs into the bucket. It is the
+// migration off local disk, and it is idempotent, so it is also what a new
+// environment runs to fill an empty bucket.
+func (a *App) UploadProductImages(ctx context.Context) (uploaded int, skipped int, err error) {
+	manifest, err := LoadOchaCatalog()
+	if err != nil {
+		return 0, 0, err
+	}
+	images := objectstore.New(a.Config.SupabaseURL, a.Config.SupabaseServiceRoleKey, a.Config.ProductImageBucket)
+	return InstallOchaImageAssets(ctx, images, manifest)
 }
 
 func (a *App) SeedInventoryFloor(ctx context.Context) (SeedInventoryFloorResult, error) {

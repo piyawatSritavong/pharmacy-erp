@@ -21,9 +21,9 @@ RUN apk add --no-cache ca-certificates && \
 WORKDIR /app
 COPY --from=builder /out/pharmacy-erp /app/pharmacy-erp
 
-# Uploads are written at runtime, so the directory has to belong to the user
-# the process runs as rather than to root.
-RUN mkdir -p /app/uploads && chown -R pharmacy:pharmacy /app
+# No uploads directory: product photographs live in Supabase Storage, so the
+# container writes nothing to its own filesystem and needs nowhere to write it.
+RUN chown -R pharmacy:pharmacy /app
 
 USER pharmacy
 

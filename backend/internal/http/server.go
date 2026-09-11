@@ -26,6 +26,7 @@ import (
 	"pharmacy-erp/backend/internal/modules/sales"
 	"pharmacy-erp/backend/internal/modules/transfers"
 	"pharmacy-erp/backend/internal/modules/users"
+	"pharmacy-erp/backend/internal/platform/objectstore"
 
 	"github.com/labstack/echo/v4"
 	echoMiddleware "github.com/labstack/echo/v4/middleware"
@@ -82,11 +83,15 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	}))
 
 	auditService := audit.NewService(db)
+	// nil when the credentials are absent; every image path then answers with
+	// one clear "storage is not configured" rather than a different confusion
+	// at each call site.
+	productImages := objectstore.New(cfg.SupabaseURL, cfg.SupabaseServiceRoleKey, cfg.ProductImageBucket)
 	authHandler := auth.NewHandler(auth.NewService(db, cfg))
 	branchHandler := branches.NewHandler(branches.NewService(db, auditService))
 	userHandler := users.NewHandler(users.NewService(db, auditService))
 	dashboardHandler := dashboard.NewHandler(dashboard.NewService(db))
-	productHandler := products.NewHandler(products.NewService(db, auditService, cfg.UploadDir))
+	productHandler := products.NewHandler(products.NewService(db, auditService, productImages))
 	promotionHandler := promotions.NewHandler(promotions.NewService(db, auditService))
 	purchasingHandler := purchasing.NewHandler(purchasing.NewService(db, auditService))
 	inventoryHandler := inventory.NewHandler(inventory.NewService(db, auditService))

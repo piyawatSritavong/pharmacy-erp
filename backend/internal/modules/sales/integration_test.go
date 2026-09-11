@@ -115,7 +115,7 @@ func TestSalesFEFOExpiryAndInvoiceRestoreAgainstConfiguredDatabase(t *testing.T)
 		}
 	}
 
-	productService := products.NewService(db, auditService, t.TempDir())
+	productService := products.NewService(db, auditService, nil)
 	settings, err := productService.GetBranchSettings(ctx, user, productID, branchID)
 	if err != nil {
 		t.Fatal(err)

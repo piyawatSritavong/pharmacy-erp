@@ -56,6 +56,15 @@ func main() {
 			log.Fatalf("seed: %v", err)
 		}
 		log.Println("seed completed")
+	case "upload-product-images":
+		// The one-off move from UPLOAD_DIR to Supabase Storage, and the step a
+		// fresh environment runs to fill an empty bucket. Safe to repeat: what
+		// is already there is skipped.
+		uploaded, skipped, err := application.UploadProductImages(ctx)
+		if err != nil {
+			log.Fatalf("upload product images: %v", err)
+		}
+		log.Printf("product images: %d uploaded, %d already present", uploaded, skipped)
 	case "seed":
 		if err := application.Seed(ctx); err != nil {
 			log.Fatalf("seed: %v", err)
@@ -131,6 +140,6 @@ func main() {
 			log.Fatalf("serve: %v", err)
 		}
 	default:
-		log.Fatalf("unknown command %q (serve, migrate, migrate-and-seed, seed, seed-inventory-floor, reset-operational-data, replace-ocha-catalog)", command)
+		log.Fatalf("unknown command %q (serve, migrate, migrate-and-seed, seed, upload-product-images, seed-inventory-floor, reset-operational-data, replace-ocha-catalog)", command)
 	}
 }

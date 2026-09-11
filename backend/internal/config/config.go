@@ -16,7 +16,9 @@ type Config struct {
 	CookieSecure              bool
 	CookieDomain              string
 	DefaultVATPct             float64
-	UploadDir                 string
+	SupabaseURL               string
+	SupabaseServiceRoleKey    string
+	ProductImageBucket        string
 	AllowDestructiveSeed      bool
 	AllowOperationalDataReset bool
 	AllowMasterDataReset      bool
@@ -36,7 +38,9 @@ func Load() Config {
 		CookieSecure:              getenvBool("COOKIE_SECURE", false),
 		CookieDomain:              os.Getenv("COOKIE_DOMAIN"),
 		DefaultVATPct:             getenvFloat("DEFAULT_VAT_PCT", 7),
-		UploadDir:                 getenv("UPLOAD_DIR", "./uploads"),
+		SupabaseURL:               getenv("SUPABASE_URL", ""),
+		SupabaseServiceRoleKey:    getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
+		ProductImageBucket:        getenv("PRODUCT_IMAGE_BUCKET", "product-images"),
 		AllowDestructiveSeed:      getenvBool("ALLOW_DESTRUCTIVE_SEED", false),
 		AllowOperationalDataReset: getenvBool("ALLOW_OPERATIONAL_DATA_RESET", false),
 		AllowMasterDataReset:      getenvBool("ALLOW_MASTER_DATA_RESET", false),

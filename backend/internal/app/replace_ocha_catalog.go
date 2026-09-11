@@ -58,9 +58,6 @@ func ReplaceOchaCatalog(ctx context.Context, db *sql.DB, cfg config.Config, conf
 	if err != nil {
 		return result, fmt.Errorf("hash POS seed password: %w", err)
 	}
-	if err := installOchaImageAssets(cfg.UploadDir, manifest); err != nil {
-		return result, err
-	}
 	err = platform.WithTx(ctx, db, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(867530902)`); err != nil {
 			return err

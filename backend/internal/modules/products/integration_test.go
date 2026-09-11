@@ -26,7 +26,7 @@ func TestListProductsScansSuperadminPriceAndGhostThreshold(t *testing.T) {
 	}
 	defer db.Close()
 
-	service := NewService(db, audit.NewService(db), t.TempDir())
+	service := NewService(db, audit.NewService(db), nil)
 	result, err := service.List(context.Background(), platform.AuthUser{RoleKey: "super_admin"}, "", ListFilter{Page: 1, PageSize: 20})
 	if err != nil {
 		t.Fatalf("list products as superadmin: %v", err)
@@ -62,7 +62,7 @@ func TestDeleteCategoryReassignsProductsToUncategorized(t *testing.T) {
 		t.Fatal(err)
 	}
 	auditService := audit.NewService(db)
-	service := NewService(db, auditService, t.TempDir())
+	service := NewService(db, auditService, nil)
 	user := platform.AuthUser{ID: userID, RoleKey: "super_admin"}
 	meta := audit.LogEntry{ActorID: &userID}
 
