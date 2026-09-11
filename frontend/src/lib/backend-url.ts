@@ -8,8 +8,9 @@
  *
  * Three names are accepted because three already exist in the wild:
  * BACKEND_INTERNAL_URL is what compose sets, NEXT_PUBLIC_BACKEND_URL is what
- * the older deployment notes use, and NEXT_PUBLIC_API_URL is what the Render
- * blueprint sets.
+ * the older deployment notes use, and NEXT_PUBLIC_API_URL is accepted so a
+ * value set under that name is not silently ignored. The Render blueprint sets
+ * BACKEND_INTERNAL_URL.
  */
 const configured =
   process.env.BACKEND_INTERNAL_URL ||
@@ -28,7 +29,7 @@ function resolve(): string {
   }
   if (process.env.NODE_ENV === "production") {
     throw new Error(
-      "ไม่ได้ตั้งค่า URL ของ backend — ต้องตั้ง NEXT_PUBLIC_API_URL (หรือ BACKEND_INTERNAL_URL) ก่อนรันในโหมด production"
+      "ไม่ได้ตั้งค่า URL ของ backend — ต้องตั้ง BACKEND_INTERNAL_URL (หรือ NEXT_PUBLIC_API_URL / NEXT_PUBLIC_BACKEND_URL) ก่อนรันในโหมด production"
     );
   }
   return "http://localhost:8080";

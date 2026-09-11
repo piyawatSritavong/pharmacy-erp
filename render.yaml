@@ -1,9 +1,14 @@
-# Render blueprint for the Pharmacy ERP API.
+# Render blueprint for Pharmacy ERP: the Go API and the Next.js frontend.
 #
-# The service serves and nothing else. Migrations run as preDeployCommand, which
+# The API serves and nothing else. Migrations run as preDeployCommand, which
 # Render executes once per deploy before any new instance takes traffic — so the
 # schema is in place before the first request and no two processes race each
 # other through schema_migrations.
+#
+# The two services name each other, so neither URL can be filled in from here:
+# the API's FRONTEND_URL is the web service's origin, and the web service's
+# BACKEND_INTERNAL_URL is the API's. Apply the blueprint, let both services be
+# created, then set all four sync:false values in the dashboard and redeploy.
 services:
   - type: web
     name: pharmacy-erp-api
@@ -31,8 +36,15 @@ services:
         sync: false
       - key: APP_ENV
         value: production
+      # The web service's public origin, and the only origin CORS will allow
+      # once APP_ENV is production. sync:false rather than a literal because the
+      # value is not knowable until the web service exists: on a first deploy it
+      # is https://pharmacy-erp-web.onrender.com, and it becomes the custom
+      # domain only after that is attached. A stale literal here fails closed —
+      # every cross-origin call refused, with nothing in the blueprint to say
+      # why.
       - key: FRONTEND_URL
-        value: https://mes.ihavepro.com
+        sync: false
       # Host-only cookie. COOKIE_DOMAIN is deliberately absent — setting it
       # would widen the cookie across subdomains.
       - key: COOKIE_NAME
@@ -68,10 +80,14 @@ services:
     autoDeploy: false
     envVars:
       # The Go API's public URL, e.g. https://pharmacy-erp-api.onrender.com.
-      # Set it in the dashboard once the backend service exists and has one.
+      # Set it in the dashboard once the API service exists and has one.
       #
-      # Read on the server, not inlined into a client bundle: the browser talks
-      # only to /api/backend/* on its own origin, and the Next route handler
-      # forwards from there.
-      - key: NEXT_PUBLIC_API_URL
+      # BACKEND_INTERNAL_URL rather than NEXT_PUBLIC_API_URL: both are read
+      # (backend-url.ts accepts three names), but this one comes first in the
+      # chain, is what compose already sets so dev and production agree, and is
+      # honestly named. The value is only ever read on the server — the browser
+      # talks to /api/backend/* on its own origin and the Next route handler
+      # forwards from there — so a NEXT_PUBLIC_ prefix would advertise a
+      # client-bundle exposure that does not happen.
+      - key: BACKEND_INTERNAL_URL
         sync: false
