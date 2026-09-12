@@ -49,8 +49,15 @@ async function failureFromResponse(response: Response): Promise<ApiError> {
 }
 
 export async function apiServer<T>(path: string, init?: RequestInit): Promise<T> {
-  const backendURL = resolveBackendURL();
+  // cookies() first, deliberately. It is a dynamic API: touching it tells Next
+  // this render cannot be prerendered. resolveBackendURL() throws when the
+  // variable is absent, which during `next build` it always is — Render's env
+  // is runtime-only and the Dockerfile declares no build ARG — so with the
+  // order reversed the throw happened before any dynamic API was read. Next
+  // then saw a route that merely redirects, and baked every authenticated page
+  // into a static 307 to /login, cached for a year and never re-rendered.
   const token = (await cookies()).get(AUTH_COOKIE)?.value;
+  const backendURL = resolveBackendURL();
   const response = await fetch(`${backendURL}/api/v1${path}`, {
     ...init,
     cache: "no-store",

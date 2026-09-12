@@ -1,6 +1,13 @@
 .git
 .DS_Store
+# Every env file, at any depth — not just a root-level .env. frontend/.env.local
+# was reaching the build context, so `next build` inside the image picked up a
+# developer's BACKEND_INTERNAL_URL while Render's clone (where .env.local is
+# gitignored) had none. That divergence is what let /dashboard prerender as a
+# redirect in production and not here. Examples carry no values and stay.
 .env
+**/.env*
+!**/.env.example
 .claude
 DockBill
 backend/pharmacy-erp
