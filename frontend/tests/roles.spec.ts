@@ -638,6 +638,55 @@ test.describe("สิทธิ์และการนำทางสองบ�
     await session.context.close();
   });
 
+  /**
+   * Logging in a second time, in a browser that has already been logged in
+   * once, is the sequence that broke: login answered 200 and set the cookie,
+   * and the page stayed on /login.
+   *
+   * The cause was client-side. router.push() consults the App Router's Router
+   * Cache, which by then holds a /dashboard entry fetched while logged out —
+   * middleware answers such a request with a redirect back to /login — and the
+   * router.refresh() that followed it in the same transition could not clear
+   * that entry before the push had already read it. A fresh browser context
+   * has an empty cache, so the bug is invisible there; the second login in the
+   * SAME context, without reloading /login, is what exposes it.
+   *
+   * The assertion is not "the url ended up right": a client push often does
+   * arrive, which is why this was intermittent rather than broken. It is that
+   * the login performed a real document navigation. A marker set on window
+   * before submitting cannot survive one, and does survive a client push, so
+   * reintroducing router.push here fails this test deterministically.
+   */
+  test("เข้าสู่ระบบซ้ำหลังออกจากระบบ ต้องพาไปหน้าแรกด้วยการโหลดหน้าใหม่", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    await signIn(page, "superadmin@erp.local", "/dashboard");
+
+    await page.getByRole("button", { name: "ออกจากระบบ" }).first().click();
+    await page.waitForURL(/\/login$/);
+
+    // No reload here on purpose — this is the state a real user is in after
+    // logging out, and reloading would reset the very cache under test.
+    await page.evaluate(() => {
+      (window as unknown as { __beforeLogin?: boolean }).__beforeLogin = true;
+    });
+
+    await page.getByLabel("อีเมล").fill("superadmin@erp.local");
+    await page.getByLabel("รหัสผ่าน").fill(passwordFor("superadmin@erp.local"));
+    await page.getByRole("button", { name: "เข้าสู่ระบบ" }).click();
+
+    await page.waitForURL(/\/dashboard$/);
+    const markerSurvived = await page.evaluate(
+      () => Boolean((window as unknown as { __beforeLogin?: boolean }).__beforeLogin)
+    );
+    expect(markerSurvived, "login must be a document navigation, not a client push").toBe(false);
+
+    await context.close();
+  });
+
   test("layout ผู้ดูแลและ POS ใช้งานได้บนหน้าจอมือถือโดยไม่ล้นแนวนอน", async ({
     browser,
   }) => {

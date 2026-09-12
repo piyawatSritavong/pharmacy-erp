@@ -1,13 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { FormEvent, useState, startTransition } from "react";
+import { FormEvent, useState } from "react";
 
 import { Button, Card, CardBody, CardHeader, Input } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -24,13 +22,31 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password })
       });
 
-      startTransition(() => {
-        router.push(session.home_path || "/dashboard");
-        router.refresh();
-      });
+      // A full document load, not a client navigation.
+      //
+      // The cookie has just changed, and every entry in the App Router's
+      // client-side Router Cache predates it — including any /dashboard entry
+      // fetched while logged out, which middleware answered with a redirect
+      // back to /login. router.push() reads that cache before router.refresh()
+      // can clear it, so the navigation resolves into a stale payload and the
+      // page appears never to leave /login. A document load cannot consult the
+      // cache at all: it re-runs middleware and sends the new cookie on a fresh
+      // request. A login happens once per session, so the cost of a reload is
+      // not worth the class of bug the client route avoids.
+      //
+      // replace() rather than assign() so /login does not stay in the history
+      // stack. It is what a login should do regardless — nobody wants Back to
+      // return to the form they just submitted — and it is load-bearing here:
+      // /login is statically prerendered and bfcache-eligible, and middleware
+      // treats it as public, so with assign() a Back from the landing page
+      // restored this document with its React state intact. `loading` is left
+      // true on this path (the document is going away, and clearing it would
+      // flash the idle label mid-navigation), which in a restored document
+      // meant a permanently disabled button reading "กำลังเข้าสู่ระบบ..." with
+      // no request in flight. Removing the entry removes the way back to it.
+      window.location.replace(session.home_path || "/dashboard");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "เข้าสู่ระบบไม่สำเร็จ");
-    } finally {
       setLoading(false);
     }
   }
