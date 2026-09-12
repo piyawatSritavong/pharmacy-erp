@@ -53,11 +53,15 @@ export function ThemeToggle() {
 }
 
 /**
- * Runs before React hydrates so the page never paints light and then flips.
- * Falls back to the operating system's setting the first time, then follows
- * whatever the operator chose.
+ * Runs before React hydrates so the page never paints one theme and then flips.
+ *
+ * Light is the default. Only a stored choice of "dark" turns the lights off:
+ * this used to consult prefers-color-scheme when nothing was stored, so an
+ * operator whose machine was set to dark met a dark till on first use without
+ * ever having asked for one. A shop floor is a bright room, and the toggle is
+ * there for anyone who wants otherwise.
  */
 export function ThemeScript() {
-  const script = `(function(){try{var s=localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});var d=s?s==="dark":window.matchMedia("(prefers-color-scheme: dark)").matches;if(d)document.documentElement.classList.add("dark")}catch(e){}})()`;
+  const script = `(function(){try{if(localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)})==="dark")document.documentElement.classList.add("dark")}catch(e){}})()`;
   return <script dangerouslySetInnerHTML={{ __html: script }} suppressHydrationWarning />;
 }
