@@ -1,8 +1,49 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
 
-import { apiServer } from "@/services/api-server";
+import { ApiError, apiServer } from "@/services/api-server";
 import type { Session } from "@/types";
+
+/**
+ * One structured line to stderr for a /me that did not come back as a session.
+ *
+ * This used to be a bare catch that turned every failure into a redirect to
+ * /login and kept the reason to itself — a refused token, a backend that was
+ * unreachable, and a backend that answered with an empty permission list all
+ * looked identical from the outside, and each had to be diagnosed by adding
+ * instrumentation. The fields below are what those diagnoses needed. No token
+ * and no cookie value: a live credential does not belong in a retained log,
+ * and it carries nothing the status and cause do not.
+ */
+/**
+ * Next signals control flow by throwing. redirect() throws NEXT_REDIRECT,
+ * notFound() throws NEXT_NOT_FOUND, and a page that reads cookies during
+ * `next build` throws DYNAMIC_SERVER_USAGE so the route gets marked dynamic.
+ * Every one of them carries a `digest`; a failed fetch or an API error never
+ * does. Anything with a digest is Next's business and is passed straight
+ * back — never logged as a session failure, never turned into a redirect.
+ */
+function isNextSignal(error: unknown): boolean {
+  return typeof (error as { digest?: unknown })?.digest === "string";
+}
+
+function logSessionFailure(error: unknown) {
+  const cause = (error as { cause?: { code?: unknown; message?: unknown } })?.cause;
+  console.error(JSON.stringify({
+    event: "session.unavailable",
+    path: "/me",
+    error_name: error instanceof Error ? error.name : typeof error,
+    error_message: error instanceof Error ? error.message : String(error),
+    // Set when the API answered at all; absent means the request never
+    // completed (see cause_code for why).
+    status: error instanceof ApiError ? error.status : null,
+    body_excerpt: error instanceof ApiError ? error.body : null,
+    // Set by undici when fetch itself failed: ECONNREFUSED, ENOTFOUND, a
+    // timeout code. Absent when the API answered.
+    cause_code: typeof cause?.code === "string" ? cause.code : null,
+    cause_message: typeof cause?.message === "string" ? cause.message : null
+  }));
+}
 
 /**
  * The session for the current request, fetched once.
@@ -16,12 +57,34 @@ import type { Session } from "@/types";
  * touching the network. Next's own fetch dedup does not apply here because
  * apiServer sends cache: "no-store".
  */
-export const getSession = cache(async () => apiServer<Session>("/me"));
+export const getSession = cache(async (): Promise<Session> => {
+  try {
+    return await apiServer<Session>("/me");
+  } catch (error) {
+    if (!isNextSignal(error)) {
+      logSessionFailure(error);
+    }
+    throw error;
+  }
+});
 
+/**
+ * The session, or a redirect to /login. The reason for the redirect has
+ * already been written by getSession, once for the request, so nothing is
+ * swallowed here — this catch only converts the (already logged) failure
+ * into navigation.
+ */
 export async function requireSession(): Promise<Session> {
   try {
     return await getSession();
-  } catch {
+  } catch (error) {
+    // A Next signal is rethrown as-is. This used to redirect on it too, which
+    // turned a build-time "this route is dynamic" bailout into a /login
+    // redirect; the build survived because Next treats the redirect throw as
+    // dynamic as well, so it was wrong without being visible.
+    if (isNextSignal(error)) {
+      throw error;
+    }
     redirect("/login");
   }
 }
