@@ -639,6 +639,47 @@ test.describe("สิทธิ์และการนำทางสองบ�
   });
 
   /**
+   * A logout that could not reach the server must not look like one that did.
+   *
+   * The navigation used to sit in a `finally`, so it ran whether or not the
+   * request completed. With the API unreachable the browser went to /login
+   * holding a cookie that was never cleared — the operator saw a login screen,
+   * believed the till was locked, and the next navigation walked straight back
+   * into the session. That is the dangerous direction to fail in on a shared
+   * terminal, so this asserts the opposite: stay put, say so, and leave the
+   * session visibly intact rather than pretending it ended.
+   */
+  test("ออกจากระบบไม่สำเร็จ ต้องไม่พาไปหน้าเข้าสู่ระบบ และ session ต้องยังใช้งานได้", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await signIn(page, "superadmin@erp.local", "/dashboard");
+
+    const cookieValue = async () =>
+      (await context.cookies()).find((c) => c.name === "pharmacy_erp_auth")?.value;
+    const before = await cookieValue();
+    expect(before, "a session cookie must exist before logging out").toBeTruthy();
+
+    // The request never completes — the shape of an API that is down, or a
+    // browser that has lost the network mid-click.
+    await page.route("**/api/backend/auth/logout", (route) => route.abort("failed"));
+    await page.getByRole("button", { name: "ออกจากระบบ" }).first().click();
+    await page.waitForTimeout(3000);
+
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page.locator("[data-sonner-toast]").first()).toBeVisible();
+    expect(await cookieValue(), "a failed logout must not discard the session").toBe(before);
+
+    // And the session is not merely bytes in a jar — it still opens pages.
+    await page.unroute("**/api/backend/auth/logout");
+    await page.goto("/real-inventory");
+    await expect(page).not.toHaveURL(/\/login$/);
+
+    await context.close();
+  });
+
+  /**
    * Logging in a second time, in a browser that has already been logged in
    * once, is the sequence that broke: login answered 200 and set the cookie,
    * and the page stayed on /login.
