@@ -20,8 +20,8 @@ export function Field({
   labelClassName?: string;
 }) {
   return (
-    <label className={cn("block space-y-2", className)}>
-      <span className={cn("flex items-baseline justify-between gap-3 text-sm font-bold text-foreground", labelClassName)}>
+    <label className={cn("block min-w-0 max-w-full space-y-1.5 sm:space-y-2", className)}>
+      <span className={cn("flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm font-medium text-foreground sm:font-bold", labelClassName)}>
         {label}
         {hint ? <span className="text-xs font-normal text-muted-foreground">{hint}</span> : null}
       </span>

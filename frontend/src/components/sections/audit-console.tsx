@@ -45,7 +45,7 @@ export function AuditConsole({
   return (
     <SectionCard description="กรองตามสาขา ประเภทข้อมูล การกระทำ และช่วงวันที่ — เรียงจากรายการล่าสุด" title="ประวัติการทำงาน">
       <form action="/audit" className="mb-4 flex flex-wrap items-end gap-3" method="GET">
-        <Field className="w-48" label="สาขา">
+        <Field className="w-full sm:w-48" label="สาขา">
           <Select aria-label="กรองตามสาขา" defaultValue={filters.branch_id} name="branch_id">
             <option value="">ทุกสาขา</option>
             {branches.map((branch) => (

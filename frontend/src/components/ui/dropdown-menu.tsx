@@ -30,10 +30,11 @@ export function DropdownMenuContent({
       <DropdownMenuPrimitive.Content
         align={align}
         className={cn(
-          "z-50 min-w-40 rounded-xl border border-black/10 bg-white p-2 shadow-xl",
+          "z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-40 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-black/10 bg-white p-2 shadow-xl",
           className
         )}
         side={side}
+        collisionPadding={16}
         sideOffset={sideOffset}
       >
         {children}
@@ -51,7 +52,7 @@ export function DropdownMenuItem({
     <DropdownMenuPrimitive.Item
       asChild={asChild}
       className={cn(
-        "rounded-lg px-3 py-2 text-sm text-black outline-none transition hover:bg-black/[0.04] focus:bg-black/[0.04]",
+        "min-h-11 rounded-lg px-3 py-2 text-sm text-foreground outline-none transition hover:bg-muted focus:bg-muted sm:min-h-0",
         className
       )}
     >

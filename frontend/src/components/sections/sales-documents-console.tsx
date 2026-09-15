@@ -80,7 +80,7 @@ export function SalesDocumentsConsole({
 
   const filterBar = (
     <div className="mb-4 flex flex-wrap items-end gap-3">
-      <Field className="w-64" label="ค้นหา">
+      <Field className="w-full sm:w-64" label="ค้นหา">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
           <Input

@@ -239,3 +239,65 @@ textarea:disabled {
 @media (min-width: 1024px) {
   [data-radix-popper-content-wrapper]:has(.notif-flush-right) { right: 2.5rem !important; }
 }
+
+/* Mobile foundations. Keep desktop/tablet utility sizing intact. Editable
+   controls stay at 16px to avoid focus zoom on iOS; touch targets stay 44px. */
+@media screen and (max-width: 639px) {
+  main { font-size: 0.875rem; }
+  main :where(button:not([role="checkbox"]):not([role="switch"])),
+  .app-dialog :where(button:not([role="checkbox"]):not([role="switch"])),
+  .app-sheet :where(button:not([role="checkbox"]):not([role="switch"])) {
+    min-height: 2.75rem;
+  }
+  :is(.ui-input, .ui-select, .ui-button) { min-height: 2.75rem; }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea {
+    min-width: 0;
+    font-size: 1rem;
+  }
+  input[type="date"], input[type="datetime-local"] { max-width: 100%; }
+  input::-webkit-date-and-time-value { text-align: left; }
+  .app-dialog > * { flex-shrink: 0; }
+  .app-dialog { scroll-padding-block: 4rem 1rem; }
+  .dialog-header > div:last-child { max-width: 45%; }
+  .responsive-table { min-width: 38rem; }
+  .responsive-table th { white-space: nowrap; }
+  .responsive-table td { max-width: 22rem; overflow-wrap: anywhere; }
+  .responsive-table:has(tbody > tr:only-child > td:only-child[colspan]) { min-width: 100%; }
+
+  /* Opt-in cards retain a single set of cells/actions and every data value. */
+  .mobile-card-table { min-width: 0; width: 100%; }
+  .mobile-card-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .mobile-card-table tbody { display: grid; gap: 0.75rem; }
+  .mobile-card-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem 0.75rem; border: 1px solid hsl(var(--border)); border-radius: 0.75rem; padding: 0.75rem; }
+  .mobile-card-table tbody td { display: block; padding: 0; min-width: 0; max-width: none; border: 0; text-align: left; }
+  .mobile-card-table td::before { content: attr(data-label); display: block; margin-bottom: 0.125rem; font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
+  .mobile-card-table td[data-primary="true"] { grid-column: 1 / -1; font-weight: 600; }
+  .mobile-card-table td[data-actions="true"], .mobile-card-table td[colspan] { grid-column: 1 / -1; }
+  .mobile-card-table td[data-actions="true"] { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; border-top: 1px solid hsl(var(--border)); padding-top: 0.5rem; }
+  .mobile-card-table td[data-actions="true"]::before, .mobile-card-table td[colspan]::before { display: none; }
+  .mobile-card-table td[colspan] { padding-block: 1rem; }
+
+  [data-radix-popper-content-wrapper]:has(.notif-flush-right) { right: 0.75rem !important; top: 4rem !important; }
+  .notif-flush-right { max-height: calc(100dvh - 5rem); }
+}
+
+@media screen and (max-width: 1279px) {
+  .pos-cart > * { flex-shrink: 0; }
+}
+
+/* VisualViewport follows the software keyboard as well as browser chrome. */
+@media screen and (max-width: 639px) {
+  .app-dialog {
+    top: calc(var(--app-viewport-top, 0px) + var(--app-viewport-height, 100dvh) / 2);
+    max-height: calc(var(--app-viewport-height, 100dvh) - 2rem);
+  }
+  .app-sheet {
+    top: var(--app-viewport-top, 0px);
+    height: var(--app-viewport-height, 100dvh);
+    max-height: var(--app-viewport-height, 100dvh);
+  }
+  .pos-cart[role="dialog"] {
+    top: calc(var(--app-viewport-top, 0px) + 0.5rem);
+    max-height: calc(var(--app-viewport-height, 100dvh) - 1rem);
+  }
+}

@@ -3,6 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronUp, Search } from "lucide-react";
 
+import { usePopoverPosition } from "@/components/ui/use-popover-position";
 import { cn } from "@/lib/utils";
 
 export type MultiSelectOption = {
@@ -52,6 +53,7 @@ export function MultiSelect({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listID = useId();
+  const panelPosition = usePopoverPosition(open, wrapperRef, 384);
 
   // Close on click-away / Escape. Bound only while open so the page keeps no
   // idle listeners when every picker on it is closed.
@@ -160,7 +162,7 @@ export function MultiSelect({
       </button>
 
       {open ? (
-        <div className="absolute left-0 right-0 top-[calc(100%+0.375rem)] z-40 rounded-md border border-border bg-card p-3 shadow-md">
+        <div className="absolute left-0 right-0 z-40 overflow-y-auto overscroll-contain rounded-md border border-border bg-card p-3 shadow-md" style={{ maxHeight: panelPosition?.maxHeight, ...(panelPosition?.above ? { bottom: "calc(100% + 0.375rem)" } : { top: "calc(100% + 0.375rem)" }) }}>
           <div className="relative">
             <input
               className="h-9 w-full rounded-md border border-input bg-card pl-3 pr-9 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40"

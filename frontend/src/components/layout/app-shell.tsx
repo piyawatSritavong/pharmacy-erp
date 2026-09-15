@@ -5,7 +5,8 @@ import { useState } from "react";
 
 import { AppHeader } from "@/components/layout/app-header";
 import { PageHeaderProvider } from "@/components/layout/page-header";
-import { MobileNav, PosBottomNav, Sidebar } from "@/components/layout/sidebar";
+import { PosBottomNav, Sidebar } from "@/components/layout/sidebar";
+import { useVisualViewport } from "@/components/ui/use-visual-viewport";
 import { cn } from "@/lib/utils";
 import type { Session } from "@/types";
 
@@ -13,13 +14,14 @@ export function AppShell({
   session,
   children
 }: PropsWithChildren<{ session: Session }>) {
+  useVisualViewport();
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
 	if (session.user.portal === "pos") {
     return (
       // Nav renders after <main> so it sits along the bottom edge of the
       // screen, next to the till's own action buttons.
-      <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-pos-canvas">
+      <div className="flex h-[var(--app-viewport-height,100dvh)] min-h-0 flex-col overflow-hidden bg-pos-canvas">
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5">{children}</main>
         <PosBottomNav navigation={session.navigation} user={session.user} />
       </div>
@@ -41,10 +43,9 @@ export function AppShell({
       {/* Every back-office page shares this padded template — no route gets a
           full-bleed, non-scrolling workspace of its own (สรุปสิ้นเดือน used
           to, and its content was simply clipped once it outgrew the viewport). */}
-      <main className="min-w-0 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
+      <main className="min-w-0 px-3 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8">
         <PageHeaderProvider>
           <AppHeader navigation={session.navigation} user={session.user} />
-          <MobileNav navigation={session.navigation} />
           {children}
         </PageHeaderProvider>
       </main>

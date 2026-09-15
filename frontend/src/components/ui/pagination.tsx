@@ -56,13 +56,13 @@ export function Pagination({
       <p className={cn("text-xs text-muted-foreground", stacked && "text-center")}>
         ทั้งหมด {total.toLocaleString("th-TH")} รายการ
       </p>
-      <div className={cn("flex flex-wrap items-center gap-2", stacked && "justify-center")}>
+      <div className={cn("grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap", stacked && "justify-center")}>
         {/* Fixed widths: the label grows with the page number ("หน้า 1 / 9" vs
             "หน้า 38 / 38"), and an auto-width trigger would resize under the
             cursor as you page through. */}
         <Select
           aria-label="เลือกหน้า"
-          className="h-9 w-[9.5rem] shrink-0"
+          className="h-9 w-full sm:w-[9.5rem] sm:shrink-0"
           onChange={(event) => onPageChange(Number(event.target.value))}
           value={String(safePage)}
         >
@@ -75,7 +75,7 @@ export function Pagination({
         {onPageSizeChange ? (
           <Select
             aria-label="จำนวนรายการต่อหน้า"
-            className="h-9 w-[9.5rem] shrink-0"
+            className="h-9 w-full sm:w-[9.5rem] sm:shrink-0"
             onChange={(event) => onPageSizeChange(Number(event.target.value))}
             value={String(pageSize)}
           >
@@ -86,7 +86,7 @@ export function Pagination({
             ))}
           </Select>
         ) : null}
-        <div className="flex gap-2">
+        <div className="col-span-2 flex justify-end gap-2">
           <Button
             aria-label="หน้าก่อนหน้า"
             className="h-9"

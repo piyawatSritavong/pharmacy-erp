@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
+import { cn } from "@/lib/utils";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 
 import { ReconciliationRoundPicker } from "@/components/sections/reconciliation-round-picker";
 import { Field } from "@/components/ui/field";
@@ -42,6 +44,7 @@ function shiftDay(iso: string, days: number) {
  * dates to move one day back is friction the screen does not need.
  */
 export function DashboardFilters({ canSeeClose }: { canSeeClose: boolean }) {
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const router = useRouter();
   const params = useSearchParams();
   const today = bangkokToday();
@@ -75,10 +78,14 @@ export function DashboardFilters({ canSeeClose }: { canSeeClose: boolean }) {
   const isToday = singleDay && dateFrom === today;
 
   return (
-    <div className="rounded-2xl border bg-card p-4 shadow-card">
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-        <div className="flex min-w-0 flex-wrap items-end gap-3">
-          <Field className="w-[calc(50%-0.375rem)] sm:w-40" label="วันเริ่มต้น">
+    <div className="rounded-xl border bg-card p-3 shadow-card sm:rounded-2xl sm:p-4">
+      <div className="flex flex-col gap-3 sm:gap-5 xl:flex-row xl:items-start xl:justify-between">
+        <Button aria-controls="dashboard-filter-fields" aria-expanded={filtersOpen} className="w-full justify-between sm:hidden" onClick={() => setFiltersOpen((value) => !value)} type="button" variant="secondary">
+          <span className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4" />ตัวกรองและช่วงวันที่</span>
+          <span className="text-xs text-muted-foreground">{[closeStatus, paymentType, paymentStatus, roundId].filter(Boolean).length || "ทั้งหมด"}</span>
+        </Button>
+        <div className={cn("min-w-0 flex-wrap items-end gap-3 sm:flex", filtersOpen ? "flex" : "hidden")} id="dashboard-filter-fields">
+          <Field className="w-full min-[390px]:w-[calc(50%-0.375rem)] sm:w-40" label="วันเริ่มต้น">
             <Input
               aria-label="ยอดขายตั้งแต่วันที่"
               onChange={(event) => apply({ date_from: event.target.value })}
@@ -86,7 +93,7 @@ export function DashboardFilters({ canSeeClose }: { canSeeClose: boolean }) {
               value={dateFrom}
             />
           </Field>
-          <Field className="w-[calc(50%-0.375rem)] sm:w-40" label="วันสิ้นสุด">
+          <Field className="w-full min-[390px]:w-[calc(50%-0.375rem)] sm:w-40" label="วันสิ้นสุด">
             <Input
               aria-label="ยอดขายถึงวันที่"
               onChange={(event) => apply({ date_to: event.target.value })}
@@ -153,13 +160,13 @@ export function DashboardFilters({ canSeeClose }: { canSeeClose: boolean }) {
           ) : null}
         </div>
 
-        <div className="flex min-w-0 shrink-0 flex-nowrap items-center justify-end gap-2">
+        <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
           <Button aria-label="วันก่อนหน้า" onClick={() => step(-1)} type="button" variant="secondary">
             <ChevronLeft className="h-4 w-4" />
             <span className="hidden sm:inline">วันก่อนหน้า</span>
           </Button>
-          <div className="min-w-0 flex-1 whitespace-nowrap rounded-xl border bg-muted/50 px-4 py-2 text-center sm:min-w-[13rem] sm:flex-none">
-            <p className="text-base font-semibold leading-tight">
+          <div className="min-w-0 flex-1 rounded-xl border bg-muted/50 px-2 sm:px-4 py-2 text-center sm:min-w-[13rem] sm:flex-none">
+            <p className="text-sm font-semibold leading-snug sm:text-base">
               {singleDay ? thaiFullDate(dateFrom) : `${thaiFullDate(dateFrom)} – ${thaiFullDate(dateTo)}`}
             </p>
             <p className="text-xs text-muted-foreground">{isToday ? "วันนี้ · อัปเดตสด" : "ย้อนหลัง"}</p>

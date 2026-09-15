@@ -115,14 +115,14 @@ export function Select({
           className={cn(
             // text-foreground explicit for the same reason as Input — see
             // its comment (D4's dark-card "invisible text" bug).
-            "flex h-10 w-full items-center justify-between rounded-md border border-input bg-card px-3 py-2 text-left text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
+            "ui-select flex h-10 min-w-0 max-w-full w-full items-center justify-between gap-2 rounded-md border border-input bg-card px-3 py-2 text-left text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50 [&>span:first-child]:truncate",
             className
           )}
           {...(props as React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>)}
         >
           <SelectPrimitive.Value aria-label={displayLabel} placeholder={displayLabel} />
           <SelectPrimitive.Icon asChild>
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
           </SelectPrimitive.Icon>
         </SelectPrimitive.Trigger>
         <SelectPrimitive.Portal>
@@ -131,7 +131,8 @@ export function Select({
               var keeps it inside the viewport on short screens; 18rem caps it
               on tall ones. */}
           <SelectPrimitive.Content
-            className="z-50 max-h-[min(18rem,var(--radix-select-content-available-height))] min-w-[8rem] overflow-hidden rounded-md border bg-card text-card-foreground shadow-md"
+            className="z-50 max-h-[min(18rem,var(--radix-select-content-available-height))] min-w-[8rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border bg-card text-card-foreground shadow-md"
+            collisionPadding={16}
             position="popper"
             sideOffset={6}
           >
@@ -143,7 +144,7 @@ export function Select({
                 <SelectPrimitive.Item
                   key={item.key}
                   value={item.radixValue}
-                  className="relative flex cursor-default select-none items-center rounded-sm py-2 pl-8 pr-3 text-sm text-black outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-40 data-[highlighted]:bg-muted data-[highlighted]:text-foreground"
+                  className="relative flex min-h-11 cursor-default select-none items-center break-words rounded-sm py-2 pl-8 pr-3 text-sm text-foreground outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-40 data-[highlighted]:bg-muted data-[highlighted]:text-foreground sm:min-h-0"
                   disabled={item.disabled}
                 >
                   <span className="absolute left-2 flex h-4 w-4 items-center justify-center">

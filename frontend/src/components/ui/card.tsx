@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 export function Card({ className, children }: PropsWithChildren<{ className?: string }>) {
   return (
-    <section className={cn("rounded-lg border bg-card text-card-foreground shadow-sm", className)}>
+    <section className={cn("min-w-0 rounded-lg border bg-card text-card-foreground shadow-sm", className)}>
       {children}
     </section>
   );
@@ -24,11 +24,11 @@ export function CardHeader({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 border-b px-6 py-4 sm:flex-row sm:items-start sm:justify-between",
+        "flex flex-col gap-2 border-b px-3 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-3 sm:px-6 sm:py-4",
         className
       )}
     >
-      <div className="space-y-1">
+      <div className="min-w-0 space-y-1">
         <h2 className="text-base font-semibold tracking-tight">{title}</h2>
         {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
       </div>
@@ -43,7 +43,7 @@ export function CardBody({
   ...props
 }: PropsWithChildren<HTMLAttributes<HTMLDivElement>>) {
   return (
-    <div className={cn("p-6", className)} {...props}>
+    <div className={cn("min-w-0 p-3 sm:p-6", className)} {...props}>
       {children}
     </div>
   );

@@ -14,6 +14,8 @@ import {
   FileText,
   History,
   LayoutDashboard,
+  Menu,
+  PauseCircle,
   PackageCheck,
 	PackagePlus,
   PackageSearch,
@@ -34,6 +36,8 @@ import {
 import { LogoutButton } from "@/components/layout/logout-button";
 import { usePosBadges } from "@/components/layout/use-pos-badges";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetHeader, SheetTrigger } from "@/components/ui/sheet";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { cn } from "@/lib/utils";
 import type { NavigationItem, Session } from "@/types";
 
@@ -56,6 +60,7 @@ const iconByKey: Record<string, LucideIcon> = {
   generate_report: TableProperties,
   settings: Settings,
   pos_screen: ShoppingBasket,
+  parked_bills: PauseCircle,
   sales_history: History,
   inventory_check: PackageSearch,
   goods_transfer_receipt: PackageCheck,
@@ -79,35 +84,89 @@ function ProTag() {
 }
 
 /** True when the item itself, or (for a C1 parent menu) any of its children, matches the current route. */
-function itemIsActive(pathname: string, item: NavigationItem) {
-  if (item.children?.length) return item.children.some((child) => activePath(pathname, child.href));
+function itemIsActive(pathname: string, item: NavigationItem): boolean {
+  if (item.children?.length) return item.children.some((child) => itemIsActive(pathname, child));
   return activePath(pathname, item.href);
 }
 
-export function MobileNav({ navigation }: { navigation: NavigationItem[] }) {
+/** The same permission-filtered tree as desktop, including every nested level. */
+export function MobileNav({ navigation, user, bottom = false, badges = {} }: {
+  navigation: NavigationItem[];
+  user: Session["user"];
+  bottom?: boolean;
+  badges?: Record<string, number>;
+}) {
   const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+
+  // Also release the focus trap if a user rotates/resizes into desktop chrome.
+  useEffect(() => {
+    const desktop = window.matchMedia(bottom ? "(min-width: 640px)" : "(min-width: 1024px)");
+    const closeOnDesktop = () => { if (desktop.matches) setOpen(false); };
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, [bottom]);
+  useEffect(() => { setOpen(false); }, [pathname]);
 
   return (
-    <nav aria-label="เมนูหลักบนมือถือ" className="mb-5 overflow-x-auto lg:hidden print:hidden">
-      <div className="flex min-w-max gap-2 rounded-2xl border bg-white p-2 shadow-card">
-        {navigation.map((item) => {
-          const active = itemIsActive(pathname, item);
-          return (
-            <Link
-              className={cn(
-                "rounded-xl px-4 py-2 text-sm font-semibold transition",
-                active ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted"
-              )}
-              href={item.href}
-              key={item.key}
-            >
-              {item.title}
-            </Link>
-          );
-        })}
-      </div>
-    </nav>
+    <Sheet onOpenChange={setOpen} open={open}>
+      <SheetTrigger>
+        <button
+          aria-label="เปิดเมนูหลัก"
+          className={cn("shrink-0 rounded-lg text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", bottom ? "flex min-h-12 flex-1 flex-col items-center justify-center gap-1 text-xs sm:hidden" : "grid h-11 w-11 place-items-center lg:hidden")}
+          type="button"
+        >
+          <Menu className="h-5 w-5" />
+          {bottom ? <span>เมนู</span> : null}
+        </button>
+      </SheetTrigger>
+      <SheetContent className="max-w-sm" side="left">
+        <SheetHeader description={user.branch_name || user.role_name} title="PharmaPOS" />
+        <nav aria-label={bottom ? "เมนูจุดขายทั้งหมด" : "เมนูหลักบนมือถือ"} className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain">
+          {navigation.map((item) => <MobileNavItem badges={badges} item={item} key={item.key} onNavigate={() => setOpen(false)} pathname={pathname} />)}
+        </nav>
+        <div className="mt-3 flex shrink-0 items-center gap-2 border-t pt-3 pb-[env(safe-area-inset-bottom)]">
+          <div className="min-w-0 flex-1">
+            <p className="break-words text-sm font-semibold">{user.name}</p>
+            <p className="text-xs text-muted-foreground">{user.role_name}</p>
+          </div>
+          <ThemeToggle />
+          <LogoutButton compact />
+        </div>
+      </SheetContent>
+    </Sheet>
   );
+}
+
+function MobileNavItem({ item, pathname, onNavigate, badges }: {
+  item: NavigationItem;
+  pathname: string;
+  onNavigate: () => void;
+  badges: Record<string, number>;
+}) {
+  const active = itemIsActive(pathname, item);
+  const [expanded, setExpanded] = useState(active);
+  const Icon = iconByKey[item.key] || FileText;
+  const badge = badges[item.key] || 0;
+  const content = <>
+    <Icon className="h-5 w-5 shrink-0" />
+    <span className="min-w-0 flex-1 break-words text-left">{item.title}</span>
+    {item.pro ? <ProTag /> : null}
+    {badge > 0 ? <span className="rounded-full bg-red-600 px-1.5 text-xs text-white">{badge > 99 ? "99+" : badge}</span> : null}
+  </>;
+  const classes = cn("flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active ? "bg-primary/10 text-primary" : "text-foreground hover:bg-muted");
+
+  if (!item.children?.length) {
+    return <Link aria-current={active ? "page" : undefined} className={classes} href={item.href} onClick={onNavigate}>{content}</Link>;
+  }
+  return <div>
+    <button aria-controls={`mobile-nav-${item.key}`} aria-expanded={expanded} className={classes} onClick={() => setExpanded((value) => !value)} type="button">
+      {content}<ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", expanded && "rotate-180")} />
+    </button>
+    <div className="ml-5 mt-1 space-y-1 border-l pl-2" hidden={!expanded} id={`mobile-nav-${item.key}`}>
+      {item.children.map((child) => <MobileNavItem badges={badges} item={child} key={child.key} onNavigate={onNavigate} pathname={pathname} />)}
+    </div>
+  </div>;
 }
 
 export function Sidebar({
@@ -280,8 +339,19 @@ export function PosBottomNav({
   const badges = usePosBadges(String(user.branch_id || ""));
 
   return (
-    <footer className="z-40 shrink-0 border-t bg-white/95 backdrop-blur">
-      <div className="flex min-h-20 items-center gap-4 px-4 lg:px-6">
+    <footer className="z-40 shrink-0 border-t bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur print:hidden">
+      <nav aria-label="เมนูจุดขายบนมือถือ" className="flex items-center gap-1 px-2 py-1 sm:hidden">
+        {navigation.filter((item) => ["/sales", "/parked-bills", "/sales-history"].includes(item.href)).map((item) => {
+          const Icon = iconByKey[item.key] || Store;
+          const active = activePath(pathname, item.href);
+          return <Link aria-current={active ? "page" : undefined} className={cn("relative flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 text-xs font-medium", active ? "bg-primary/10 text-primary" : "text-muted-foreground")} href={item.href} key={item.key}>
+            <Icon className="h-5 w-5" /><span>{item.title}</span>
+            {badges[item.key] > 0 ? <span className="absolute right-1 top-0 rounded-full bg-red-600 px-1 text-[10px] text-white">{badges[item.key] > 99 ? "99+" : badges[item.key]}</span> : null}
+          </Link>;
+        })}
+        <MobileNav badges={badges} bottom navigation={navigation} user={user} />
+      </nav>
+      <div className="hidden min-h-20 items-center gap-4 px-4 sm:flex lg:px-6">
         <Link className="flex shrink-0 items-center gap-2" href="/sales">
           <span className="grid h-11 w-11 place-items-center rounded-2xl bg-foreground text-white">
             <Store className="h-5 w-5" />

@@ -519,7 +519,7 @@ test.describe("สิทธิ์และการนำทางสองบ�
       .getByRole("button", { name: "ยืนยันการชำระเงิน" })
       .click();
     await expect(
-      paymentDialog.getByText("ชำระเงินเสร็จสิ้น", { exact: true }),
+      paymentDialog.getByRole("heading", { name: "ชำระเงินเสร็จสิ้น", exact: true }),
     ).toBeVisible();
     await expect(
       paymentDialog.getByText("BL-UI-TEST", { exact: true }),
@@ -736,9 +736,11 @@ test.describe("สิทธิ์และการนำทางสองบ�
     });
     const admin = await adminContext.newPage();
     await signIn(admin, "superadmin@erp.local", "/dashboard");
+    await admin.getByRole("button", { name: "เปิดเมนูหลัก" }).click();
     await expect(
       admin.getByRole("navigation", { name: "เมนูหลักบนมือถือ" }),
     ).toBeVisible();
+    await admin.getByRole("button", { name: "ปิดเมนู", exact: true }).click();
     await expect(admin.locator("aside")).toBeHidden();
     expect(
       await admin.evaluate(
@@ -753,7 +755,7 @@ test.describe("สิทธิ์และการนำทางสองบ�
     const pos = await posContext.newPage();
     await signIn(pos, "pos.mes@erp.local", "/sales");
     await expect(
-      pos.getByRole("navigation", { name: "เมนูจุดขาย" }),
+      pos.getByRole("navigation", { name: "เมนูจุดขายบนมือถือ", exact: true }),
     ).toBeVisible();
     await expect(
       pos.getByRole("heading", { name: "ขายหน้าร้าน" }),

@@ -570,7 +570,7 @@ export function InventoryConsole({
   return (
     <div className="space-y-6">
       <section className="overflow-hidden rounded-3xl border bg-white shadow-card lg:grid lg:min-h-[690px] lg:grid-cols-[440px_minmax(0,1fr)]">
-      <aside className="flex min-h-[560px] flex-col border-b lg:border-b-0 lg:border-r">
+      <aside className="flex max-h-[36rem] flex-col lg:max-h-none lg:min-h-[560px] border-b lg:border-b-0 lg:border-r">
         <h2 className="sr-only">
           จัดการ
           {manageBucket === "ghost"
@@ -698,10 +698,10 @@ export function InventoryConsole({
         </div>
       </aside>
 
-      <section className="min-w-0 p-5 lg:p-7">
+      <section className="min-w-0 p-3 sm:p-5 lg:p-7">
         <div className="mb-6 border-b pb-5">
           <div className="min-w-0">
-            <h2 className="text-2xl font-black">{String(selectedInventory?.product_name || "เลือกรายการสินค้า")}</h2>
+            <h2 className="text-lg font-bold sm:text-2xl sm:font-black">{String(selectedInventory?.product_name || "เลือกรายการสินค้า")}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {String(selectedInventory?.sku || "")}
               {selectedInventory && manageBucket !== "ghost"

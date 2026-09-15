@@ -190,7 +190,7 @@ export function DeleteDocumentButton({
         {loading && !impact ? "กำลังโหลด..." : "ลบ"}
       </Button>
       {message && !impact ? <Notice className="mt-1" tone="error">{message}</Notice> : null}
-      <Dialog open={Boolean(impact)}>
+      <Dialog onOpenChange={(open) => !open && setImpact(null)} open={Boolean(impact)}>
         <DialogContent>
           <DialogHeader
             actions={

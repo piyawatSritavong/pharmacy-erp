@@ -102,7 +102,7 @@ export function ProductCategoryConsole({ initialItems }: { initialItems: Categor
   return (
     <div className="space-y-6">
       <section className="overflow-hidden rounded-3xl border bg-white shadow-card">
-        <div className="flex flex-col gap-3 border-b bg-surface-warm p-5 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 border-b bg-surface-warm p-3 sm:p-5 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-wrap items-center gap-3">
             <div className="relative min-w-0 flex-1 md:max-w-md">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -133,22 +133,22 @@ export function ProductCategoryConsole({ initialItems }: { initialItems: Categor
 
         {message ? <Notice className="rounded-none border-b" tone="error">{message}</Notice> : null}
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead className="bg-muted text-left">
-              <tr>
-                <th className="p-3">หมวดสินค้า</th>
-                <th className="p-3">สี</th>
-                <th className="p-3 text-right">จำนวนสินค้า</th>
-                <th className="p-3">สถานะ</th>
-                <th className="p-3 text-right">จัดการ</th>
+        <div className="overflow-x-auto p-3 sm:p-0">
+          <table role="table" className="responsive-table mobile-card-table w-full min-w-[720px] text-sm">
+            <thead role="rowgroup" className="bg-muted text-left">
+              <tr role="row">
+                <th role="columnheader" scope="col" className="p-3">หมวดสินค้า</th>
+                <th role="columnheader" scope="col" className="p-3">สี</th>
+                <th role="columnheader" scope="col" className="p-3 text-right">จำนวนสินค้า</th>
+                <th role="columnheader" scope="col" className="p-3">สถานะ</th>
+                <th role="columnheader" scope="col" className="p-3 text-right">จัดการ</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {pageRows.map((item) => (
-                <tr className="border-t" data-testid="category-row" key={String(item.id)}>
-                  <td className="p-3 font-semibold">{String(item.name)}</td>
-                  <td className="p-3">
+                <tr role="row" className="border-t" data-testid="category-row" key={String(item.id)}>
+                  <td role="cell" data-label="หมวดสินค้า" data-primary="true" className="p-3 font-semibold">{String(item.name)}</td>
+                  <td role="cell" data-label="สี" className="p-3">
                     <span className="inline-flex items-center gap-2">
                       <span
                         aria-hidden="true"
@@ -158,13 +158,13 @@ export function ProductCategoryConsole({ initialItems }: { initialItems: Categor
                       {String(item.color || "#D71920")}
                     </span>
                   </td>
-                  <td className="p-3 text-right font-semibold">{Number(item.product_count || 0).toLocaleString("th-TH")}</td>
-                  <td className="p-3">
+                  <td role="cell" data-label="จำนวนสินค้า" className="p-3 text-right font-semibold">{Number(item.product_count || 0).toLocaleString("th-TH")}</td>
+                  <td role="cell" data-label="สถานะ" className="p-3">
                     <span className={item.active ? "text-emerald-700" : "text-muted-foreground"}>
                       {item.active ? "เปิดใช้งาน" : "เก็บแล้ว"}
                     </span>
                   </td>
-                  <td className="p-3">
+                  <td role="cell" data-label="จัดการ" data-actions="true" className="p-3">
                     <div className="flex justify-end gap-2">
                       <Button aria-label={`แก้ไข ${String(item.name)}`} className="h-8 px-3" onClick={() => openEdit(item)} type="button" variant="secondary">
                         <Pencil className="h-4 w-4" /> แก้ไข

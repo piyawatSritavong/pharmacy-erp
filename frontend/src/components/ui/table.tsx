@@ -3,7 +3,7 @@ import type { HTMLAttributes, PropsWithChildren, TableHTMLAttributes, TdHTMLAttr
 import { cn } from "@/lib/utils";
 
 export function Table({ className, ...props }: TableHTMLAttributes<HTMLTableElement>) {
-  return <table className={cn("min-w-full text-left text-sm", className)} {...props} />;
+  return <table className={cn("responsive-table min-w-full text-left text-sm", className)} {...props} />;
 }
 
 export function TableHeader({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
@@ -32,5 +32,5 @@ export function TableCell({ className, ...props }: TdHTMLAttributes<HTMLTableCel
 }
 
 export function TableContainer({ className, children }: PropsWithChildren<{ className?: string }>) {
-  return <div className={cn("overflow-x-auto", className)}>{children}</div>;
+  return <div aria-label="ตารางข้อมูล เลื่อนแนวนอนเพื่อดูเพิ่มเติม" className={cn("min-w-0 max-w-full overflow-x-auto overscroll-x-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", className)} role="region" tabIndex={0}>{children}</div>;
 }

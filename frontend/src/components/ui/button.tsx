@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 /** Exported so non-<button> elements (e.g. a Next <Link>) can wear the same
  *  styling instead of hand-copying the classes. */
 export const buttonVariants = cva(
-  "inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-md px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50",
+  "ui-button inline-flex h-10 max-w-full items-center justify-center gap-2 whitespace-normal rounded-md px-3 text-center text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50 sm:whitespace-nowrap sm:px-4 [&>svg]:shrink-0",
   {
     variants: {
       // Hover = one shade darker, active = two shades darker, per the

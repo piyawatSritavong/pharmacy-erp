@@ -175,7 +175,7 @@ function ViewBillsLink({ href, count }: { href: string; count: number }) {
   if (count === 0) return null;
   return (
     <Link
-      className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-primary transition hover:underline"
+      className="mt-2 inline-flex min-h-11 items-center sm:min-h-0 gap-1.5 text-xs font-medium text-primary transition hover:underline"
       href={href}
     >
       <Receipt className="h-3.5 w-3.5" />
@@ -205,7 +205,6 @@ function GroupTile({
   compact?: boolean;
   href: string;
 }) {
-  const empty = group.invoice_count === 0;
   // Once the round is closed every figure states both sides, even where they
   // match: "this money was not touched" is an audit answer, and a tile that
   // simply omits the second number does not give it. While the round is open
@@ -214,18 +213,18 @@ function GroupTile({
   const lead = closed ? group.after_amount : group.amount;
   const leadCount = closed ? group.after_count : group.invoice_count;
   return (
-    <div className={`rounded-xl border bg-card px-4 ${compact ? "py-3" : "py-4"} ${empty ? "opacity-55" : ""}`}>
+    <div className={`rounded-xl border bg-card px-3 sm:px-4 ${compact ? "py-2 sm:py-3" : "py-2.5 sm:py-4"} `}>
       <p className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>{spec.title}</p>
       {compact ? null : <p className="mt-0.5 text-xs text-muted-foreground">{spec.note}</p>}
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className={`font-semibold tabular-nums ${compact ? "text-lg" : "text-2xl"}`}>{currency(lead)}</span>
+        <span className={`font-semibold tabular-nums ${compact ? "text-base sm:text-lg" : "text-xl sm:text-2xl"}`}>{currency(lead)}</span>
         <span className="text-xs text-muted-foreground">{bills(leadCount)}</span>
       </div>
 
       {moved ? (
         <div className="mt-2 space-y-1 border-t pt-2 text-xs">
-          <p className="flex items-center gap-1.5 text-muted-foreground">
+          <p className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
             <ArrowRight className="h-3 w-3 shrink-0" />
             <span>{closed ? "ก่อนปรับ" : "ถ้าปิดรอบ"}</span>
             <span className="font-semibold tabular-nums text-foreground">
@@ -303,7 +302,7 @@ function Panel({
   return (
     // A dashed edge while the round is open: those figures are what the close
     // WOULD do, not money that has settled.
-    <div className={`rounded-2xl border p-4 ${provisional && !closed ? "border-dashed bg-muted/40" : "bg-muted/20"}`}>
+    <div className={`rounded-xl border p-2 sm:rounded-2xl sm:p-4 ${provisional && !closed ? "border-dashed bg-muted/40" : "bg-muted/20"}`}>
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <p className={`font-semibold ${compact ? "text-sm" : "text-base"}`}>{title}</p>
@@ -476,9 +475,9 @@ function TenderBoard({ tender, compact }: { tender: TenderSplit; compact?: boole
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {rows.map((row) => (
-          <div className={`rounded-xl border bg-card px-4 ${compact ? "py-3" : "py-4"}`} key={row.label}>
+          <div className={`rounded-xl border bg-card px-3 sm:px-4 ${compact ? "py-2 sm:py-3" : "py-2.5 sm:py-4"}`} key={row.label}>
             <p className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>{row.label}</p>
-            <p className={`mt-2 font-semibold tabular-nums ${compact ? "text-lg" : "text-2xl"}`}>{currency(row.amount)}</p>
+            <p className={`mt-2 font-semibold tabular-nums ${compact ? "text-base sm:text-lg" : "text-xl sm:text-2xl"}`}>{currency(row.amount)}</p>
           </div>
         ))}
       </div>
@@ -554,7 +553,7 @@ export function DailyBreakdownBoards({
       <SectionCard description="แยกตามสาขา เรียงจากยอดมากไปน้อย" title="ยอดขายแต่ละสาขา">
         <div className="space-y-4">
           {data.branches.map((branch) => (
-            <div className="rounded-2xl border bg-card p-4" key={String(branch.branch_id)}>
+            <div className="rounded-xl border bg-card p-2 sm:rounded-2xl sm:p-4" key={String(branch.branch_id)}>
               <p className="mb-3 font-semibold">
                 {String(branch.branch_name)}
                 <span className="ml-2 text-xs font-normal text-muted-foreground">{String(branch.branch_code)}</span>

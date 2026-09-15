@@ -870,7 +870,7 @@ export function SettingsConsole({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(deleteState)}>
+      <Dialog onOpenChange={(open) => !open && setDeleteState(null)} open={Boolean(deleteState)}>
         <DialogContent>
           <DialogHeader title={`ลบ${deleteState?.kind === "branch" ? "สาขา" : "ผู้ใช้"} ${deleteState?.label || ""}`} description="ข้อมูลทั้งหมดด้านล่างจะถูกลบถาวรและไม่สามารถย้อนกลับได้" />
           <div className="space-y-4">

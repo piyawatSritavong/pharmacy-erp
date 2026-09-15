@@ -514,7 +514,7 @@ export function PurchaseOrderConsole({
           from the detail dialog below should be the formal PO document
           alone, not this list/search view underneath it. */}
       <section className="overflow-hidden rounded-3xl border bg-white shadow-card print:hidden">
-        <div className="flex flex-col gap-3 border-b bg-surface-warm p-5 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 border-b bg-surface-warm p-3 sm:p-5 md:flex-row md:items-center md:justify-between">
           <div className="relative min-w-0 flex-1 md:max-w-xl">
             <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
@@ -541,45 +541,45 @@ export function PurchaseOrderConsole({
             {message}
           </Notice>
         ) : null}
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-sm">
-            <thead className="bg-muted text-left">
-              <tr>
-                <th className="p-3">เลข PO</th>
-                <th className="p-3">วันเวลาซื้อ</th>
-                <th className="p-3">บริษัทคู่ค้า</th>
-                <th className="p-3">สาขารับ</th>
-                <th className="p-3">รายการ/จำนวน</th>
-                <th className="p-3">ยอดสุทธิ</th>
-                <th className="p-3">สถานะ</th>
-                <th className="p-3"></th>
+        <div className="overflow-x-auto p-3 sm:p-0">
+          <table role="table" className="responsive-table mobile-card-table w-full min-w-[980px] text-sm">
+            <thead role="rowgroup" className="bg-muted text-left">
+              <tr role="row">
+                <th role="columnheader" scope="col" className="p-3">เลข PO</th>
+                <th role="columnheader" scope="col" className="p-3">วันเวลาซื้อ</th>
+                <th role="columnheader" scope="col" className="p-3">บริษัทคู่ค้า</th>
+                <th role="columnheader" scope="col" className="p-3">สาขารับ</th>
+                <th role="columnheader" scope="col" className="p-3">รายการ/จำนวน</th>
+                <th role="columnheader" scope="col" className="p-3">ยอดสุทธิ</th>
+                <th role="columnheader" scope="col" className="p-3">สถานะ</th>
+                <th role="columnheader" scope="col" className="p-3"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {visibleOrders.map((item) => (
-                <tr className="border-t" key={String(item.id)}>
-                  <td className="p-3 font-bold">{String(item.po_number)}</td>
-                  <td className="p-3">
+                <tr role="row" className="border-t" key={String(item.id)}>
+                  <td role="cell" data-label="เลข PO" data-primary="true" className="p-3 font-bold">{String(item.po_number)}</td>
+                  <td role="cell" data-label="วันเวลาซื้อ" className="p-3">
                     {new Date(String(item.purchased_at)).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}
                   </td>
-                  <td className="p-3">
+                  <td role="cell" data-label="บริษัทคู่ค้า" className="p-3">
                     {String(item.supplier_name)}
                     <span className="block text-xs text-muted-foreground">
                       {String(item.supplier_document_number || "")}
                     </span>
                   </td>
-                  <td className="p-3">{String(item.branch_name)}</td>
-                  <td className="p-3">
+                  <td role="cell" data-label="สาขารับ" className="p-3">{String(item.branch_name)}</td>
+                  <td role="cell" data-label="รายการ/จำนวน" className="p-3">
                     {Number(item.item_count)} รายการ ·{" "}
                     {Number(item.total_quantity)} ชิ้น
                   </td>
-                  <td className="p-3 font-bold">
+                  <td role="cell" data-label="ยอดสุทธิ" className="p-3 font-bold">
                     {currency(Number(item.total_amount))}
                   </td>
-                  <td className="p-3">
+                  <td role="cell" data-label="สถานะ" className="p-3">
                     {item.status === "posted" ? "รับเข้าสต๊อกแล้ว" : "ยกเลิก"}
                   </td>
-                  <td className="p-3 text-right">
+                  <td role="cell" data-label="จัดการ" data-actions="true" className="p-3 text-right">
                     <Button
                       className="h-9 px-3"
                       onClick={() => openDetail(String(item.id))}

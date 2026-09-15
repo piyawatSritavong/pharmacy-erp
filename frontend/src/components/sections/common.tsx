@@ -121,9 +121,9 @@ export function MetricGrid({
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
       {items.map((item) => (
         <Card key={item.key}>
-          <CardBody className="space-y-1.5 p-5">
+          <CardBody className="space-y-1.5 p-3 sm:p-5">
             <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
-            <p className="text-2xl font-semibold tracking-tight tabular-nums">
+            <p className="text-xl font-semibold tracking-tight tabular-nums sm:text-2xl">
               {typeof item.value === "number" ? item.value.toLocaleString("th-TH") : item.value}
             </p>
           </CardBody>
@@ -170,8 +170,11 @@ export function DataTable({
   columns,
   rows,
   rowActions,
-  emptyDescription
+  emptyDescription,
+  mobileCards = false
 }: {
+  /** Compact record cards; keep scroll tables for cross-column comparison. */
+  mobileCards?: boolean;
   columns: DataTableColumn[];
   rows: Array<Record<string, unknown>>;
   rowActions?: (row: Record<string, unknown>) => ReactNode;
@@ -181,29 +184,29 @@ export function DataTable({
   const columnCount = columns.length + (rowActions ? 1 : 0);
   return (
     <TableContainer>
-      <Table>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
+      <Table className={mobileCards ? "mobile-card-table" : undefined} role="table">
+        <TableHeader role="rowgroup">
+          <TableRow className="hover:bg-transparent" role="row">
             {columns.map((column) => (
-              <TableHead className={column.className} key={column.key}>
+              <TableHead className={column.className} key={column.key} role="columnheader" scope="col">
                 {column.label}
               </TableHead>
             ))}
             {rowActions ? <TableHead className="text-right">จัดการ</TableHead> : null}
           </TableRow>
         </TableHeader>
-        <TableBody>
+        <TableBody role="rowgroup">
           {rows.length === 0 ? (
             <TableEmptyState colSpan={columnCount} description={emptyDescription} />
           ) : (
             rows.map((row, rowIndex) => (
-              <TableRow key={String(row.id || rowIndex)} className="text-sm text-foreground">
+              <TableRow key={String(row.id || rowIndex)} className="text-sm text-foreground" role="row">
                 {columns.map((column) => (
-                  <TableCell className={column.className} key={column.key}>
+                  <TableCell className={column.className} data-label={column.label} data-primary={column.key === "name" || column.key === "product_name" || column.key === "invoice_number" || undefined} key={column.key} role="cell">
                     {column.render ? column.render(row) : renderCell(row[column.key], column.type)}
                   </TableCell>
                 ))}
-                {rowActions ? <TableCell className="text-right">{rowActions(row)}</TableCell> : null}
+                {rowActions ? <TableCell className="text-right" data-actions="true" role="cell">{rowActions(row)}</TableCell> : null}
               </TableRow>
             ))
           )}
@@ -353,9 +356,9 @@ export function AuditTimeline({ items }: { items: Array<Record<string, unknown>>
             return (
               <dl className="mt-3 grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
                 {entries.map(([label, value]) => (
-                  <div className="flex gap-2" key={label}>
-                    <dt className="shrink-0 text-muted-foreground">{label}</dt>
-                    <dd className="min-w-0 flex-1 truncate font-medium text-foreground">{value}</dd>
+                  <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:gap-2" key={label}>
+                    <dt className="break-words text-muted-foreground sm:shrink-0">{label}</dt>
+                    <dd className="min-w-0 flex-1 break-words font-medium text-foreground sm:truncate">{value}</dd>
                   </div>
                 ))}
               </dl>

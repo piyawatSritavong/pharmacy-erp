@@ -7,6 +7,7 @@ import { startTransition, useCallback, useEffect, useRef, useState } from "react
 import { useRouter } from "next/navigation";
 
 import { Field } from "@/components/ui/field";
+import { PosCart } from "@/components/sections/pos-cart";
 import { Button, CheckboxField, Dialog, DialogContent, DialogHeader, EmptyState, Input, Notice, Select } from "@/components/ui/primitives";
 import { cn, currency } from "@/lib/utils";
 import { RESUME_KEY } from "@/components/sections/parked-bills-console";
@@ -735,23 +736,23 @@ export function PosWorkspace({
       <section className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="flex min-h-0 min-w-0 flex-col gap-3">
 	          <div className="shrink-0 rounded-2xl border bg-white p-3 shadow-card">
-	            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+	            <div className="grid grid-cols-[1fr_auto] gap-2 sm:flex sm:flex-col sm:gap-3 lg:flex-row lg:items-center">
 	              <div className="shrink-0">
 	                <p className="text-xs font-semibold text-primary">{branchName}</p>
 	                <h1 className="text-lg font-bold">ขายหน้าร้าน</h1>
 	              </div>
-	              <label className="relative block flex-1">
+	              <label className="relative col-span-2 row-start-2 block min-w-0 flex-1">
                 <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   aria-label="ค้นหาสินค้า"
-                  className="h-12 rounded-full border-0 bg-muted pl-12 shadow-none"
+                  className="h-11 rounded-xl border-0 bg-muted pl-10 shadow-none sm:h-12 sm:rounded-full sm:pl-12"
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="ค้นหาชื่อสินค้า SKU หรือบาร์โค้ด..."
                   value={search}
                 />
               </label>
-              <div className="flex gap-2">
-                <Button className="relative rounded-full xl:hidden" onClick={() => setCartOpen(true)} type="button">
+              <div className="col-start-2 row-start-1 flex items-center gap-2">
+                <Button className="relative rounded-xl sm:rounded-full xl:hidden" onClick={() => setCartOpen(true)} type="button">
                   <ShoppingCart className="h-4 w-4" />
                   ตะกร้า
                   {cart.length ? (
@@ -804,30 +805,30 @@ export function PosWorkspace({
           ) : null}
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1" data-testid="product-scroll-area">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
               {filteredProducts.map((product) => {
               const stock = inventoryByProduct.get(String(product.id));
               return (
                 <article className="overflow-hidden rounded-2xl border bg-white shadow-card" key={String(product.id)}>
                   <button
                     aria-label={`เพิ่ม ${String(product.name)} ลงตะกร้า`}
-                    className="block w-full text-left"
+                    className="grid w-full grid-cols-[80px_minmax(0,1fr)] text-left sm:block"
                     onClick={() => void chooseProductLot(product)}
                     type="button"
                   >
-                    <div className="relative h-44 overflow-hidden bg-gradient-to-br from-orange-50 to-amber-100">
+                    <div className="relative h-full min-h-28 overflow-hidden sm:h-44 bg-gradient-to-br from-orange-50 to-amber-100">
                       {Boolean(product.image_available) ? (
                         <Image
                           alt={String(product.name)}
                           className="object-cover transition duration-300 hover:scale-105"
                           fill
-                          sizes="(max-width: 640px) 100vw, 33vw"
+                          sizes="(max-width: 639px) 80px, (max-width: 1023px) 50vw, 33vw"
                           src={`/api/backend/products/${String(product.id)}/image`}
                           unoptimized
                         />
                       ) : (
                         <div className="grid h-full place-items-center">
-                          <Package className="h-16 w-16 text-primary/35" />
+                          <Package className="h-10 w-10 text-primary/35 sm:h-16 sm:w-16" />
                         </div>
                       )}
                       {Number(product.image_count || 0) > 1 ? (
@@ -836,11 +837,11 @@ export function PosWorkspace({
                         </span>
                       ) : null}
                     </div>
-                    <div className="p-4">
-                      <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 p-2.5 sm:p-4">
+                      <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                         <div>
-                          <h2 className="font-bold">{String(product.name)}</h2>
-                          <p className="mt-1 text-xs text-muted-foreground">
+                          <h2 className="break-words text-sm font-bold sm:text-base">{String(product.name)}</h2>
+                          <p className="mt-1 break-all text-xs text-muted-foreground">
                             {String(product.sku)}
                           </p>
                         </div>
@@ -848,10 +849,10 @@ export function PosWorkspace({
                           {currency(Number(product.effective_price || 0))}
                         </span>
                       </div>
-                      <p className="mt-3 line-clamp-2 min-h-10 text-sm text-muted-foreground">
+                      <p className="mt-3 hidden min-h-10 text-sm sm:line-clamp-2 text-muted-foreground">
                         {String(product.description || "ไม่มีรายละเอียด")}
                       </p>
-                      <div className="mt-4 flex items-center justify-between text-xs">
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-xs sm:mt-4">
                         <span>{stockLabel(stock, String(product.unit_name || "ชิ้น"))}</span>
                         <span className="rounded-full bg-primary px-3 py-1.5 font-bold text-white">
                           {isSellable(stock) ? "+ เพิ่ม" : "หมด"}
@@ -875,11 +876,11 @@ export function PosWorkspace({
           </div>
         </div>
 
-        <aside className={`${cartOpen ? "flex" : "hidden"} fixed inset-3 top-24 z-40 min-h-0 flex-col rounded-2xl border bg-white p-4 shadow-2xl xl:static xl:flex xl:h-full xl:shadow-card`}>
-          <div className="flex items-center justify-between">
+        <PosCart onOpenChange={setCartOpen} open={cartOpen}>
+          <div className="sticky -top-3 z-10 flex shrink-0 items-center justify-between gap-2 bg-card pb-2 xl:static">
             <div>
               <p className="text-xs font-semibold text-primary">{branchName}</p>
-	              <h2 className="mt-1 text-xl font-bold">รายการขายปัจจุบัน</h2>
+	              <h2 className="mt-1 text-base font-bold sm:text-xl">รายการขายปัจจุบัน</h2>
             </div>
             <span className="grid h-11 w-11 place-items-center rounded-full bg-secondary">
               <button aria-label="ปิดตะกร้า" className="grid h-full w-full place-items-center xl:hidden" onClick={() => setCartOpen(false)} type="button">
@@ -920,7 +921,7 @@ export function PosWorkspace({
             ) : null}
           </div>
 
-          <div className="mt-5 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+          <div className="mt-3 space-y-3 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
             {cart.map((line) => {
               const id = String(line.product.id);
               const key = cartLineKey(line);
@@ -930,7 +931,7 @@ export function PosWorkspace({
                 <div className="rounded-xl bg-muted p-2.5" key={key}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold" title={String(line.product.name)}>{String(line.product.name)}</p>
+                      <p className="break-words text-sm font-semibold xl:truncate" title={String(line.product.name)}>{String(line.product.name)}</p>
                       <p className="truncate text-[11px] text-muted-foreground">
                         {String(line.product.sku || "")} · Lot {String(line.lot.lot_number)} × {line.quantity}
                         {line.lot.expires_on ? ` · หมดอายุ ${new Date(String(line.lot.expires_on)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}` : ""}
@@ -940,7 +941,7 @@ export function PosWorkspace({
                     {/* Before tax: ราคาต่อหน่วย × จำนวน (less any line discount),
                         so the lines foot to ยอดก่อนภาษี below rather than each
                         carrying VAT of their own. */}
-                    <p className="shrink-0 text-lg font-bold tabular-nums text-foreground">
+                    <p className="shrink-0 text-base font-bold tabular-nums text-foreground sm:text-lg">
                       {currency(
                         priced?.line_subtotal == null
                           ? Number(line.product.effective_price || 0) * line.quantity - Number(line.discount || 0)
@@ -964,10 +965,10 @@ export function PosWorkspace({
                     </Select>
                   ) : null}
                   {/* Discount and quantity share one row so a full cart stays scannable. */}
-                  <div className="mt-2 flex items-center gap-2">
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
                     <Input
                       aria-label={`ส่วนลด ${String(line.product.name)}`}
-                      className="h-9 min-w-0 flex-1 text-xs"
+                      className="h-9 min-w-[5rem] flex-1 text-xs"
                       inputMode="decimal"
                       disabled={Boolean(remoteLock)}
                       onChange={(event) => updateLine(key, { discount: event.target.value })}
@@ -977,7 +978,7 @@ export function PosWorkspace({
                     <div className="flex shrink-0 items-center rounded-full bg-white">
                       <button
                         aria-label={`ลดจำนวน ${String(line.product.name)}`}
-                        className="p-2 disabled:opacity-30"
+                        className="grid h-11 w-11 place-items-center disabled:opacity-30 xl:h-8 xl:w-8"
                         disabled={Boolean(remoteLock)}
                         onClick={() => line.quantity === 1
                           ? setCart((current) => current.filter((item) => cartLineKey(item) !== key))
@@ -989,7 +990,7 @@ export function PosWorkspace({
                       <span className="w-7 text-center text-sm font-bold">{line.quantity}</span>
                       <button
                         aria-label={`เพิ่มจำนวน ${String(line.product.name)}`}
-                        className="p-2 disabled:opacity-30"
+                        className="grid h-11 w-11 place-items-center disabled:opacity-30 xl:h-8 xl:w-8"
                         disabled={Boolean(remoteLock)}
                         onClick={() => updateLine(key, { quantity: line.quantity + 1 })}
                         type="button"
@@ -999,7 +1000,7 @@ export function PosWorkspace({
                     </div>
                     <button
                       aria-label={`ลบ ${String(line.product.name)}`}
-                      className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-white hover:text-destructive disabled:opacity-30"
+                      className="grid h-11 w-11 shrink-0 place-items-center rounded-full p-1.5 text-muted-foreground hover:bg-white hover:text-destructive disabled:opacity-30"
                       disabled={Boolean(remoteLock)}
                       onClick={() => setCart((current) => current.filter((item) => cartLineKey(item) !== key))}
                       type="button"
@@ -1012,7 +1013,7 @@ export function PosWorkspace({
             })}
             {cart.length === 0 ? (
               <div className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                เลือกสินค้าจากรายการด้านซ้าย
+                เลือกสินค้าจากรายการขาย
               </div>
             ) : null}
           </div>
@@ -1039,7 +1040,7 @@ export function PosWorkspace({
             />
           </div>
 
-          <div className="mt-5 space-y-2 border-t pt-4 text-sm">
+          <div className="mt-3 space-y-2 border-t pt-3 text-sm sm:mt-5 sm:pt-4">
             {Number(preview?.summary.discount_total || 0) > 0 ? (
               <div className="flex justify-between text-success">
                 <span>ส่วนลดรวม</span>
@@ -1048,7 +1049,7 @@ export function PosWorkspace({
             ) : null}
             <div className="flex justify-between"><span>ยอดก่อนภาษี</span><span>{currency(Number(preview?.summary.subtotal || 0))}</span></div>
             <div className="flex justify-between"><span>ภาษีมูลค่าเพิ่ม</span><span>{currency(Number(preview?.summary.tax_amount || 0))}</span></div>
-            <div className="flex justify-between pt-2 text-xl font-bold"><span>ยอดรวม</span><span>{currency(Number(preview?.summary.total_amount || 0))}</span></div>
+            <div className="flex flex-wrap justify-between gap-1 pt-2 text-lg font-bold sm:text-xl"><span>ยอดรวม</span><span>{currency(Number(preview?.summary.total_amount || 0))}</span></div>
           </div>
 
           {message ? <p className="mt-4 rounded-xl bg-surface-warm p-3 text-sm">{message}</p> : null}
@@ -1090,7 +1091,7 @@ export function PosWorkspace({
               ) : null}
             </div>
           ) : null}
-          <div className="mt-4 grid grid-cols-[auto_auto_1fr] gap-2">
+          <div className="sticky -bottom-3 mt-3 grid shrink-0 grid-cols-[44px_auto_1fr] gap-2 border-t bg-card py-3 sm:-bottom-4 xl:static xl:mt-4 xl:grid-cols-[auto_auto_1fr] xl:border-0 xl:py-0">
             <Button
               aria-label="ล้างรายการขาย"
               disabled={!cart.length || Boolean(remoteLock)}
@@ -1114,7 +1115,7 @@ export function PosWorkspace({
               รับชำระเงิน
             </Button>
           </div>
-        </aside>
+        </PosCart>
       </section>
 
       <Dialog onOpenChange={setParkOpen} open={parkOpen}>
@@ -1176,9 +1177,13 @@ export function PosWorkspace({
         </DialogContent>
       </Dialog>
 
-      {paymentOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
+      <Dialog onOpenChange={(open) => {
+        if (submitting) return;
+        if (!open && receipt) startNewSale();
+        else { setPaymentOpen(open); setPaymentReady(false); setPaymentError(""); }
+      }} open={paymentOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader closeDisabled={submitting} closeLabel="ปิดหน้าชำระเงิน" closeOnDesktop title={receipt ? "ชำระเงินเสร็จสิ้น" : "รับชำระเงิน"} />
             {receipt ? (
               <div className="py-4 text-center">
                 <CheckCircle2 className="mx-auto h-20 w-20 text-emerald-500" />
@@ -1209,21 +1214,9 @@ export function PosWorkspace({
                 <p className="text-sm font-semibold text-primary">ยอดที่ต้องชำระ</p>
                 <h2 className="mt-1 text-3xl font-bold">{currency(Number(preview?.summary.total_amount || 0))}</h2>
               </div>
-              <button
-                aria-label="ปิดหน้าชำระเงิน"
-                className="rounded-full p-2 hover:bg-muted"
-                disabled={submitting}
-                onClick={() => {
-                  setPaymentOpen(false);
-                  setPaymentReady(false);
-                  setPaymentError("");
-                }}
-                type="button"
-              >
-                <X className="h-5 w-5" />
-              </button>
+
             </div>
-            <div className="mt-6 grid gap-4">
+            <div className="mt-3 grid gap-3 sm:mt-6 sm:gap-4">
               <Select
                 aria-label="ช่องทางชำระเงิน"
                 onChange={(event) => configurePayment(event.target.value as typeof paymentType)}
@@ -1249,6 +1242,7 @@ export function PosWorkspace({
                       onChange={(event) => updateMixedCash(event.target.value)}
                       onFocus={captureMixedCashSnapshot}
                       step="0.01"
+                      inputMode="decimal"
                       type="number"
                       value={tendered}
                     />
@@ -1260,6 +1254,7 @@ export function PosWorkspace({
                       min="0.01"
                       onChange={(event) => updateMixedTransfer(event.target.value)}
                       step="0.01"
+                      inputMode="decimal"
                       type="number"
                       value={transferAmount}
                     />
@@ -1274,6 +1269,7 @@ export function PosWorkspace({
                     min="0.01"
                     onChange={(event) => updatePositiveMoney(setTendered, event.target.value)}
                     step="0.01"
+                    inputMode="decimal"
                     type="number"
                     value={tendered}
                   />
@@ -1299,9 +1295,8 @@ export function PosWorkspace({
             </div>
               </>
             )}
-          </div>
-        </div>
-      ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

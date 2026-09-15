@@ -174,18 +174,18 @@ export function StockRequestConsole({
           </Field>
         ) : null}
         <div className="overflow-hidden rounded-xl border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted text-xs text-muted-foreground">
-              <tr>
+          <table className="mobile-card-table w-full text-sm" role="table">
+            <thead role="rowgroup" className="bg-muted text-xs text-muted-foreground">
+              <tr role="row">
                 <th className="px-3 py-2 text-left font-medium">สินค้า</th>
                 <th className="w-32 px-3 py-2 text-left font-medium">จำนวน</th>
                 <th className="w-12 px-3 py-2" />
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody role="rowgroup" className="divide-y">
               {lines.map((line) => (
-                <tr key={line.key}>
-                  <td className="px-3 py-2">
+                <tr role="row" key={line.key}>
+                  <td data-label="สินค้า" data-primary="true" role="cell" className="px-3 py-2">
                     <ProductSearchPicker
                       ariaLabel="เลือกสินค้าที่ต้องการเบิก"
                       initialOptions={activeProducts}
@@ -193,10 +193,10 @@ export function StockRequestConsole({
                       value={line.productId}
                     />
                   </td>
-                  <td className="px-3 py-2">
+                  <td data-label="จำนวน" role="cell" className="px-3 py-2">
                     <Input aria-label="จำนวนที่ต้องการ" min="1" onChange={(event) => updateLine(line.key, { quantity: event.target.value })} type="number" value={line.quantity} />
                   </td>
-                  <td className="px-3 py-2 text-center">
+                  <td role="cell" className="self-end px-3 py-2 text-center">
                     <button aria-label="ลบรายการ" className="rounded p-1.5 text-muted-foreground transition hover:bg-red-50 hover:text-red-600 disabled:opacity-30" disabled={lines.length <= 1} onClick={() => removeLine(line.key)} type="button">
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -293,7 +293,7 @@ export function StockRequestConsole({
 
       <SectionCard title="ประวัติคำขอ" description="คำขอที่สร้างใบโอนหรือปฏิเสธแล้ว">
         <div className="mb-4 flex flex-wrap items-end gap-3">
-          <Field className="w-64" label="ค้นหา">
+          <Field className="w-full sm:w-64" label="ค้นหา">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input aria-label="ค้นหาประวัติคำขอ" className="pl-9" onChange={(event) => { setHistorySearch(event.target.value); history.resetPage(); }} placeholder="ชื่อสินค้า, เลขใบโอน, สาขาต้นทาง" value={historySearch} />

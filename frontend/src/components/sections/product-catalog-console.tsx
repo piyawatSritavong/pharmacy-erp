@@ -181,7 +181,7 @@ export function ProductCatalogConsole({
         title="รายการสินค้า"
       >
         <div className="mb-4 flex flex-wrap items-end gap-3">
-          <Field className="w-64" label="ค้นหา">
+          <Field className="w-full sm:w-64" label="ค้นหา">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
@@ -194,7 +194,7 @@ export function ProductCatalogConsole({
               />
             </div>
           </Field>
-          <Field className="w-48" label="หมวดสินค้า">
+          <Field className="w-full sm:w-48" label="หมวดสินค้า">
             <Select aria-label="กรองตามหมวดสินค้า" onChange={(event) => updateQuery({ category_id: event.target.value })} value={defaultCategoryId}>
               <option value="">ทุกหมวด</option>
               {categories.map((category) => (
@@ -202,7 +202,7 @@ export function ProductCatalogConsole({
               ))}
             </Select>
           </Field>
-          <Field className="w-48" label="ช่องทางขาย">
+          <Field className="w-full sm:w-48" label="ช่องทางขาย">
             <Select aria-label="กรองตามช่องทางขาย" onChange={(event) => updateQuery({ sales_channel: event.target.value })} value={defaultSalesChannel}>
               <option value="">ทุกช่องทาง</option>
               <option value="in_store">หน้าร้านเท่านั้น</option>
@@ -217,6 +217,7 @@ export function ProductCatalogConsole({
         </div>
 
         <DataTable
+          mobileCards
           columns={[
             { key: "sku", label: "SKU" },
             { key: "name", label: "ชื่อสินค้า" },

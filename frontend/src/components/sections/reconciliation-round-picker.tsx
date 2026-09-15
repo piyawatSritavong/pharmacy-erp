@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePopoverPosition } from "@/components/ui/use-popover-position";
 import { Search, X } from "lucide-react";
 
 import { Input } from "@/components/ui/primitives";
@@ -34,6 +35,8 @@ export function ReconciliationRoundPicker({
 }) {
   const [query, setQuery] = useState(label);
   const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const panelPosition = usePopoverPosition(open, anchorRef, 256);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [loading, setLoading] = useState(false);
   const [exhausted, setExhausted] = useState(false);
@@ -96,7 +99,7 @@ export function ReconciliationRoundPicker({
   }
 
   return (
-    <div className="relative">
+    <div className="relative" ref={anchorRef}>
       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <Input
         aria-label="ค้นหารอบสรุปสิ้นเดือน"
@@ -125,7 +128,8 @@ export function ReconciliationRoundPicker({
           {/* Click-away without a portal: the overlay sits behind the list. */}
           <button aria-hidden className="fixed inset-0 z-30 cursor-default" onClick={() => setOpen(false)} tabIndex={-1} type="button" />
           <div
-            className="absolute left-0 right-0 z-40 mt-1 max-h-64 overflow-y-auto rounded-xl border bg-card p-1 shadow-card"
+            className="absolute left-0 right-0 z-40 overflow-y-auto overscroll-contain rounded-xl border bg-card p-1 shadow-card"
+            style={{ maxHeight: panelPosition?.maxHeight, ...(panelPosition?.above ? { bottom: "calc(100% + 0.25rem)" } : { top: "calc(100% + 0.25rem)" }) }}
             onScroll={onScroll}
             ref={listRef}
           >

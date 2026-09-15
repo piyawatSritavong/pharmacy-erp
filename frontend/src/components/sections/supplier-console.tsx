@@ -157,7 +157,7 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
   return (
     <>
       <section className="overflow-hidden rounded-3xl border bg-white shadow-card">
-        <div className="flex flex-col gap-3 border-b bg-surface-warm p-5 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 border-b bg-surface-warm p-3 sm:p-5 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-wrap items-center gap-3">
             <div className="relative min-w-0 flex-1 md:max-w-md">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -190,36 +190,36 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
             {message}
           </Notice>
         ) : null}
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-sm">
-            <thead className="bg-muted text-left">
-              <tr>
-                <th className="p-3">บริษัท</th>
-                <th className="p-3">เลขผู้เสียภาษี</th>
-                <th className="p-3">ผู้ติดต่อ</th>
-                <th className="p-3">ที่อยู่</th>
-                <th className="p-3">เครดิต</th>
-                <th className="p-3">PO</th>
-                <th className="p-3 text-right">จัดการ</th>
+        <div className="overflow-x-auto p-3 sm:p-0">
+          <table role="table" className="responsive-table mobile-card-table w-full min-w-[980px] text-sm">
+            <thead role="rowgroup" className="bg-muted text-left">
+              <tr role="row">
+                <th role="columnheader" scope="col" className="p-3">บริษัท</th>
+                <th role="columnheader" scope="col" className="p-3">เลขผู้เสียภาษี</th>
+                <th role="columnheader" scope="col" className="p-3">ผู้ติดต่อ</th>
+                <th role="columnheader" scope="col" className="p-3">ที่อยู่</th>
+                <th role="columnheader" scope="col" className="p-3">เครดิต</th>
+                <th role="columnheader" scope="col" className="p-3">PO</th>
+                <th role="columnheader" scope="col" className="p-3 text-right">จัดการ</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {pageRows.map((item) => (
-                <tr className="border-t" key={String(item.id)}>
-                  <td className="p-3">
+                <tr role="row" className="border-t" key={String(item.id)}>
+                  <td role="cell" data-label="บริษัท" data-primary="true" className="p-3">
                     <strong className="block">{String(item.legal_name)}</strong>
                     <span className="text-xs text-muted-foreground">
                       {String(item.supplier_code)}
                     </span>
                   </td>
-                  <td className="p-3">{String(item.tax_id || "-")}</td>
-                  <td className="p-3">
+                  <td role="cell" data-label="เลขผู้เสียภาษี" className="p-3">{String(item.tax_id || "-")}</td>
+                  <td role="cell" data-label="ผู้ติดต่อ" className="p-3">
                     {String(item.contact_name || "-")}
                     <span className="block text-xs text-muted-foreground">
                       {String(item.phone || item.email || "")}
                     </span>
                   </td>
-                  <td className="max-w-sm p-3">
+                  <td role="cell" data-label="ที่อยู่" className="max-w-sm p-3">
                     {[
                       item.address_line,
                       item.subdistrict,
@@ -230,13 +230,13 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
                       .filter(Boolean)
                       .join(" ") || "-"}
                   </td>
-                  <td className="p-3">
+                  <td role="cell" data-label="เครดิต" className="p-3">
                     {Number(item.payment_terms_days || 0)} วัน
                   </td>
-                  <td className="p-3">
+                  <td role="cell" data-label="PO" className="p-3">
                     {Number(item.purchase_order_count || 0)}
                   </td>
-                  <td className="p-3">
+                  <td role="cell" data-label="จัดการ" data-actions="true" className="p-3">
                     <div className="flex justify-end gap-2">
                       <Button
                         className="h-9 px-3"

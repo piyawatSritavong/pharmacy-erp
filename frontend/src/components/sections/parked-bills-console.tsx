@@ -116,7 +116,7 @@ export function ParkedBillsConsole() {
           <div className="space-y-3">
             {items.map((bill) => (
               <article className="flex flex-wrap items-center gap-3 rounded-2xl border bg-card p-4" key={bill.id}>
-                <div className="min-w-[220px] flex-1">
+                <div className="min-w-0 basis-full sm:basis-auto sm:min-w-[220px] flex-1">
                   <p className="font-semibold">
                     {bill.customer_name || "ลูกค้าหน้าร้าน"}
                     <span className="ml-2 font-normal text-muted-foreground">

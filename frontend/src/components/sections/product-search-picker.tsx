@@ -4,6 +4,7 @@ import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PackageSearch, Search } from "lucide-react";
 
+import { usePopoverPosition } from "@/components/ui/use-popover-position";
 import { EmptyState, Input } from "@/components/ui/primitives";
 import { ProductThumbnail } from "@/components/sections/product-thumbnail";
 import { cn } from "@/lib/utils";
@@ -42,10 +43,18 @@ export function ProductSearchPicker({
   // dialog boundary" bug).
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const [panelRect, setPanelRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const panelRect = usePopoverPosition(open, anchorRef);
   const [mounted, setMounted] = useState(false);
+  const [inlineResults, setInlineResults] = useState(false);
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+    const mobile = window.matchMedia("(max-width: 639px)");
+    const update = () => setInlineResults(mobile.matches);
+    update();
+    mobile.addEventListener("change", update);
+    return () => mobile.removeEventListener("change", update);
+  }, []);
 
   // A modal Radix Dialog locks background scrolling (react-remove-scroll). This
   // results panel is a body-portaled *sibling* of the dialog, so that lock can
@@ -69,21 +78,6 @@ export function ProductSearchPicker({
     return () => node.removeEventListener("wheel", onWheel);
   }, [open, mounted, panelRect]);
 
-  useEffect(() => {
-    if (!open) return;
-    function reposition() {
-      const rect = anchorRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      setPanelRect({ top: rect.bottom + 8, left: rect.left, width: rect.width });
-    }
-    reposition();
-    window.addEventListener("scroll", reposition, true);
-    window.addEventListener("resize", reposition);
-    return () => {
-      window.removeEventListener("scroll", reposition, true);
-      window.removeEventListener("resize", reposition);
-    };
-  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -124,14 +118,14 @@ export function ProductSearchPicker({
         // *sibling* portal under <body>, not nested inside the dialog, so it
         // inherits that `none` and renders visually on top but eats no
         // clicks unless explicitly opted back in here.
-        className="pointer-events-auto fixed z-50 max-h-72 overflow-y-auto overscroll-contain rounded-2xl border bg-white p-2 shadow-xl"
+        className={cn("pointer-events-auto z-50 overflow-y-auto overscroll-contain rounded-xl border bg-card p-2 shadow-xl", inlineResults ? "relative mt-2" : "fixed max-h-72")}
         // Keep the text input focused when the pointer lands anywhere in the
         // panel — its scrollbar included — so grabbing the scrollbar doesn't
         // blur the input and close the panel mid-scroll.
         onMouseDown={(event) => event.preventDefault()}
         ref={panelRef}
         role="listbox"
-        style={panelRect ? { top: panelRect.top, left: panelRect.left, width: panelRect.width } : { visibility: "hidden" }}
+        style={inlineResults ? { maxHeight: "min(16rem, calc(var(--app-viewport-height, 100dvh) * 0.45))" } : panelRect ? { top: panelRect.top, left: panelRect.left, width: panelRect.width, maxHeight: panelRect.maxHeight } : { visibility: "hidden" }}
       >
         {items.map((product) => (
           <button
@@ -146,7 +140,7 @@ export function ProductSearchPicker({
           >
             <ProductThumbnail available={Boolean(product.image_available)} className="h-11 w-11" imageCount={Number(product.image_count || 0)} name={String(product.name)} productId={String(product.id)} />
             <span className="min-w-0 flex-1"><strong className="block truncate">{String(product.name)}</strong><span className="block truncate text-xs text-muted-foreground">{String(product.sku)}{product.barcode ? ` · ${String(product.barcode)}` : ""}</span></span>
-            <span className="shrink-0 text-xs text-muted-foreground">{String(product.category_name || "")}</span>
+            <span className="hidden max-w-32 shrink-0 text-xs text-muted-foreground sm:block">{String(product.category_name || "")}</span>
           </button>
         ))}
         {!loading && items.length === 0 ? <EmptyState className="p-5" icon={PackageSearch} /> : null}
@@ -175,7 +169,8 @@ export function ProductSearchPicker({
         role="combobox"
         value={query}
       />
-      {mounted && panel ? createPortal(panel, document.body) : null}
+      {/* Inline mobile results stay in the dialog's touch/focus/scroll boundary. */}
+      {mounted && panel ? inlineResults ? panel : createPortal(panel, document.body) : null}
     </div>
   );
 }

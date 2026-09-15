@@ -211,7 +211,7 @@ export function SalesHistoryConsole({
             </div>
           </Field>
           {showBranch ? (
-            <Field className="w-48" label="สาขา">
+            <Field className="w-full sm:w-48" label="สาขา">
               <Select aria-label="กรองตามสาขา" onChange={(event) => resetPage(setBranchFilter)(event.target.value)} value={branchFilter}>
                 <option value="">ทุกสาขา</option>
                 {branchOptions.map((name) => <option key={name} value={name}>{name}</option>)}
