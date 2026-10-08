@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { SupplierConsole } from "@/components/sections/supplier-console";
 import { requirePermission } from "@/lib/rbac";
 import { getSuppliers, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "บริษัทคู่ค้า" };
 
 export default async function SuppliersPage() {
   requirePermission(await requireSession(), ["suppliers.view.global", "suppliers.manage.global"]);

@@ -1,5 +1,6 @@
 "use client";
 
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 
 const NUMBER_FORMAT = new Intl.NumberFormat("th-TH", { maximumFractionDigits: 2 });
@@ -56,7 +57,7 @@ export function BarChart({
 }) {
   const maximum = Math.max(...points.map((point) => point.value), 1);
   const render = FORMATTERS[format] || FORMATTERS.compact;
-  if (!points.length) return null;
+  if (!points.length) return <EmptyState description="ยังไม่มีข้อมูลในช่วงนี้" />;
 
   return (
     <div aria-label={ariaLabel} className={cn("w-full", className)} role="img">
@@ -68,7 +69,7 @@ export function BarChart({
           const ratio = Math.max(point.value / maximum, 0.02);
           return (
             <div className="group flex min-w-0 flex-1 flex-col justify-end" key={point.label}>
-              <span className="mb-1 truncate text-center text-[10px] font-semibold tabular-nums text-muted-foreground">
+              <span className="mb-1 truncate text-center text-2xs font-semibold tabular-nums text-muted-foreground">
                 {render(point.value)}
               </span>
               <div
@@ -82,7 +83,7 @@ export function BarChart({
       </div>
       <div className="mt-1.5 flex gap-1.5 border-t pt-1.5">
         {points.map((point) => (
-          <span className="min-w-0 flex-1 truncate text-center text-[10px] text-muted-foreground" key={point.label} title={point.label}>
+          <span className="min-w-0 flex-1 truncate text-center text-2xs text-muted-foreground" key={point.label} title={point.label}>
             {point.label}
           </span>
         ))}
@@ -94,8 +95,8 @@ export function BarChart({
 export type BarChartSeries = { key: string; label: string };
 export type SeriesPoint = { label: string; values: number[]; hints?: string[] };
 
-const SERIES_COLORS = ["bg-primary/75 group-hover:bg-primary", "bg-amber-400/80 group-hover:bg-amber-500"];
-const SERIES_DOTS = ["bg-primary", "bg-amber-400"];
+const SERIES_COLORS = ["bg-primary/75 group-hover:bg-primary", "bg-secondary/80 group-hover:bg-secondary"];
+const SERIES_DOTS = ["bg-primary", "bg-secondary"];
 
 /**
  * Grouped bar chart for a report: one cluster per X value, one bar per measure.
@@ -121,7 +122,7 @@ export function SeriesBarChart({
   format?: BarChartFormat;
   xAxisLabel?: string;
 }) {
-  if (!points.length || !series.length) return null;
+  if (!points.length || !series.length) return <EmptyState description="ยังไม่มีข้อมูลในช่วงนี้" />;
   const render = FORMATTERS[format] || FORMATTERS.number;
   const maximum = Math.max(...points.flatMap((point) => point.values), 1);
 
@@ -129,7 +130,7 @@ export function SeriesBarChart({
     <div className={cn("w-full", className)}>
       <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1">
         {series.map((entry, index) => (
-          <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground" key={entry.key}>
+          <span className="flex items-center gap-1.5 text-2xs text-muted-foreground" key={entry.key}>
             <span aria-hidden className={cn("h-2 w-2 rounded-sm", SERIES_DOTS[index % SERIES_DOTS.length])} />
             {entry.label}
           </span>
@@ -154,13 +155,13 @@ export function SeriesBarChart({
         </div>
         <div className="mt-1.5 flex gap-2 border-t pt-1.5">
           {points.map((point) => (
-            <span className="min-w-0 flex-1 truncate text-center text-[10px] text-muted-foreground" key={point.label} title={point.label}>
+            <span className="min-w-0 flex-1 truncate text-center text-2xs text-muted-foreground" key={point.label} title={point.label}>
               {point.label}
             </span>
           ))}
         </div>
       </div>
-      {xAxisLabel ? <p className="mt-1 text-center text-[10px] text-muted-foreground">{xAxisLabel}</p> : null}
+      {xAxisLabel ? <p className="mt-1 text-center text-2xs text-muted-foreground">{xAxisLabel}</p> : null}
     </div>
   );
 }

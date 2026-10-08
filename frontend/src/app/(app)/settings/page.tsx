@@ -1,6 +1,8 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { SettingsConsole } from "@/components/sections/settings-console";
 import { requirePermission } from "@/lib/rbac";
+import { ApiError } from "@/services/api-server";
 import {
   getBranches,
   getMarketplaceOrders,
@@ -11,6 +13,8 @@ import {
   getUsers,
   requireSession
 } from "@/services/erp";
+
+export const metadata: Metadata = { title: "ตั้งค่า" };
 
 export default async function SettingsPage({
   searchParams
@@ -29,7 +33,14 @@ export default async function SettingsPage({
   // a role legitimately has access to still render; the ผู้ใช้ and
   // บทบาทและสิทธิ์ tabs just end up empty for them, which is correct.
   const emptyList = { items: [] as Array<Record<string, unknown>> };
-  const usersOnly = (promise: Promise<{ items: Array<Record<string, unknown>> }>) => promise.catch(() => emptyList);
+  // Only a 403 means "this role doesn't manage users". Any other failure is a
+  // real error and goes to the error page, rather than passing for an empty
+  // user list.
+  const usersOnly = (promise: Promise<{ items: Array<Record<string, unknown>> }>) =>
+    promise.catch((error: unknown) => {
+      if (error instanceof ApiError && error.status === 403) return emptyList;
+      throw error;
+    });
   const [branches, users, roles, permissions, sequences, providers, marketplaceOrders] =
     await Promise.all([
       getBranches(),

@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { AppHeader } from "@/components/layout/app-header";
 import { PageHeaderProvider } from "@/components/layout/page-header";
+import { RefreshIndicator } from "@/components/layout/refresh-indicator";
 import { PosBottomNav, Sidebar } from "@/components/layout/sidebar";
 import { useVisualViewport } from "@/components/ui/use-visual-viewport";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ export function AppShell({
       // Nav renders after <main> so it sits along the bottom edge of the
       // screen, next to the till's own action buttons.
       <div className="flex h-[var(--app-viewport-height,100dvh)] min-h-0 flex-col overflow-hidden bg-pos-canvas">
+        <RefreshIndicator />
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5">{children}</main>
         <PosBottomNav navigation={session.navigation} user={session.user} />
       </div>
@@ -32,11 +34,12 @@ export function AppShell({
 	// viewport above whatever actually prints (a portaled dialog's print
 	// document renders as a later sibling in the document, after this).
 	return (
-		<div className={cn("grid min-h-screen bg-background transition-[grid-template-columns] duration-300 print:min-h-0", sidebarCollapsed ? "lg:grid-cols-[72px_minmax(0,1fr)]" : "lg:grid-cols-[232px_minmax(0,1fr)]")}>
+		<div className={cn("grid min-h-screen bg-background transition-[grid-template-columns] duration-300 print:min-h-0", sidebarCollapsed ? "lg:grid-cols-[theme(spacing.sidebar-collapsed)_minmax(0,1fr)]" : "lg:grid-cols-[theme(spacing.sidebar)_minmax(0,1fr)]")}>
 			{/* print:hidden — the nav chrome should never leak into any in-page
 			    window.print() call (see D4's PO print layout; month-end has its
 			    own in-page print button too, so only the sidebar/nav is hidden
 			    here, not all of <main>). */}
+			<RefreshIndicator />
 			<div className="hidden lg:block print:hidden">
 				<Sidebar collapsed={sidebarCollapsed} navigation={session.navigation} onToggle={() => setSidebarCollapsed((current) => !current)} />
       </div>

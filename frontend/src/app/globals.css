@@ -17,12 +17,41 @@
   --primary-foreground: 0 0% 100%;
   --secondary: 39 100% 61%;
   --secondary-foreground: 0 0% 8%;
-  --accent: 231 57% 48%;
-  --accent-foreground: 0 0% 100%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 98%;
   --ring: 231 57% 48%;
-  --radius: 1rem;
+  --radius: 0.75rem;
+
+  /* Semantic tints and text shades, as RGB channels (tailwind.config.ts maps
+     them with <alpha-value>). Solid fills stay literal in the config. */
+  --error: 220 38 38;
+  --success-50: 240 253 244;
+  --success-100: 220 252 231;
+  --success-200: 187 247 208;
+  --success-700: 21 128 61;
+  --success-800: 22 101 52;
+  --error-50: 254 242 242;
+  --error-100: 254 226 226;
+  --error-200: 254 202 202;
+  --error-700: 185 28 28;
+  --error-800: 153 27 27;
+  --warning-50: 255 251 235;
+  --warning-100: 254 243 199;
+  --warning-200: 253 230 138;
+  --warning-700: 180 83 9;
+  --warning-800: 146 64 14;
+  --info-50: 240 249 255;
+  --info-100: 224 242 254;
+  --info-200: 186 230 253;
+  --info-700: 3 105 161;
+  --info-800: 7 89 133;
+
+  --surface-warm: 35 100% 95%;
+  --pos-canvas: 15 100% 97%;
+  --placeholder-from: 33 100% 96%;
+  --placeholder-to: 48 96% 89%;
+  --shadow-card: 0 12px 36px rgba(35, 24, 12, 0.07);
+  --shadow-brand: 0 12px 28px rgba(52, 74, 191, 0.22);
 }
 
 /*
@@ -49,54 +78,40 @@
   --primary-foreground: 226 30% 12%;
   --secondary: 39 88% 62%;
   --secondary-foreground: 30 30% 10%;
-  --accent: 231 70% 68%;
-  --accent-foreground: 226 30% 12%;
   --destructive: 0 66% 60%;
   --destructive-foreground: 0 0% 98%;
   --ring: 231 70% 68%;
-}
 
-/*
- * Literal colour utilities predate the token system and are spread across the
- * app; rather than edit hundreds of call sites, they are re-pointed here so a
- * white card is the card colour and a status tint becomes its dark equivalent.
- * The tints keep their hue and swap lightness, so red still reads as trouble.
- */
-.dark .bg-white { background-color: hsl(var(--card)); }
-.dark .bg-slate-50,
-.dark .bg-slate-100,
-.dark .bg-neutral-100 { background-color: hsl(var(--muted)); }
-.dark .bg-slate-200,
-.dark .bg-neutral-200 { background-color: hsl(var(--border)); }
-.dark .text-black { color: hsl(var(--foreground)); }
-.dark .text-slate-500,
-.dark .text-neutral-500 { color: hsl(var(--muted-foreground)); }
-.dark .border-black { border-color: hsl(var(--border)); }
+  /* Tints darken and text shades lighten, keeping each hue, so red still
+     reads as trouble on the dark ground. */
+  --error: 240 128 128;
+  --success-50: 28 64 46;
+  --success-100: 32 80 56;
+  --success-200: 42 104 72;
+  --success-700: 120 214 160;
+  --success-800: 143 224 186;
+  --error-50: 71 31 31;
+  --error-100: 90 36 36;
+  --error-200: 120 48 48;
+  --error-700: 245 140 140;
+  --error-800: 237 160 160;
+  --warning-50: 70 54 27;
+  --warning-100: 88 66 30;
+  --warning-200: 110 82 36;
+  --warning-700: 240 190 110;
+  --warning-800: 240 204 133;
+  --info-50: 30 50 72;
+  --info-100: 34 60 90;
+  --info-200: 44 78 115;
+  --info-700: 130 190 240;
+  --info-800: 148 194 240;
 
-.dark .bg-success-50,
-.dark .bg-emerald-100 { background-color: hsl(152 40% 18%); }
-.dark .text-success-800,
-.dark .text-emerald-700 { color: hsl(152 55% 72%); }
-.dark .bg-warning-50,
-.dark .bg-amber-50,
-.dark .bg-amber-100 { background-color: hsl(38 45% 19%); }
-.dark .text-warning-800,
-.dark .text-amber-800 { color: hsl(40 80% 72%); }
-.dark .border-warning-200 { border-color: hsl(38 35% 30%); }
-.dark .bg-error-50,
-.dark .bg-red-50,
-.dark .bg-red-100 { background-color: hsl(0 40% 20%); }
-.dark .text-error,
-.dark .text-red-700 { color: hsl(0 75% 74%); }
-.dark .bg-info-50 { background-color: hsl(214 42% 20%); }
-.dark .text-info-800 { color: hsl(210 75% 76%); }
-
-.dark .shadow-card { box-shadow: 0 12px 36px rgba(0, 0, 0, 0.42); }
-.dark .shadow-brand { box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5); }
-.dark .bg-surface-warm { background-color: hsl(226 16% 16%); }
-.dark .bg-pos-canvas {
-  background-color: hsl(226 20% 11%);
-  background-image: radial-gradient(circle at 20% -20%, rgba(255, 200, 61, 0.07), transparent 32rem);
+  --surface-warm: 226 16% 16%;
+  --pos-canvas: 226 20% 11%;
+  --placeholder-from: 226 16% 18%;
+  --placeholder-to: 35 25% 20%;
+  --shadow-card: 0 12px 36px rgba(0, 0, 0, 0.42);
+  --shadow-brand: 0 12px 28px rgba(0, 0, 0, 0.5);
 }
 
 /*
@@ -112,73 +127,54 @@
   --muted: 38 30% 94%;
   --muted-foreground: 0 0% 42%;
   --border: 36 16% 87%;
+  --error: 220 38 38;
+  --success-50: 240 253 244;
+  --success-100: 220 252 231;
+  --success-200: 187 247 208;
+  --success-700: 21 128 61;
+  --success-800: 22 101 52;
+  --error-50: 254 242 242;
+  --error-100: 254 226 226;
+  --error-200: 254 202 202;
+  --error-700: 185 28 28;
+  --error-800: 153 27 27;
+  --warning-50: 255 251 235;
+  --warning-100: 254 243 199;
+  --warning-200: 253 230 138;
+  --warning-700: 180 83 9;
+  --warning-800: 146 64 14;
+  --info-50: 240 249 255;
+  --info-100: 224 242 254;
+  --info-200: 186 230 253;
+  --info-700: 3 105 161;
+  --info-800: 7 89 133;
   background-color: #fff;
   color: #000;
 }
-.dark .theme-print-sheet .bg-white { background-color: #fff; }
-.dark .theme-print-sheet .text-black { color: #000; }
-.dark .theme-print-sheet .border-black { border-color: #000; }
 
 * {
   box-sizing: border-box;
   border-color: hsl(var(--border));
 }
 
+/* The font itself comes from Tailwind's font-sans on <body> (layout.tsx). */
 html,
 body {
   margin: 0;
   padding: 0;
-  font-family: var(--font-sans), "Noto Sans Thai", ui-sans-serif, system-ui, sans-serif;
   background:
-    radial-gradient(circle at 85% 5%, rgba(52, 74, 191, 0.1), transparent 28rem),
+    radial-gradient(circle at 85% 5%, hsl(var(--primary) / 0.1), transparent 28rem),
     hsl(var(--background));
   color: hsl(var(--foreground));
   -webkit-font-smoothing: antialiased;
 }
 
-.dark body {
-  background:
-    radial-gradient(circle at 85% 5%, rgba(110, 132, 255, 0.09), transparent 28rem),
-    hsl(var(--background));
-}
-
-.bg-surface-warm {
-  background-color: #fff5e8;
-}
-
+/* The till's canvas colour is the pos-canvas token; this adds its glow. */
 .bg-pos-canvas {
-  background-color: #fff3ef;
   background-image: radial-gradient(circle at 20% -20%, rgba(255, 200, 61, 0.28), transparent 32rem);
 }
-
-.shadow-brand {
-  box-shadow: 0 12px 28px rgba(52, 74, 191, 0.22);
-}
-
-.shadow-card {
-  box-shadow: 0 12px 36px rgba(35, 24, 12, 0.07);
-}
-
-.pos-pill,
-.pos-pill-active {
-  flex: none;
-  border: 1px solid hsl(var(--border));
-  border-radius: 9999px;
-  padding: 0.55rem 1rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  transition: 160ms ease;
-}
-
-.pos-pill {
-  background: white;
-}
-
-.pos-pill:hover,
-.pos-pill-active {
-  border-color: hsl(var(--primary));
-  background: hsl(var(--primary));
-  color: white;
+.dark .bg-pos-canvas {
+  background-image: radial-gradient(circle at 20% -20%, rgba(255, 200, 61, 0.07), transparent 32rem);
 }
 
 a {
@@ -199,20 +195,6 @@ select:disabled,
 textarea:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-/*
- * Ready-to-use brand button styles built on the centralized theme tokens
- * (see tailwind.config.ts). Prefer these utility combos directly in JSX
- * where a plain `<button>` element doesn't route through the .btn-* classes:
- *   bg-primary hover:bg-primary-600 active:bg-primary-700 disabled:opacity-40
- */
-.btn-primary {
-  @apply bg-primary text-white transition-colors hover:bg-primary-600 active:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-40;
-}
-
-.btn-neutral {
-  @apply bg-neutral-100 text-neutral-dark transition-colors hover:bg-neutral-200 active:bg-neutral-300 disabled:cursor-not-allowed disabled:opacity-40;
 }
 
 /*
@@ -246,11 +228,14 @@ textarea:disabled {
   main { font-size: 0.875rem; }
   main :where(button:not([role="checkbox"]):not([role="switch"])),
   .app-dialog :where(button:not([role="checkbox"]):not([role="switch"])),
-  .app-sheet :where(button:not([role="checkbox"]):not([role="switch"])) {
+  .app-sheet :where(button:not([role="checkbox"]):not([role="switch"])),
+  .pos-cart :where(button:not([role="checkbox"]):not([role="switch"])) {
     min-height: 2.75rem;
   }
   :is(.ui-input, .ui-select, .ui-button) { min-height: 2.75rem; }
-  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea {
+  /* :not([hidden]) only lifts textarea to the same specificity as the input
+     selector, so a text-sm utility can no longer shrink it back to 14px. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea:not([hidden]):not([data-x]):not([data-y]) {
     min-width: 0;
     font-size: 1rem;
   }
@@ -313,4 +298,9 @@ textarea:disabled {
     top: calc(var(--app-viewport-top, 0px) + 0.5rem);
     max-height: calc(var(--app-viewport-height, 100dvh) - 1rem);
   }
+}
+
+@keyframes refresh-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
 }

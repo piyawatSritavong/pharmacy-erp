@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, EyeOff, Tag } from "lucide-react";
 
 import { SectionCard } from "@/components/sections/common";
+import { TableEmptyState } from "@/components/ui/empty-state";
 import { currency } from "@/lib/utils";
 
 type Branch = Record<string, unknown>;
@@ -50,7 +51,7 @@ export function CloseComparison({ data, reportHref }: { data: Comparison; report
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
         <div className="rounded-2xl border bg-muted/40 p-5">
           <p className="text-xs font-medium text-muted-foreground">ยอดก่อนปรับ</p>
-          <p className="mt-1 text-3xl font-bold tabular-nums">{currency(num(data.before_amount))}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">{currency(num(data.before_amount))}</p>
           <p className="mt-1 text-xs text-muted-foreground">{count(data.before_invoice_count)} ใบ · รวมบิลที่ถูกซ่อนไปแล้ว</p>
         </div>
         <div className="hidden place-items-center lg:grid">
@@ -58,7 +59,7 @@ export function CloseComparison({ data, reportHref }: { data: Comparison; report
         </div>
         <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5">
           <p className="text-xs font-medium text-primary">ยอดหลังปรับ (ที่ทุกคนเห็น)</p>
-          <p className="mt-1 text-3xl font-bold tabular-nums">{currency(num(data.after_amount))}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums sm:text-3xl">{currency(num(data.after_amount))}</p>
           <p className="mt-1 text-xs text-muted-foreground">{count(data.after_invoice_count)} ใบ · ยอดที่ admin.central เห็น</p>
         </div>
       </div>
@@ -66,17 +67,17 @@ export function CloseComparison({ data, reportHref }: { data: Comparison; report
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border p-4">
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><EyeOff className="h-3.5 w-3.5" />บิลที่ถูกซ่อน</p>
-          <p className="mt-1 text-xl font-semibold tabular-nums">{currency(num(data.hidden_amount))}</p>
-          <p className="text-xs text-muted-foreground">{count(data.hidden_invoice_count)} ใบ · มีในสต๊อกผี ส่งคืน WH แล้วตัด Ghost</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums sm:text-2xl">{currency(num(data.hidden_amount))}</p>
+          <p className="text-xs text-muted-foreground">{count(data.hidden_invoice_count)} ใบ · มีในสต๊อกผี ส่งคืนโกดังกลางแล้วตัดสต๊อกผี</p>
         </div>
         <div className="rounded-xl border p-4">
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Tag className="h-3.5 w-3.5" />ส่วนที่ปรับราคาลง</p>
-          <p className="mt-1 text-xl font-semibold tabular-nums">{currency(num(data.repriced_reduction))}</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums sm:text-2xl">{currency(num(data.repriced_reduction))}</p>
           <p className="text-xs text-muted-foreground">บิลที่ยังอยู่ แต่บันทึกใหม่ที่ต้นทุน + %</p>
         </div>
         <div className="rounded-xl border p-4">
           <p className="text-xs text-muted-foreground">ผลต่างรวม</p>
-          <p className="mt-1 text-xl font-semibold tabular-nums">{currency(difference)}</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums sm:text-2xl">{currency(difference)}</p>
           <p className="text-xs text-muted-foreground">บิลที่ไม่ถูกแตะ {currency(untouched)}</p>
         </div>
       </div>
@@ -96,6 +97,7 @@ export function CloseComparison({ data, reportHref }: { data: Comparison; report
             </tr>
           </thead>
           <tbody className="divide-y">
+            {data.branches.length === 0 ? <TableEmptyState colSpan={8} description="ไม่มีสาขาในรอบนี้" /> : null}
             {data.branches.map((branch) => {
               const changed = num(branch.hidden_amount) > 0 || num(branch.repriced_reduction) > 0;
               return (
@@ -105,10 +107,10 @@ export function CloseComparison({ data, reportHref }: { data: Comparison; report
                   <td className="px-3 py-2.5 text-right tabular-nums">{currency(num(branch.before_amount))}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{count(branch.after_invoice_count)}</td>
                   <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{currency(num(branch.after_amount))}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-red-700">
+                  <td className="px-3 py-2.5 text-right tabular-nums text-error-700">
                     {num(branch.hidden_amount) > 0 ? currency(num(branch.hidden_amount)) : "—"}
                   </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-amber-700">
+                  <td className="px-3 py-2.5 text-right tabular-nums text-warning-700">
                     {num(branch.repriced_reduction) > 0 ? currency(num(branch.repriced_reduction)) : "—"}
                   </td>
                   <td className="px-3 py-2.5 text-right">

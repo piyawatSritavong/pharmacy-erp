@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, MonitorSmartphone, Store } from "lucide-react";
+import { MonitorSmartphone, Store } from "lucide-react";
 import { toast } from "sonner";
 
 import { PosWorkspace } from "@/components/sections/pos-workspace";
 import { SectionCard } from "@/components/sections/common";
 import { Field } from "@/components/ui/field";
-import { Select } from "@/components/ui/primitives";
+import { Button, EmptyState, ErrorState, LoadingState, Select } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
 
 type Option = Record<string, unknown>;
@@ -50,6 +50,8 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
   // Which branch tills are on their sales screen right now. Head office can
   // only sell through a shop that is open — the customer pays at that till.
   const [onlineBranches, setOnlineBranches] = useState<Record<string, string>>({});
+  const [onlineStatusError, setOnlineStatusError] = useState(false);
+  const [stockError, setStockError] = useState("");
   const branchName = branches.find((branch) => branch.id === branchId)?.name || "";
   const onlineCount = branches.filter((branch) => onlineBranches[branch.id]).length;
   const selectedOffline = Boolean(branchId) && !onlineBranches[branchId];
@@ -69,8 +71,13 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
       ]);
       setProducts(productResponse.items);
       setInventory(inventoryResponse.items);
+      setStockError("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "โหลดสินค้าและสต๊อกของสาขาไม่สำเร็จ");
+      // Shown in place of the till: an empty grid would read as "this branch
+      // sells nothing".
+      const message = error instanceof Error ? error.message : "โหลดสินค้าและสต๊อกของสาขาไม่สำเร็จ";
+      toast.error(message);
+      setStockError(message);
       setProducts([]);
       setInventory([]);
     } finally {
@@ -85,13 +92,16 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
   useEffect(() => {
     const load = () =>
       void proxyClient<{ items: Array<Record<string, unknown>> }>("/admin/pos/online-branches")
-        .then((response) =>
+        .then((response) => {
           setOnlineBranches(
             Object.fromEntries((response.items || []).map((row) => [text(row.branch_id), text(row.cashier_name)]))
-          )
-        )
+          );
+          setOnlineStatusError(false);
+        })
         .catch(() => {
-          /* the next tick retries */
+          // The next tick retries; until it succeeds the picker says the
+          // online status is unknown rather than silently showing everyone offline.
+          setOnlineStatusError(true);
         });
     load();
     const timer = window.setInterval(load, 10000);
@@ -118,7 +128,9 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
         <div className="grid gap-5 lg:grid-cols-[minmax(0,280px)_1fr]">
           <Field
             hint={
-              onlineCount === 0
+              onlineStatusError
+                ? "ตรวจสถานะหน้าร้านออนไลน์ไม่ได้ กำลังลองใหม่อัตโนมัติ"
+                : onlineCount === 0
                 ? "ยังไม่มีสาขาใดเปิดหน้าขายอยู่ — รอพนักงานสาขาเปิดเครื่อง POS"
                 : `เลือกได้เฉพาะสาขาที่เปิดหน้าขายอยู่ · ออนไลน์ ${onlineCount} สาขา`
             }
@@ -165,10 +177,16 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
       <div className="min-h-0 flex-1">
       {!branchId ? (
         <SectionCard title="ยังไม่ได้เลือกสาขา" description="เลือกสาขาด้านบนเพื่อเริ่มเปิดการขาย">
-          <p className="py-8 text-center text-sm text-muted-foreground">เลือกสาขาที่จะเปิดขาย แล้วรายการสินค้าของสาขานั้นจะแสดงที่นี่</p>
+          <EmptyState description="เลือกสาขาที่จะเปิดขาย แล้วรายการสินค้าของสาขานั้นจะแสดงที่นี่" icon={Store} />
         </SectionCard>
       ) : loading ? (
-        <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> กำลังโหลดสินค้าของ {branchName}</div>
+        <LoadingState className="py-16" label={`กำลังโหลดสินค้าของ ${branchName}`} />
+      ) : stockError ? (
+        <ErrorState
+          action={<Button onClick={() => void loadBranchStock(branchId)} variant="secondary">ลองใหม่</Button>}
+          description={stockError}
+          title="โหลดสินค้าและสต๊อกของสาขาไม่สำเร็จ"
+        />
       ) : (
         <PosWorkspace
           branchId={branchId}
@@ -188,8 +206,8 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
           is being written in, and who is writing it. Deliberately without the
           POS menu — this page already sits inside the back-office sidebar. */}
       {branchId && !loading ? (
-        <footer className="-mx-4 flex shrink-0 items-center gap-4 border-t bg-white/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-foreground text-white">
+        <footer className="-mx-4 flex shrink-0 items-center gap-4 border-t bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-foreground text-background">
             <Store className="h-5 w-5" />
           </span>
           <div className="min-w-0">

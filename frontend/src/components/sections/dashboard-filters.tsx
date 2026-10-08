@@ -161,7 +161,7 @@ export function DashboardFilters({ canSeeClose }: { canSeeClose: boolean }) {
         </div>
 
         <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
-          <Button aria-label="วันก่อนหน้า" onClick={() => step(-1)} type="button" variant="secondary">
+          <Button aria-label="วันก่อนหน้า" className="min-w-11" onClick={() => step(-1)} type="button" variant="secondary">
             <ChevronLeft className="h-4 w-4" />
             <span className="hidden sm:inline">วันก่อนหน้า</span>
           </Button>
@@ -171,7 +171,7 @@ export function DashboardFilters({ canSeeClose }: { canSeeClose: boolean }) {
             </p>
             <p className="text-xs text-muted-foreground">{isToday ? "วันนี้ · อัปเดตสด" : "ย้อนหลัง"}</p>
           </div>
-          <Button aria-label="วันถัดไป" onClick={() => step(1)} type="button" variant="secondary">
+          <Button aria-label="วันถัดไป" className="min-w-11" onClick={() => step(1)} type="button" variant="secondary">
             <span className="hidden sm:inline">วันถัดไป</span>
             <ChevronRight className="h-4 w-4" />
           </Button>

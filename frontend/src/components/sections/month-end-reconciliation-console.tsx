@@ -11,13 +11,17 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  EmptyState,
+  ErrorState,
   Field,
   Input,
+  LoadingState,
   MultiSelect,
   Table,
   TableBody,
   TableCell,
   TableContainer,
+  TableEmptyState,
   TableHead,
   TableHeader,
   TableRow
@@ -186,6 +190,10 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
   const [overview, setOverview] = useState<Overview | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  // History has its own loading/error states: a failed load used to leave a
+  // permanent "no history yet" after the toast faded.
+  const [historyState, setHistoryState] = useState<"loading" | "ready" | "error">("loading");
+  const [historyError, setHistoryError] = useState("");
   const router = useRouter();
   const [foldedMonths, setFoldedMonths] = useState<Record<string, boolean>>({});
   const [confirmation, setConfirmation] = useState("");
@@ -207,11 +215,16 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
   const markupFactor = markup == null ? null : (1 + markup / 100).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 
   const loadHistory = useCallback(async () => {
+    setHistoryState("loading");
     try {
       const response = await proxyClient<{ items: HistoryItem[] }>("/accounting/month-end/reconciliations");
       setHistory(response.items);
+      setHistoryState("ready");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "โหลดประวัติสรุปสิ้นเดือนไม่สำเร็จ");
+      const text = error instanceof Error ? error.message : "โหลดประวัติสรุปสิ้นเดือนไม่สำเร็จ";
+      setHistoryError(text);
+      setHistoryState("error");
+      toast.error(text);
     }
   }, []);
 
@@ -291,10 +304,10 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
     <div className="space-y-6">
       <PageIntro
         title="สรุปสิ้นเดือน"
-        description="เฉพาะผู้ดูแลระบบสูงสุด · บิลเงินสดที่มีในสต๊อกผีจะถูกส่งคืน WH ตัด Ghost และซ่อน ส่วนบิลเงินสดที่ไม่มีในสต๊อกผีจะบันทึกที่ต้นทุน + กำไร ภายในธุรกรรมเดียว"
+        description="เฉพาะผู้ดูแลระบบสูงสุด · บิลเงินสดที่มีในสต๊อกผีจะถูกส่งคืนโกดังกลาง ตัดสต๊อกผี และซ่อน ส่วนบิลเงินสดที่ไม่มีในสต๊อกผีจะบันทึกที่ต้นทุน + กำไร ภายในธุรกรรมเดียว"
       />
 
-      <SectionCard title="กำหนดขอบเขตรอบ" description="เลือกสาขาขายเท่านั้น ระบบไม่อนุญาตให้เลือกโกดัง WH เป็นสาขาต้นทาง">
+      <SectionCard title="กำหนดขอบเขตรอบ" description="เลือกสาขาขายเท่านั้น ระบบไม่อนุญาตให้เลือกโกดังกลางเป็นสาขาต้นทาง">
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.7fr_1fr_1fr]">
           <Field label="วันที่เริ่มต้น">
             <Input max={dateTo || todayISO()} onChange={(event) => { setDateFrom(event.target.value); resetPlan(); }} type="date" value={dateFrom} />
@@ -323,13 +336,13 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
       {overview && preview ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-lg border bg-info-50 p-4"><p className="text-xs text-muted-foreground">ยอดขาย issued + paid ทั้งหมด</p><p className="mt-1 text-xl font-semibold">{currency(overview.original_revenue)}</p><p className="mt-1 text-xs text-muted-foreground">{count(overview.invoice_count)} ใบในขอบเขต</p></div>
-            <div className="rounded-lg border bg-warning-50 p-4"><p className="text-xs text-muted-foreground">ซ่อน · เงินสด มีในสต๊อกผี</p><p className="mt-1 text-xl font-semibold">{currency(overview.hidden_revenue)}</p><p className="mt-1 text-xs text-muted-foreground">{count(overview.hidden_invoice_count)} ใบ ส่งคืน WH และตัด Ghost แล้วตัดออกจากการคำนวณ</p></div>
+            <div className="rounded-lg border bg-info-50 p-4"><p className="text-xs text-muted-foreground">ยอดขายที่ออกบิลและชำระแล้วทั้งหมด</p><p className="mt-1 text-xl font-semibold">{currency(overview.original_revenue)}</p><p className="mt-1 text-xs text-muted-foreground">{count(overview.invoice_count)} ใบในขอบเขต</p></div>
+            <div className="rounded-lg border bg-warning-50 p-4"><p className="text-xs text-muted-foreground">ซ่อน · เงินสด มีในสต๊อกผี</p><p className="mt-1 text-xl font-semibold">{currency(overview.hidden_revenue)}</p><p className="mt-1 text-xs text-muted-foreground">{count(overview.hidden_invoice_count)} ใบ ส่งคืนโกดังกลางและตัดสต๊อกผี แล้วตัดออกจากการคำนวณ</p></div>
             <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">บันทึกที่ต้นทุน + {overview.adjustment_percent}% · เงินสด ไม่มีในสต๊อกผี</p><p className="mt-1 text-xl font-semibold">{currency(overview.repriced_original_revenue)} → {currency(overview.repriced_final_revenue)}</p><p className="mt-1 text-xs text-muted-foreground">{count(overview.repriced_invoice_count)} ใบ · ส่วนต่าง {currency(overview.adjustment_reduction)}</p></div>
             <div className="rounded-lg border bg-success-50 p-4"><p className="text-xs text-muted-foreground">ยอดเป้าหมาย</p><p className="mt-1 text-xl font-semibold">{currency(overview.final_revenue)}</p><p className="mt-1 text-xs text-muted-foreground">บิลไม่เข้าเงื่อนไข {currency(overview.unchanged_revenue)} + บันทึกใหม่ {currency(overview.repriced_final_revenue)}</p></div>
           </div>
 
-          <SectionCard title="รายละเอียดกลุ่มบิลและสูตรจากข้อมูลจริง" description="ค่าทั้งหมด fetch มาจากใบขาย การชำระเงิน และ Ghost Stock ที่ WH ในขอบเขตเดียวกับรอบ">
+          <SectionCard title="รายละเอียดกลุ่มบิลและสูตรจากข้อมูลจริง" description="ค่าทั้งหมดคำนวณจากใบขาย การชำระเงิน และสต๊อกผีที่โกดังกลาง ในขอบเขตเดียวกับรอบ">
             <div className="grid gap-5 lg:grid-cols-2">
               <div className="rounded-lg border p-4 text-sm">
                 <p className="font-semibold">องค์ประกอบยอดขายทั้งหมด</p>
@@ -346,8 +359,8 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
               <div className="rounded-lg border p-4 text-sm">
                 <p className="font-semibold">กติกาของรอบ</p>
                 <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
-                  <li>บิลเงินสดที่ Ghost Stock ที่ WH มีพอทุกบรรทัด → ส่งคืนโกดัง ตัดผี และซ่อน (ตัดออกจากการคำนวณ)</li>
-                  <li>บิลเงินสดที่ Ghost Stock ไม่พอ → คงบิลไว้ บันทึกราคาต่อหน่วย = ต้นทุน × {markupFactor} ({overview.adjustment_percent}% = {100 + overview.adjustment_percent}%)</li>
+                  <li>บิลเงินสดที่สต๊อกผีที่โกดังกลางมีพอทุกบรรทัด → ส่งคืนโกดัง ตัดสต๊อกผี และซ่อน (ตัดออกจากการคำนวณ)</li>
+                  <li>บิลเงินสดที่สต๊อกผีไม่พอ → คงบิลไว้ บันทึกราคาต่อหน่วย = ต้นทุน × {markupFactor} ({overview.adjustment_percent}% = {100 + overview.adjustment_percent}%)</li>
                   <li>บิลโอน / ชำระผสม / ขอใบกำกับเต็มรูป → ไม่แตะต้อง</li>
                 </ol>
                 <div className="mt-3 space-y-1 tabular-nums">
@@ -360,42 +373,42 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
             </div>
           </SectionCard>
 
-          <SectionCard title="Projection การเคลื่อนไหวสต๊อก" description="เฉพาะบิลที่ซ่อน: แหล่งตัดเป็น Ghost หนึ่งค่า ส่วนการย้อนและส่งคืน Real เป็น adjustment แยก บิลที่บันทึกที่ต้นทุน + % ไม่แตะสต๊อก">
+          <SectionCard title="คาดการณ์การเคลื่อนไหวสต๊อก" description="เฉพาะบิลที่ซ่อน: แหล่งตัดเป็นสต๊อกผีหนึ่งค่า ส่วนการย้อนและส่งคืนสต๊อกจริงเป็นรายการปรับปรุงแยก บิลที่บันทึกที่ต้นทุน + % ไม่แตะสต๊อก">
             <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
               {[
-                ["Branch Real returned", preview.stock_projection.branch_real_returned],
-                ["WH Real received", preview.stock_projection.warehouse_real_received],
-                ["WH Ghost deducted", preview.stock_projection.warehouse_ghost_deducted],
-                ["Ghost deficit", preview.stock_projection.ghost_deficit_created]
+                ["สาขาส่งคืนสต๊อกจริง", preview.stock_projection.branch_real_returned],
+                ["โกดังกลางรับสต๊อกจริง", preview.stock_projection.warehouse_real_received],
+                ["ตัดสต๊อกผีที่โกดังกลาง", preview.stock_projection.warehouse_ghost_deducted],
+                ["สต๊อกผีขาด", preview.stock_projection.ghost_deficit_created]
               ].map(([label, value]) => <div className="rounded-lg border p-3 sm:p-4" key={String(label)}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-lg font-semibold sm:text-xl">{count(Number(value))} ชิ้น</p></div>)}
             </div>
             <TableContainer className="mt-4">
               <Table>
-                <TableHeader><TableRow><TableHead>สินค้า</TableHead><TableHead className="text-right">จำนวนบิล</TableHead><TableHead className="text-right">WH Ghost ก่อน</TableHead><TableHead className="text-right">WH Ghost หลัง</TableHead><TableHead className="text-right">Deficit ใหม่</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>สินค้า</TableHead><TableHead className="text-right">จำนวนบิล</TableHead><TableHead className="text-right">สต๊อกผีโกดัง ก่อน</TableHead><TableHead className="text-right">สต๊อกผีโกดัง หลัง</TableHead><TableHead className="text-right">ส่วนขาดใหม่</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {preview.stock_projection.products.length === 0 ? <TableRow><TableCell className="py-6 text-center text-muted-foreground" colSpan={5}>ไม่มีบิลที่ซ่อน จึงไม่มีการเคลื่อนไหวสต๊อก</TableCell></TableRow> : preview.stock_projection.products.map((product) => <TableRow key={product.product_id}><TableCell>{product.product_name}</TableCell><TableCell className="text-right">{count(product.quantity)}</TableCell><TableCell className="text-right">{count(product.warehouse_ghost_before)}</TableCell><TableCell className="text-right">{count(product.warehouse_ghost_after)}</TableCell><TableCell className="text-right">{count(product.deficit_created)}</TableCell></TableRow>)}
+                  {preview.stock_projection.products.length === 0 ? <TableEmptyState colSpan={5} description="ไม่มีบิลที่ซ่อน จึงไม่มีการเคลื่อนไหวสต๊อก" /> : preview.stock_projection.products.map((product) => <TableRow key={product.product_id}><TableCell>{product.product_name}</TableCell><TableCell className="text-right">{count(product.quantity)}</TableCell><TableCell className="text-right">{count(product.warehouse_ghost_before)}</TableCell><TableCell className="text-right">{count(product.warehouse_ghost_after)}</TableCell><TableCell className="text-right">{count(product.deficit_created)}</TableCell></TableRow>)}
                 </TableBody>
               </Table>
             </TableContainer>
           </SectionCard>
 
-          <SectionCard title={`ใบขายที่จะซ่อน ${count(preview.hidden_invoice_count)} ใบ`} description="เงินสด ไม่ขอใบกำกับเต็มรูป และ Ghost Stock ที่ WH มีพอทุกบรรทัด (จัดสรร Ghost เรียงตาม created_at) หลังซ่อนจะเรียงเลขใบขาย Active ที่เหลือใหม่แยกสาขา">
+          <SectionCard title={`ใบขายที่จะซ่อน ${count(preview.hidden_invoice_count)} ใบ`} description="เงินสด ไม่ขอใบกำกับเต็มรูป และสต๊อกผีที่โกดังกลางมีพอทุกบรรทัด (จัดสรรสต๊อกผีเรียงตามเวลาออกบิล) หลังซ่อนจะเรียงเลขใบขายที่เหลือใหม่แยกสาขา">
             <TableContainer>
               <Table>
-                <TableHeader><TableRow><TableHead>เลขบิล</TableHead><TableHead>สาขา</TableHead><TableHead>วันเวลา created_at</TableHead><TableHead>สินค้า</TableHead><TableHead className="text-right">ยอดเต็ม</TableHead><TableHead>แหล่งตัดหลังสรุป</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>เลขบิล</TableHead><TableHead>สาขา</TableHead><TableHead>วันเวลาออกบิล</TableHead><TableHead>สินค้า</TableHead><TableHead className="text-right">ยอดเต็ม</TableHead><TableHead>แหล่งตัดหลังสรุป</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {preview.suppression_candidates.length === 0 ? <TableRow><TableCell className="py-10 text-center text-muted-foreground" colSpan={6}>ไม่มีใบขายที่เข้าเงื่อนไขซ่อน</TableCell></TableRow> : preview.suppression_candidates.map((invoice) => <TableRow key={invoice.id}><TableCell className="font-medium">{invoice.invoice_number}</TableCell><TableCell>{invoice.branch_name}</TableCell><TableCell className="whitespace-nowrap">{dateTime(invoice.created_at)}</TableCell><TableCell>{invoice.items.map((item) => `${item.product_name} × ${count(item.quantity)}`).join(", ")}</TableCell><TableCell className="text-right">{currency(invoice.total_amount)}</TableCell><TableCell>Ghost Stock (สต๊อกผี)</TableCell></TableRow>)}
+                  {preview.suppression_candidates.length === 0 ? <TableEmptyState colSpan={6} description="ไม่มีใบขายที่เข้าเงื่อนไขซ่อน" /> : preview.suppression_candidates.map((invoice) => <TableRow key={invoice.id}><TableCell className="font-medium">{invoice.invoice_number}</TableCell><TableCell>{invoice.branch_name}</TableCell><TableCell className="whitespace-nowrap">{dateTime(invoice.created_at)}</TableCell><TableCell>{invoice.items.map((item) => `${item.product_name} × ${count(item.quantity)}`).join(", ")}</TableCell><TableCell className="text-right">{currency(invoice.total_amount)}</TableCell><TableCell>สต๊อกผี</TableCell></TableRow>)}
                 </TableBody>
               </Table>
             </TableContainer>
           </SectionCard>
 
-          <SectionCard title={`ใบขายที่จะบันทึกที่ต้นทุน + ${preview.adjustment_percent}% · ${count(preview.repriced_invoice_count)} ใบ`} description="เงินสด ไม่ขอใบกำกับเต็มรูป แต่ Ghost Stock ที่ WH ไม่พอ บิลยังอยู่ เลขบิลและสต๊อกไม่เปลี่ยน ราคาต่อหน่วยบันทึกใหม่เป็นต้นทุน × (1 + %) และยอดชำระเงินสดลดตาม">
+          <SectionCard title={`ใบขายที่จะบันทึกที่ต้นทุน + ${preview.adjustment_percent}% · ${count(preview.repriced_invoice_count)} ใบ`} description="เงินสด ไม่ขอใบกำกับเต็มรูป แต่สต๊อกผีที่โกดังกลางไม่พอ บิลยังอยู่ เลขบิลและสต๊อกไม่เปลี่ยน ราคาต่อหน่วยบันทึกใหม่เป็นต้นทุน × (1 + %) และยอดชำระเงินสดลดตาม">
             <TableContainer>
               <Table>
-                <TableHeader><TableRow><TableHead>เลขบิล</TableHead><TableHead>สาขา</TableHead><TableHead>วันเวลา created_at</TableHead><TableHead>รายการ (ราคาเดิม → ราคาที่บันทึก)</TableHead><TableHead className="text-right">ยอดเต็ม</TableHead><TableHead className="text-right">ยอดที่บันทึก</TableHead><TableHead className="text-right">ส่วนต่าง</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>เลขบิล</TableHead><TableHead>สาขา</TableHead><TableHead>วันเวลาออกบิล</TableHead><TableHead>รายการ (ราคาเดิม → ราคาที่บันทึก)</TableHead><TableHead className="text-right">ยอดเต็ม</TableHead><TableHead className="text-right">ยอดที่บันทึก</TableHead><TableHead className="text-right">ส่วนต่าง</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {preview.repriced_invoices.length === 0 ? <TableRow><TableCell className="py-10 text-center text-muted-foreground" colSpan={7}>ไม่มีใบขายเงินสดที่ Ghost Stock ไม่พอ</TableCell></TableRow> : preview.repriced_invoices.map((invoice) => <TableRow key={invoice.id}><TableCell className="font-medium">{invoice.invoice_number}</TableCell><TableCell>{invoice.branch_name}</TableCell><TableCell className="whitespace-nowrap">{dateTime(invoice.created_at)}</TableCell><TableCell className="min-w-64">{invoice.items.map((item) => <p key={item.id}>{itemSummary(item)}</p>)}</TableCell><TableCell className="text-right">{currency(invoice.total_amount)}</TableCell><TableCell className="text-right font-semibold">{currency(invoice.final_total)}</TableCell><TableCell className="text-right">{currency(invoice.variance_amount)}</TableCell></TableRow>)}
+                  {preview.repriced_invoices.length === 0 ? <TableEmptyState colSpan={7} description="ไม่มีใบขายเงินสดที่สต๊อกผีไม่พอ" /> : preview.repriced_invoices.map((invoice) => <TableRow key={invoice.id}><TableCell className="font-medium">{invoice.invoice_number}</TableCell><TableCell>{invoice.branch_name}</TableCell><TableCell className="whitespace-nowrap">{dateTime(invoice.created_at)}</TableCell><TableCell className="min-w-64">{invoice.items.map((item) => <p key={item.id}>{itemSummary(item)}</p>)}</TableCell><TableCell className="text-right">{currency(invoice.total_amount)}</TableCell><TableCell className="text-right font-semibold">{currency(invoice.final_total)}</TableCell><TableCell className="text-right">{currency(invoice.variance_amount)}</TableCell></TableRow>)}
                 </TableBody>
               </Table>
             </TableContainer>
@@ -408,9 +421,13 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
         </>
       ) : null}
 
-      <SectionCard title="ประวัติการสรุป" description="ยุบเป็นกลุ่มตามเดือนของรอบ · Superadmin เห็นช่วงวันที่และเวลาเต็ม พร้อม Audit Log ทุกขั้น">
-        {historyMonths.length === 0 ? (
-          <p className="py-10 text-center text-sm text-muted-foreground">ยังไม่มีประวัติการสรุป</p>
+      <SectionCard title="ประวัติการสรุป" description="ยุบเป็นกลุ่มตามเดือนของรอบ · ผู้ดูแลระบบสูงสุดเห็นช่วงวันที่และเวลาเต็ม พร้อมประวัติการตรวจสอบทุกขั้น">
+        {historyState === "loading" ? (
+          <LoadingState compact label="กำลังโหลดประวัติการสรุป..." />
+        ) : historyState === "error" ? (
+          <ErrorState action={<Button onClick={() => void loadHistory()} variant="secondary">ลองใหม่</Button>} description={historyError} title="โหลดประวัติการสรุปไม่สำเร็จ" />
+        ) : historyMonths.length === 0 ? (
+          <EmptyState description="ยังไม่มีประวัติการสรุป" />
         ) : (
           <div className="space-y-3">
             {historyMonths.map((bucket, index) => {
@@ -439,7 +456,7 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
                       <Table>
                         <TableHeader><TableRow><TableHead>เลขรายการ</TableHead><TableHead>ช่วงวันที่</TableHead><TableHead className="text-right">ยอดเดิม</TableHead><TableHead className="text-right">ยอดซ่อน</TableHead><TableHead className="text-right">ส่วนต่างต้นทุน + %</TableHead><TableHead className="text-right">ยอดเป้าหมาย</TableHead><TableHead>ผู้ยืนยัน / เวลา</TableHead><TableHead /></TableRow></TableHeader>
                         <TableBody>
-                          {bucket.rounds.map((item) => <TableRow key={item.id}><TableCell className="font-medium">{item.reconciliation_number}</TableCell><TableCell className="whitespace-nowrap">{shortDate(item.period_start)} ถึง {shortDate(item.period_end)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.original_revenue)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.suppressed_revenue)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.adjustment_reduction)}{item.adjustment_percent > 0 ? <span className="block text-xs text-muted-foreground">{item.adjustment_percent}%</span> : null}</TableCell><TableCell className="text-right font-semibold tabular-nums">{currency(item.final_revenue)}</TableCell><TableCell><p>{item.finalized_by_name}</p><p className="text-xs text-muted-foreground">{dateTime(item.finalized_at)}</p></TableCell><TableCell className="text-right"><Button onClick={() => router.push(`/month-end-report?reconciliation_id=${item.id}`)} variant="secondary"><Eye className="h-4 w-4" />Audit</Button></TableCell></TableRow>)}
+                          {bucket.rounds.map((item) => <TableRow key={item.id}><TableCell className="font-medium">{item.reconciliation_number}</TableCell><TableCell className="whitespace-nowrap">{shortDate(item.period_start)} ถึง {shortDate(item.period_end)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.original_revenue)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.suppressed_revenue)}</TableCell><TableCell className="text-right tabular-nums">{currency(item.adjustment_reduction)}{item.adjustment_percent > 0 ? <span className="block text-xs text-muted-foreground">{item.adjustment_percent}%</span> : null}</TableCell><TableCell className="text-right font-semibold tabular-nums">{currency(item.final_revenue)}</TableCell><TableCell><p>{item.finalized_by_name}</p><p className="text-xs text-muted-foreground">{dateTime(item.finalized_at)}</p></TableCell><TableCell className="text-right"><Button onClick={() => router.push(`/month-end-report?reconciliation_id=${item.id}`)} variant="secondary"><Eye className="h-4 w-4" />ตรวจสอบ</Button></TableCell></TableRow>)}
                         </TableBody>
                       </Table>
                     </TableContainer>
@@ -453,7 +470,7 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
 
       <Dialog onOpenChange={setConfirmOpen} open={confirmOpen}>
         <DialogContent>
-          <DialogHeader title="ยืนยันการสรุปรอบ" description="ธุรกรรมนี้ซ่อนใบขายที่มีในสต๊อกผี ส่ง Real กลับ WH ตัด Ghost บันทึกบิลที่ไม่มีในสต๊อกผีที่ต้นทุน + % และเรียงเลขบิล Active ใหม่" />
+          <DialogHeader title="ยืนยันการสรุปรอบ" description="ธุรกรรมนี้ซ่อนใบขายที่มีในสต๊อกผี ส่งสต๊อกจริงกลับโกดังกลาง ตัดสต๊อกผี บันทึกบิลที่ไม่มีในสต๊อกผีที่ต้นทุน + % และเรียงเลขบิลที่เหลือใหม่" />
           <div className="rounded-lg border border-warning-200 bg-warning-50 p-4 text-sm"><p className="font-semibold">ผลที่จะบันทึก</p><p className="mt-2">{selectedBranches.map((branch) => text(branch.name)).join(", ")}</p><p className="mt-1">{dateFrom} ถึง {dateTo} · ซ่อน {preview?.hidden_invoice_count || 0} ใบ · บันทึกที่ต้นทุน + {preview?.adjustment_percent ?? markup}% {preview?.repriced_invoice_count || 0} ใบ · ยอดเป้าหมาย {currency(preview?.final_revenue || 0)}</p></div>
           <label className="mt-4 block space-y-2 text-sm"><span>พิมพ์ <strong>{closeText}</strong></span><Input autoFocus onChange={(event) => setConfirmation(event.target.value)} value={confirmation} /></label>
           <div className="mt-5 flex justify-end gap-2"><Button onClick={() => setConfirmOpen(false)} variant="secondary">ยกเลิก</Button><Button disabled={confirmation !== closeText || loading} onClick={() => void finalize()}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}ยืนยันธุรกรรม</Button></div>

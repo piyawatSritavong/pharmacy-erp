@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 
 import { SectionCard } from "@/components/sections/common";
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/primitives";
+import { badgeVariants, EmptyState, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/primitives";
+import { cn } from "@/lib/utils";
 
 type LowStockRow = {
   branch_code: string;
@@ -23,7 +24,7 @@ function count(value: number) {
 function ShortBadge({ qty, threshold }: { qty: number; threshold: number }) {
   const outOfStock = qty <= 0;
   return (
-    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${outOfStock ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-800"}`}>
+    <span className={cn(badgeVariants({ tone: outOfStock ? "error" : "warning" }), "gap-1 whitespace-nowrap rounded-full px-2 font-semibold")}>
       {outOfStock ? "หมด" : `เหลือ ${count(qty)}`} / จุดเตือน {count(threshold)}
     </span>
   );
@@ -63,7 +64,7 @@ export function LowStockTables({ rows }: { rows: LowStockRow[] }) {
   if (rows.length === 0) {
     return (
       <SectionCard title="แจ้งเตือนสินค้าใกล้หมด" description="สินค้าที่ถึงหรือต่ำกว่าจุดแจ้งเตือนสต๊อก">
-        <p className="py-8 text-center text-sm text-muted-foreground">ไม่มีสินค้าที่ถึงจุดแจ้งเตือนในขณะนี้</p>
+        <EmptyState description="ไม่มีสินค้าที่ถึงจุดแจ้งเตือนในขณะนี้" />
       </SectionCard>
     );
   }
@@ -90,10 +91,10 @@ export function LowStockTables({ rows }: { rows: LowStockRow[] }) {
                   <TableCell className="font-medium">{item.product_name}</TableCell>
                   <TableCell className="whitespace-nowrap text-muted-foreground">{item.sku}</TableCell>
                   <TableCell className="text-right">
-                    <span className={`font-semibold tabular-nums ${item.totalQty <= 0 ? "text-red-700" : ""}`}>{count(item.totalQty)}</span>
+                    <span className={`font-semibold tabular-nums ${item.totalQty <= 0 ? "text-error-700" : ""}`}>{count(item.totalQty)}</span>
                   </TableCell>
                   <TableCell className="text-right">
-                    <span className="inline-flex items-center gap-1 whitespace-nowrap text-sm text-amber-800"><AlertTriangle className="h-3.5 w-3.5" />{count(item.branches)} สาขา</span>
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap text-sm text-warning-800"><AlertTriangle className="h-3.5 w-3.5" />{count(item.branches)} สาขา</span>
                   </TableCell>
                 </TableRow>
               ))}
@@ -119,7 +120,7 @@ export function LowStockTables({ rows }: { rows: LowStockRow[] }) {
                 >
                   {expanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
                   <span className="flex-1 font-semibold">{branch.name}</span>
-                  <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">{count(branch.rows.length)} รายการ</span>
+                  <span className={cn(badgeVariants({ tone: "warning" }), "shrink-0 rounded-full font-semibold")}>{count(branch.rows.length)} รายการ</span>
                 </button>
                 {expanded ? (
                   <TableContainer className="max-h-72 overflow-y-auto">

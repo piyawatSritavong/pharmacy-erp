@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { PackageSearch, Search } from "lucide-react";
 
-import { EmptyState, Input } from "@/components/ui/primitives";
+import { EmptyState, Input, LoadingState } from "@/components/ui/primitives";
 import { ProductThumbnail } from "@/components/sections/product-thumbnail";
 import { currency } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
@@ -25,6 +25,7 @@ export function PurchaseProductPicker({
   const [cursor, setCursor] = useState("");
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
 
   async function load(reset: boolean) {
@@ -33,6 +34,7 @@ export function PurchaseProductPicker({
     const controller = new AbortController();
     controllerRef.current = controller;
     setLoading(true);
+    setLoadError("");
     try {
       const params = new URLSearchParams({
         branch_id: branchId,
@@ -62,8 +64,10 @@ export function PurchaseProductPicker({
       setCursor(response.next_cursor || "");
       setHasMore(response.has_more);
     } catch (error) {
-      if (!(error instanceof DOMException && error.name === "AbortError"))
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
         setItems([]);
+        setLoadError(error instanceof Error ? error.message : "โหลดรายการสินค้าไม่สำเร็จ");
+      }
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
@@ -78,7 +82,7 @@ export function PurchaseProductPicker({
   }, [branchId, stockBucket, deferredQuery]);
 
   return (
-    <div className="overflow-hidden rounded-2xl border bg-white">
+    <div className="overflow-hidden rounded-2xl border bg-card">
       <div className="relative border-b p-2">
         <Search className="pointer-events-none absolute left-5 top-5 h-4 w-4 text-muted-foreground" />
         <Input
@@ -96,7 +100,9 @@ export function PurchaseProductPicker({
         </p>
       ) : null}
       <div
-        className="max-h-72 overflow-y-auto p-2"
+        // Shorter on a phone: this list scrolls inside a scrolling dialog, and
+        // at full height it took the swipe meant for reaching the save button.
+        className="max-h-[40vh] overflow-y-auto p-2 sm:max-h-72"
         onScroll={(event) => {
           const node = event.currentTarget;
           if (node.scrollHeight - node.scrollTop - node.clientHeight < 48)
@@ -135,14 +141,11 @@ export function PurchaseProductPicker({
             </span>
           </button>
         ))}
-        {!loading && items.length === 0 ? (
-          <EmptyState className="p-6" description={query ? "ลองปรับคำค้นหาแล้วลองใหม่" : "ไม่มีสินค้าที่หมดใน bucket นี้"} icon={PackageSearch} />
+        {!loading && loadError ? <p className="p-3 text-center text-sm text-error" role="alert">{loadError}</p> : null}
+        {!loading && !loadError && items.length === 0 ? (
+          <EmptyState className="p-6" description={query ? "ไม่พบสินค้า ลองปรับคำค้นหาแล้วลองใหม่" : "ไม่มีสินค้าในสต๊อกประเภทนี้"} icon={PackageSearch} />
         ) : null}
-        {loading ? (
-          <p className="p-3 text-center text-xs text-muted-foreground">
-            กำลังโหลด...
-          </p>
-        ) : null}
+        {loading ? <LoadingState compact label="กำลังโหลด..." /> : null}
       </div>
     </div>
   );

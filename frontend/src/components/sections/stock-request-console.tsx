@@ -1,14 +1,15 @@
 "use client";
 
 import { CheckCircle2, Clock3, PackagePlus, Plus, Search, Trash2, XCircle } from "lucide-react";
-import { startTransition, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 
 import { DataTable, SectionCard, statusLabel } from "@/components/sections/common";
 import { ProductSearchPicker } from "@/components/sections/product-search-picker";
-import { Badge, Button, Dialog, DialogContent, DialogHeader, Input, Pagination, Select, usePagedRows } from "@/components/ui/primitives";
+import { Badge, Button, Dialog, DialogContent, DialogFooter, DialogHeader, EmptyState, FeedbackNotice, Input, Pagination, Select, usePagedRows } from "@/components/ui/primitives";
+import type { Feedback } from "@/components/ui/primitives";
 import { Field } from "@/components/ui/field";
 import { proxyClient } from "@/services/api";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Option = Record<string, unknown>;
 type RequisitionLine = { key: string; productId: string; quantity: string };
@@ -30,7 +31,7 @@ export function StockRequestConsole({
   mode: "pos" | "admin";
   canUseGhost?: boolean;
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   // The requisition is a table of lines now, so a single trip to the counter
   // can ask for everything the shelf is short of at once.
   const [lines, setLines] = useState<RequisitionLine[]>([newLine()]);
@@ -38,7 +39,12 @@ export function StockRequestConsole({
   const [sourceBranches, setSourceBranches] = useState<Record<string, string>>({});
   const [reviewBuckets, setReviewBuckets] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState("");
-  const [message, setMessage] = useState("");
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const setMessage = (text: string, tone: "success" | "warning" | "error" = "success") => setFeedback(text ? { tone, text } : null);
+  // Validation and failures while the dialog is open show inside it.
+  const [dialogError, setDialogError] = useState("");
+  // Rejecting asks first; approving already needs a source branch picked.
+  const [rejecting, setRejecting] = useState<Option | null>(null);
   const [requestOpen, setRequestOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState("");
   const [historyBranch, setHistoryBranch] = useState("");
@@ -74,18 +80,20 @@ export function StockRequestConsole({
   function resetDialog() {
     setLines([newLine()]);
     setDestBranchId("");
+    setDialogError("");
   }
 
   async function submitRequisition() {
     const valid = lines.filter((line) => line.productId && Number(line.quantity) > 0);
     if (valid.length === 0) {
-      setMessage("เพิ่มสินค้าอย่างน้อยหนึ่งรายการ");
+      setDialogError("เพิ่มสินค้าอย่างน้อยหนึ่งรายการ");
       return;
     }
     if (mode === "admin" && !destBranchId) {
-      setMessage("เลือกสาขาที่ขอเบิก");
+      setDialogError("เลือกสาขาที่ขอเบิก");
       return;
     }
+    setDialogError("");
     setBusyId("create");
     let created = 0;
     const failures: string[] = [];
@@ -110,13 +118,17 @@ export function StockRequestConsole({
     if (created > 0) {
       setRequestOpen(false);
       resetDialog();
-      startTransition(() => router.refresh());
+      refresh();
+      setMessage(
+        failures.length === 0
+          ? `สร้างใบเบิก ${created.toLocaleString("th-TH")} รายการแล้ว`
+          : `สร้างสำเร็จ ${created} รายการ · ไม่สำเร็จ ${failures.length}: ${failures.slice(0, 3).join(" | ")}`,
+        failures.length === 0 ? "success" : "warning"
+      );
+    } else {
+      // Nothing was created, so the dialog stays open — the reason goes in it.
+      setDialogError(`ไม่สำเร็จ: ${failures.slice(0, 3).join(" | ")}`);
     }
-    setMessage(
-      failures.length === 0
-        ? `สร้างใบเบิก ${created.toLocaleString("th-TH")} รายการแล้ว`
-        : `สร้างสำเร็จ ${created} รายการ · ไม่สำเร็จ ${failures.length}: ${failures.slice(0, 3).join(" | ")}`
-    );
   }
 
   async function review(request: Option, decision: "approve" | "reject") {
@@ -132,9 +144,10 @@ export function StockRequestConsole({
         })
       });
       setMessage(response.message);
-      startTransition(() => router.refresh());
+      setRejecting(null);
+      refresh();
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "ตรวจสอบคำขอไม่สำเร็จ");
+      setMessage(caught instanceof Error ? caught.message : "ตรวจสอบคำขอไม่สำเร็จ", "error");
     } finally {
       setBusyId("");
     }
@@ -197,7 +210,7 @@ export function StockRequestConsole({
                     <Input aria-label="จำนวนที่ต้องการ" min="1" onChange={(event) => updateLine(line.key, { quantity: event.target.value })} type="number" value={line.quantity} />
                   </td>
                   <td role="cell" className="self-end px-3 py-2 text-center">
-                    <button aria-label="ลบรายการ" className="rounded p-1.5 text-muted-foreground transition hover:bg-red-50 hover:text-red-600 disabled:opacity-30" disabled={lines.length <= 1} onClick={() => removeLine(line.key)} type="button">
+                    <button aria-label="ลบรายการ" className="grid h-11 w-11 place-items-center rounded text-muted-foreground transition hover:bg-error-50 hover:text-error disabled:opacity-30 sm:h-8 sm:w-8" disabled={lines.length <= 1} onClick={() => removeLine(line.key)} type="button">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </td>
@@ -209,12 +222,13 @@ export function StockRequestConsole({
         <Button className="mt-3" onClick={() => setLines((current) => [...current, newLine()])} type="button" variant="secondary">
           <Plus className="h-4 w-4" />เพิ่มรายการ
         </Button>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button onClick={() => { setRequestOpen(false); resetDialog(); }} type="button" variant="ghost">ยกเลิก</Button>
-          <Button disabled={busyId === "create"} onClick={() => void submitRequisition()} type="button">
-            <PackagePlus className="h-4 w-4" />{busyId === "create" ? "กำลังส่ง..." : "ส่งใบเบิก"}
+        {dialogError ? <FeedbackNotice className="mt-4" feedback={{ tone: "error", text: dialogError }} /> : null}
+        <DialogFooter>
+          <Button disabled={busyId === "create"} onClick={() => { setRequestOpen(false); resetDialog(); }} type="button" variant="ghost">ยกเลิก</Button>
+          <Button loading={busyId === "create"} loadingText="กำลังส่ง..." onClick={() => void submitRequisition()} type="button">
+            <PackagePlus className="h-4 w-4" />ส่งใบเบิก
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -236,7 +250,7 @@ export function StockRequestConsole({
             ]}
             rows={requests}
           />
-          {message ? <p className="mt-4 rounded-xl bg-surface-warm p-3 text-sm">{message}</p> : null}
+          <FeedbackNotice className="mt-4" feedback={feedback} />
         </SectionCard>
         {requisitionDialog}
       </div>
@@ -255,7 +269,7 @@ export function StockRequestConsole({
             const id = String(request.id);
             const destinationId = String(request.destination_branch_id);
             return (
-              <article className="rounded-2xl border bg-white p-4" key={id}>
+              <article className="rounded-2xl border bg-card p-4" key={id}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="font-bold">{String(request.product_name)} · {String(request.sku)}</h3>
@@ -280,15 +294,15 @@ export function StockRequestConsole({
                       <option value="ghost">สต๊อกผี</option>
                     </Select>
                   ) : null}
-                  <Button disabled={busyId === id || !sourceBranches[id]} onClick={() => void review(request, "approve")} type="button"><CheckCircle2 className="h-4 w-4" />สร้างใบโอน</Button>
-                  <Button disabled={busyId === id} onClick={() => void review(request, "reject")} type="button" variant="secondary"><XCircle className="h-4 w-4" />ปฏิเสธ</Button>
+                  <Button disabled={!sourceBranches[id]} loading={busyId === id} onClick={() => void review(request, "approve")} type="button"><CheckCircle2 className="h-4 w-4" />สร้างใบโอน</Button>
+                  <Button disabled={busyId === id} onClick={() => setRejecting(request)} type="button" variant="secondary"><XCircle className="h-4 w-4" />ปฏิเสธ</Button>
                 </div>
               </article>
             );
           })}
-          {pending.length === 0 ? <p className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">ไม่มีคำขอที่รอตรวจสอบ</p> : null}
+          {pending.length === 0 ? <EmptyState description="ไม่มีคำขอที่รอตรวจสอบ" variant="card" /> : null}
         </div>
-        {message ? <p className="mt-4 rounded-xl bg-surface-warm p-3 text-sm">{message}</p> : null}
+        <FeedbackNotice className="mt-4" feedback={feedback} />
       </SectionCard>
 
       <SectionCard title="ประวัติคำขอ" description="คำขอที่สร้างใบโอนหรือปฏิเสธแล้ว">
@@ -333,6 +347,20 @@ export function StockRequestConsole({
         <Pagination className="mt-4" {...history.pager} />
       </SectionCard>
       {requisitionDialog}
+
+      <Dialog onOpenChange={(open) => !open && setRejecting(null)} open={Boolean(rejecting)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader
+            description="สาขาจะเห็นว่าคำขอนี้ไม่อนุมัติ และต้องส่งคำขอใหม่หากยังต้องการสินค้า"
+            title={`ปฏิเสธคำขอ ${String(rejecting?.product_name || "")}`}
+          />
+          {feedback?.tone === "error" ? <FeedbackNotice feedback={feedback} /> : null}
+          <DialogFooter>
+            <Button disabled={Boolean(busyId)} onClick={() => setRejecting(null)} type="button" variant="secondary">ยกเลิก</Button>
+            <Button loading={Boolean(rejecting) && busyId === String(rejecting?.id)} onClick={() => rejecting && void review(rejecting, "reject")} type="button" variant="destructive">ยืนยันปฏิเสธ</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { AuditConsole } from "@/components/sections/audit-console";
 import { PageIntro } from "@/components/sections/common";
 import { requirePermission } from "@/lib/rbac";
 import { getAuditLogs, getBranches, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "ประวัติระบบ" };
 
 export default async function AuditPage({
   searchParams

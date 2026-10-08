@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePopoverPosition } from "@/components/ui/use-popover-position";
 import { Search, X } from "lucide-react";
 
-import { Input } from "@/components/ui/primitives";
+import { EmptyState, Input, LoadingState } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
 
 const PAGE_SIZE = 20;
@@ -39,6 +39,8 @@ export function ReconciliationRoundPicker({
   const panelPosition = usePopoverPosition(open, anchorRef, 256);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [loading, setLoading] = useState(false);
+  // A failed search says so, rather than "no round matches".
+  const [loadError, setLoadError] = useState("");
   const [exhausted, setExhausted] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
   // The search the loaded page belongs to, so a result arriving late for an
@@ -51,6 +53,7 @@ export function ReconciliationRoundPicker({
 
   const load = useCallback(async (search: string, offset: number) => {
     setLoading(true);
+    setLoadError("");
     activeSearch.current = search;
     try {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
@@ -60,8 +63,9 @@ export function ReconciliationRoundPicker({
       const items = result.items || [];
       setRounds((previous) => (offset === 0 ? items : [...previous, ...items]));
       setExhausted(items.length < PAGE_SIZE);
-    } catch {
+    } catch (error) {
       setExhausted(true);
+      setLoadError(error instanceof Error ? error.message : "โหลดรอบไม่สำเร็จ");
     } finally {
       setLoading(false);
     }
@@ -146,9 +150,10 @@ export function ReconciliationRoundPicker({
                 </span>
               </button>
             ))}
-            {loading ? <p className="px-3 py-2 text-sm text-muted-foreground">กำลังโหลด…</p> : null}
-            {!loading && rounds.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-muted-foreground">ไม่พบรอบที่ตรงกับคำค้น</p>
+            {loading ? <LoadingState compact label="กำลังโหลด..." /> : null}
+            {!loading && loadError ? <p className="px-3 py-2 text-sm text-error" role="alert">{loadError}</p> : null}
+            {!loading && !loadError && rounds.length === 0 ? (
+              <EmptyState className="p-4" description="ไม่พบรอบที่ตรงกับคำค้น" />
             ) : null}
           </div>
         </>

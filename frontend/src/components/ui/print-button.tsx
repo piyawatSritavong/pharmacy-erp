@@ -1,9 +1,12 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
 export function PrintButton() {
   return (
     <button
-      className="rounded-md bg-black px-4 py-2 text-sm text-white print:hidden"
+      className={cn(buttonVariants(), "print:hidden")}
       onClick={() => window.print()}
       type="button"
     >

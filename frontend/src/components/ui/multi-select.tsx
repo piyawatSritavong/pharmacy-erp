@@ -165,7 +165,7 @@ export function MultiSelect({
         <div className="absolute left-0 right-0 z-40 overflow-y-auto overscroll-contain rounded-md border border-border bg-card p-3 shadow-md" style={{ maxHeight: panelPosition?.maxHeight, ...(panelPosition?.above ? { bottom: "calc(100% + 0.375rem)" } : { top: "calc(100% + 0.375rem)" }) }}>
           <div className="relative">
             <input
-              className="h-9 w-full rounded-md border border-input bg-card pl-3 pr-9 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="ui-input h-11 w-full rounded-md border border-input bg-card pl-3 pr-9 text-sm sm:h-9 text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
               onChange={(event) => setQuery(event.target.value)}
               placeholder={searchPlaceholder}
               ref={searchRef}

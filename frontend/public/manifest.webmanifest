@@ -1,0 +1,15 @@
+{
+  "name": "PharmaPOS",
+  "short_name": "PharmaPOS",
+  "description": "ระบบขายหน้าร้านและบริหารสต๊อกสำหรับเครือร้านขายยาหลายสาขา",
+  "lang": "th",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FBF9F5",
+  "theme_color": "#344ABF",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

@@ -1,7 +1,6 @@
 "use client";
 
-import { startTransition, useMemo, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState, type ReactNode } from "react";
 import { Ban, PackageMinus, Route, Search, Send, Undo2 } from "lucide-react";
 
 import { SectionCard } from "@/components/sections/common";
@@ -9,17 +8,24 @@ import { Field } from "@/components/ui/field";
 import { ProductSearchPicker } from "@/components/sections/product-search-picker";
 import {
   Button,
+  badgeVariants,
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   EmptyState,
+  FeedbackNotice,
   Input,
+  LoadingState,
   Pagination,
   Select,
   Textarea,
   usePagedRows
 } from "@/components/ui/primitives";
+import type { BadgeTone, Feedback } from "@/components/ui/primitives";
+import { cn } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Option = Record<string, unknown>;
 
@@ -36,12 +42,12 @@ const ORIGIN_LABEL: Record<string, string> = {
   stock_claim: "เคลมสต๊อกกับคู่ค้า"
 };
 
-const STATUS_TONE: Record<string, string> = {
-  pending_claim: "bg-warning-50 text-warning-800",
-  sent_to_supplier: "bg-info-50 text-info-800",
-  resolved_case_a: "bg-success-50 text-success-800",
-  resolved_case_b: "bg-success-50 text-success-800",
-  rejected: "bg-error-50 text-error"
+const STATUS_TONE: Record<string, BadgeTone> = {
+  pending_claim: "warning",
+  sent_to_supplier: "info",
+  resolved_case_a: "success",
+  resolved_case_b: "success",
+  rejected: "error"
 };
 
 // Part B, Rule 4 — the back-office half: work the claim queue POS return
@@ -59,8 +65,11 @@ export function ClaimsConsole({
   branches: Option[];
   canClaimGhost: boolean;
 }) {
-  const router = useRouter();
-  const [message, setMessage] = useState("");
+  const refresh = useRefresh();
+  // Results carry their tone; errors also show inside whichever dialog is
+  // open, since the page-level line sits behind the modal.
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [busy, setBusy] = useState(false);
   // Raising a claim straight against stock, with no sale behind it — the
   // supplier case in business-flow.md, and the only route Ghost Stock has out
   // of inventory outside the month-end close.
@@ -127,17 +136,21 @@ export function ClaimsConsole({
   }
 
   async function run(path: string, body?: Record<string, unknown>) {
+    setBusy(true);
+    setFeedback(null);
     try {
       const result = await proxyClient<{ message: string }>(path, { method: "POST", body: JSON.stringify(body || {}) });
-      setMessage(result.message);
+      setFeedback({ tone: "success", text: result.message });
       setSendDialog(null);
       setResolveDialog(null);
       setRejectDialog(null);
-      startTransition(() => router.refresh());
+      refresh();
       return true;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ดำเนินการไม่สำเร็จ");
+      setFeedback({ tone: "error", text: error instanceof Error ? error.message : "ดำเนินการไม่สำเร็จ" });
       return false;
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -164,7 +177,7 @@ export function ClaimsConsole({
     try {
       setTrace(await proxyClient<Record<string, unknown>>(`/product-returns/${String(item.id)}/trace`));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "โหลดเส้นทางตรวจสอบไม่สำเร็จ");
+      setFeedback({ tone: "error", text: error instanceof Error ? error.message : "โหลดเส้นทางตรวจสอบไม่สำเร็จ" });
       setTraceDialog(null);
     }
   }
@@ -197,7 +210,7 @@ export function ClaimsConsole({
             ) : null}
           </div>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_TONE[String(item.status)] || "bg-muted"}`}>
+        <span className={cn(badgeVariants({ tone: STATUS_TONE[String(item.status)] || "neutral" }), "rounded-full px-3 py-1 font-semibold")}>
           {STATUS_LABEL[String(item.status)] || String(item.status)}
         </span>
         <Button onClick={() => void openTrace(item)} type="button" variant="secondary">
@@ -211,7 +224,7 @@ export function ClaimsConsole({
 
   return (
     <div className="space-y-6">
-      {message ? <p className="rounded-2xl border bg-card px-4 py-3 text-sm shadow-card">{message}</p> : null}
+      <FeedbackNotice feedback={feedback} />
 
       <SectionCard
         description="สินค้าที่รับเข้ามาแล้วชำรุด ยังไม่ได้ขายให้ลูกค้า — ตัดออกจากสต๊อกและเปิดเคลมกับคู่ค้าที่ส่งของมา"
@@ -256,6 +269,7 @@ export function ClaimsConsole({
           </Field>
           <Button
             disabled={!claimBranchId || !claimProductId || !claimReason.trim() || Number(claimQuantity) <= 0}
+            loading={busy}
             onClick={() => void submitStockClaim()}
             type="button"
           >
@@ -293,7 +307,7 @@ export function ClaimsConsole({
       </SectionCard>
 
       <SectionCard description="รายการที่ POS ออกสินค้าทดแทนให้ลูกค้าแล้ว รอส่งเคลมให้คู่ค้า" title="รอส่งเคลม">
-        {groups.pending_claim.length === 0 ? <EmptyState /> : (
+        {groups.pending_claim.length === 0 ? <EmptyState description="ไม่มีเคลมที่รอส่งให้คู่ค้า" /> : (
           <div className="space-y-3">
             {pending.pageRows.map((item) => (
               <ReturnRow
@@ -313,7 +327,7 @@ export function ClaimsConsole({
       </SectionCard>
 
       <SectionCard description="ส่งเคลมให้คู่ค้าแล้ว รอผลตอบกลับ" title="ระหว่างรอคู่ค้า">
-        {groups.sent_to_supplier.length === 0 ? <EmptyState /> : (
+        {groups.sent_to_supplier.length === 0 ? <EmptyState description="ไม่มีเคลมที่รอคู่ค้าตอบกลับ" /> : (
           <div className="space-y-3">
             {waiting.pageRows.map((item) => (
               <ReturnRow
@@ -339,7 +353,7 @@ export function ClaimsConsole({
       </SectionCard>
 
       <SectionCard description="เคลมที่ปิดแล้ว — รับรุ่นเดิม, รับรุ่นทดแทน, หรือถูกปฏิเสธ" title="ปิดเคลมแล้ว">
-        {groups.closed.length === 0 ? <EmptyState /> : (
+        {groups.closed.length === 0 ? <EmptyState description="ยังไม่มีเคลมที่ปิดแล้ว" /> : (
           <div className="space-y-3">
             {closed.pageRows.map((item) => <ReturnRow item={item} key={String(item.id)} />)}
           </div>
@@ -352,17 +366,18 @@ export function ClaimsConsole({
           <DialogHeader description="เลือกคู่ค้าที่จะส่งเคลมนี้ไปให้" title="ส่งเคลมให้คู่ค้า" />
           <div className="space-y-4">
             <Field label="คู่ค้า">
-              <Select aria-label="เลือกคู่ค้า" onChange={(event) => setSupplierId(event.target.value)} value={supplierId}>
-                <option value="">เลือกคู่ค้า</option>
+              <Select aria-label="เลือกคู่ค้า" disabled={suppliers.length === 0} onChange={(event) => setSupplierId(event.target.value)} value={supplierId}>
+                <option value="">{suppliers.length === 0 ? "ยังไม่มีคู่ค้า — เพิ่มที่หน้าบริษัทคู่ค้า" : "เลือกคู่ค้า"}</option>
                 {suppliers.map((supplier) => (
                   <option key={String(supplier.id)} value={String(supplier.id)}>{String(supplier.legal_name)}</option>
                 ))}
               </Select>
             </Field>
-            <div className="flex justify-end gap-2">
-              <Button onClick={() => setSendDialog(null)} type="button" variant="secondary">ยกเลิก</Button>
-              <Button disabled={!supplierId} onClick={() => void run(`/product-returns/${String(sendDialog?.id)}/send-to-supplier`, { supplier_id: supplierId })} type="button">ส่งเคลม</Button>
-            </div>
+            {feedback?.tone === "error" ? <FeedbackNotice feedback={feedback} /> : null}
+            <DialogFooter>
+              <Button disabled={busy} onClick={() => setSendDialog(null)} type="button" variant="secondary">ยกเลิก</Button>
+              <Button disabled={!supplierId} loading={busy} onClick={() => void run(`/product-returns/${String(sendDialog?.id)}/send-to-supplier`, { supplier_id: supplierId })} type="button">ส่งเคลม</Button>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>
@@ -418,16 +433,18 @@ export function ClaimsConsole({
                 <ProductSearchPicker ariaLabel="เลือกสินค้ารุ่นทดแทน" onChange={(value) => setReplacementProductId(value)} value={replacementProductId} />
               </Field>
             ) : null}
-            <div className="flex justify-end gap-2">
-              <Button onClick={() => setResolveDialog(null)} type="button" variant="secondary">ยกเลิก</Button>
+            {feedback?.tone === "error" ? <FeedbackNotice feedback={feedback} /> : null}
+            <DialogFooter>
+              <Button disabled={busy} onClick={() => setResolveDialog(null)} type="button" variant="secondary">ยกเลิก</Button>
               <Button
                 disabled={!resolveCase || (resolveCase === "b" && !replacementProductId)}
+                loading={busy}
                 onClick={submitResolve}
                 type="button"
               >
                 {resolveCase === "b" ? "ยืนยัน — รับรุ่นทดแทนเข้าสต๊อก" : resolveCase === "a" ? "ยืนยัน — รับรุ่นเดิมคืนสต๊อก" : "เลือกกรณีก่อนยืนยัน"}
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>
@@ -439,7 +456,7 @@ export function ClaimsConsole({
             title="เส้นทางตรวจสอบย้อนกลับ"
           />
           {trace === null ? (
-            <p className="text-sm text-muted-foreground">กำลังโหลด…</p>
+            <LoadingState compact />
           ) : (
             <div className="space-y-5">
               {(() => {
@@ -477,7 +494,7 @@ export function ClaimsConsole({
                     </div>
                   ))}
                   {((trace.movements || []) as unknown[]).length === 0 ? (
-                    <p className="text-sm text-muted-foreground">ยังไม่มีการเคลื่อนไหวสต๊อก</p>
+                    <EmptyState className="p-4" description="ยังไม่มีการเคลื่อนไหวสต๊อก" />
                   ) : null}
                 </div>
               </div>
@@ -510,10 +527,11 @@ export function ClaimsConsole({
             <Field label="หมายเหตุ" hint="ไม่บังคับ">
               <Textarea onChange={(event) => setRejectNote(event.target.value)} value={rejectNote} />
             </Field>
-            <div className="flex justify-end gap-2">
-              <Button onClick={() => setRejectDialog(null)} type="button" variant="secondary">ยกเลิก</Button>
-              <Button onClick={() => void run(`/product-returns/${String(rejectDialog?.id)}/reject`, { note: rejectNote })} type="button" variant="destructive">ยืนยันปฏิเสธ</Button>
-            </div>
+            {feedback?.tone === "error" ? <FeedbackNotice feedback={feedback} /> : null}
+            <DialogFooter>
+              <Button disabled={busy} onClick={() => setRejectDialog(null)} type="button" variant="secondary">ยกเลิก</Button>
+              <Button loading={busy} onClick={() => void run(`/product-returns/${String(rejectDialog?.id)}/reject`, { note: rejectNote })} type="button" variant="destructive">ยืนยันปฏิเสธ</Button>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>

@@ -57,13 +57,14 @@ test.describe("refactored operational workflows", () => {
     await expect(page.getByText("ราคาขาย", { exact: true })).toHaveCount(0);
   });
 
-  test("ใบขายและ รพ.สต. เป็นฟีเจอร์ Pro และแสดงกล่องอัปเกรด", async ({ page }) => {
+  test("ใบขายและ รพ.สต. ยังไม่เปิดใช้งาน และบอกตามจริง", async ({ page }) => {
     await signIn(page, "superadmin@erp.local", "/dashboard");
 
     for (const route of ["/sales-management", "/government-sales"]) {
       await page.goto(route);
-      await expect(page.getByText("PharmaPOS Pro").first()).toBeVisible();
-      await expect(page.getByRole("button", { name: "สมัคร Pro รายเดือน" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: /ยังไม่เปิดใช้งาน$/ })).toBeVisible();
+      // No price, trial or subscribe button for billing that doesn't exist.
+      await expect(page.getByText("฿990")).toHaveCount(0);
     }
   });
 

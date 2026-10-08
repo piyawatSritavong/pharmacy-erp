@@ -19,7 +19,7 @@ export function PosCart({ children, open, onOpenChange }: PropsWithChildren<{
     return () => query.removeEventListener("change", update);
   }, []);
 
-  if (inline) return <aside className="pos-cart flex h-full min-h-0 flex-col rounded-2xl border bg-white p-4 shadow-card">{children}</aside>;
+  if (inline) return <aside className="pos-cart flex h-full min-h-0 flex-col rounded-2xl border bg-card p-4 shadow-card">{children}</aside>;
   return <DialogPrimitive.Root onOpenChange={onOpenChange} open={open}>
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/40" />

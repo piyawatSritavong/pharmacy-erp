@@ -81,6 +81,7 @@ export function Select({
   disabled,
   className,
   placeholder,
+  required,
   ...props
 }: NativeSelectProps) {
   const controlled = value !== undefined;
@@ -162,7 +163,21 @@ export function Select({
           </SelectPrimitive.Content>
         </SelectPrimitive.Portal>
       </SelectPrimitive.Root>
-      {name ? <input type="hidden" name={name} value={resolvedValue} disabled={disabled} /> : null}
+      {/* A hidden input takes no part in form validation, so a required
+          select gets a visually hidden text input that does: an empty value
+          blocks submit like a native <select required> would. */}
+      {required ? (
+        <input
+          aria-hidden="true"
+          className="pointer-events-none absolute h-px w-px opacity-0"
+          disabled={disabled}
+          name={name}
+          onChange={() => {}}
+          required
+          tabIndex={-1}
+          value={resolvedValue}
+        />
+      ) : name ? <input type="hidden" name={name} value={resolvedValue} disabled={disabled} /> : null}
     </>
   );
 }

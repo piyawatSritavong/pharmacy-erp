@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { CloseComparison } from "@/components/sections/close-comparison";
 import { PageIntro } from "@/components/sections/common";
 import { DailyBreakdownBoards } from "@/components/sections/daily-breakdown";
@@ -6,6 +7,8 @@ import { LowStockTables } from "@/components/sections/low-stock-tables";
 import { ErrorState } from "@/components/ui/primitives";
 import { requirePermission } from "@/lib/rbac";
 import { getDailyBreakdown, getLowStock, getRevenueComparison, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "แดชบอร์ด" };
 
 /** Today where the shops are — the server may be running anywhere. */
 function bangkokToday() {
@@ -37,10 +40,19 @@ export default async function DashboardPage({
   // it. central_admin works from real stock alone.
   const isSuperAdmin = session.user.role_key === "super_admin";
 
-  // Each block degrades on its own so one slow query never blanks the page.
+  // Each block degrades on its own so one slow query never blanks the page —
+  // keeping the reason, which the block's error state then shows.
+  const errors: { breakdown?: string; lowStock?: string } = {};
+  const reason = (error: unknown) => (error instanceof Error && error.message ? error.message : "ระบบไม่ตอบสนอง");
   const [breakdown, lowStock, comparison] = await Promise.all([
-    getDailyBreakdown({ dateFrom, dateTo }).catch(() => null),
-    getLowStock().catch(() => null),
+    getDailyBreakdown({ dateFrom, dateTo }).catch((error: unknown) => {
+      errors.breakdown = reason(error);
+      return null;
+    }),
+    getLowStock().catch((error: unknown) => {
+      errors.lowStock = reason(error);
+      return null;
+    }),
     isSuperAdmin && roundId
       ? getRevenueComparison({ dateFrom, dateTo }).catch(() => null)
       : Promise.resolve(null)
@@ -52,7 +64,7 @@ export default async function DashboardPage({
   return (
     <div className="space-y-6">
       <PageIntro
-        title="Dashboard"
+        title="แดชบอร์ด"
         description="ยอดขายของวันนี้ตามเวลาจริง แยกตามวิธีชำระเงินและสิ่งที่รอบสิ้นเดือนจะทำกับมัน"
       />
 
@@ -61,7 +73,7 @@ export default async function DashboardPage({
       {breakdown ? (
         <DailyBreakdownBoards data={breakdown} filters={filters} live={live} />
       ) : (
-        <ErrorState description="ลองรีเฟรชหน้าอีกครั้ง" title="โหลดสรุปยอดไม่สำเร็จ" />
+        <ErrorState description={`${errors.breakdown} — ลองรีเฟรชหน้าอีกครั้ง`} title="โหลดสรุปยอดไม่สำเร็จ" />
       )}
 
       {/* Before/after belongs to a closed round, not to a running day — so it
@@ -71,7 +83,7 @@ export default async function DashboardPage({
       {lowStock ? (
         <LowStockTables rows={lowStock.items as unknown as Parameters<typeof LowStockTables>[0]["rows"]} />
       ) : (
-        <ErrorState description="ลองรีเฟรชหน้าอีกครั้ง" title="โหลดรายการสินค้าใกล้หมดไม่สำเร็จ" />
+        <ErrorState description={`${errors.lowStock} — ลองรีเฟรชหน้าอีกครั้ง`} title="โหลดรายการสินค้าใกล้หมดไม่สำเร็จ" />
       )}
     </div>
   );

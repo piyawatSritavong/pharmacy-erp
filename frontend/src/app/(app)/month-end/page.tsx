@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { MonthEndReconciliationConsole } from "@/components/sections/month-end-reconciliation-console";
 import { requireRole } from "@/lib/rbac";
 import { getBranches, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "สรุปสิ้นเดือน" };
 
 export default async function MonthEndPage() {
   requireRole(await requireSession(), ["super_admin"]);

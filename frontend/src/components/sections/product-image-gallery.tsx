@@ -8,6 +8,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  LoadingState,
   Notice,
 } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
@@ -61,7 +62,11 @@ export function ProductImageSwiper({
   const reload = useCallback(() => {
     proxyClient<{ items: GalleryImage[] }>(listPath)
       .then((response) => setItems(response.items))
-      .catch(() => setItems([]));
+      .catch((error) => {
+        // Fall back to the single catalog image, but say the gallery failed.
+        setItems([]);
+        setUploadError(error instanceof Error ? `โหลดแกลเลอรีไม่สำเร็จ: ${error.message}` : "โหลดแกลเลอรีไม่สำเร็จ");
+      });
   }, [listPath]);
 
   useEffect(() => {
@@ -137,7 +142,7 @@ export function ProductImageSwiper({
   if (!hasAnyImage) {
     return (
       <div className={cn("w-full max-w-xs", className)}>
-        <div className="grid aspect-square w-full place-items-center rounded-2xl border bg-gradient-to-br from-orange-50 to-amber-100">
+        <div className="grid aspect-square w-full place-items-center rounded-2xl border bg-gradient-to-br from-placeholder-from to-placeholder-to">
           <Package aria-label={`ยังไม่มีรูปสำหรับ ${productName}`} className="h-16 w-16 text-primary/30" />
         </div>
         {uploader}
@@ -172,7 +177,7 @@ export function ProductImageSwiper({
           <>
             <button
               aria-label="รูปก่อนหน้า"
-              className="absolute left-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white/90 shadow-card hover:bg-white"
+              className="absolute left-2 top-1/2 grid h-11 w-11 -translate-y-1/2 sm:h-8 sm:w-8 place-items-center rounded-full bg-card/90 shadow-card hover:bg-muted"
               onClick={() => go(-1)}
               type="button"
             >
@@ -180,7 +185,7 @@ export function ProductImageSwiper({
             </button>
             <button
               aria-label="รูปถัดไป"
-              className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-white/90 shadow-card hover:bg-white"
+              className="absolute right-2 top-1/2 grid h-11 w-11 -translate-y-1/2 sm:h-8 sm:w-8 place-items-center rounded-full bg-card/90 shadow-card hover:bg-muted"
               onClick={() => go(1)}
               type="button"
             >
@@ -190,15 +195,19 @@ export function ProductImageSwiper({
         ) : null}
       </div>
       {gallery ? (
-        <div className="mt-2 flex justify-center gap-1.5">
+        <div className="mt-1 flex flex-wrap justify-center">
+          {/* The dot is 6px; the button around it is a full touch target. */}
           {gallery.map((image, i) => (
             <button
+              aria-current={i === index || undefined}
               aria-label={`รูปที่ ${i + 1}`}
-              className={cn("h-1.5 w-1.5 rounded-full", i === index ? "bg-primary" : "bg-muted")}
+              className="grid h-11 w-11 place-items-center sm:h-6 sm:w-5"
               key={image.id}
               onClick={() => setIndex(i)}
               type="button"
-            />
+            >
+              <span className={cn("h-1.5 w-1.5 rounded-full", i === index ? "bg-primary" : "bg-muted-foreground/30")} />
+            </button>
           ))}
         </div>
       ) : null}
@@ -242,10 +251,10 @@ export function ProductImageGallery({
       </Button>
       <DialogContent className="max-w-5xl">
         <DialogHeader title={`รูปสินค้า · ${productName}`} />
-        {loading ? <p className="p-8 text-center text-muted-foreground">กำลังโหลดรูป...</p> : null}
+        {loading ? <LoadingState compact label="กำลังโหลดรูป..." /> : null}
         <div className="grid max-h-[70vh] gap-4 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
           {items.map((item) => (
-            <figure className="overflow-hidden rounded-2xl border bg-white" key={item.id}>
+            <figure className="overflow-hidden rounded-2xl border bg-card" key={item.id}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 alt={item.alt_text || productName}

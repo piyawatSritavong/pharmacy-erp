@@ -46,27 +46,16 @@ const config: Config = {
           DEFAULT: "hsl(var(--secondary))",
           foreground: "hsl(var(--secondary-foreground))"
         },
-        accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))"
-        },
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))"
         },
         ring: "hsl(var(--ring))",
 
-        // Neutral scale — Material-grey based so the two named brand values
-        // land on exact stops: neutral-light = neutral-500 (#9E9E9E),
-        // neutral-dark = neutral-900 (#212121). The `light`/`dark`/`white`
-        // aliases make `bg-neutral-light` / `bg-neutral-dark` work as literal
-        // utility names per the design spec, alongside the numeric scale for
-        // anything in between.
+        // Neutral scale — Material-grey based. Literal, so it does not follow
+        // the theme: for surfaces use bg-muted / bg-card, not neutral-*.
         neutral: {
           DEFAULT: "#9E9E9E",
-          light: "#9E9E9E",
-          dark: "#212121",
-          white: "#FFFFFF",
           50: "#FAFAFA",
           100: "#F5F5F5",
           200: "#EEEEEE",
@@ -81,79 +70,96 @@ const config: Config = {
 
         // Semantic colors, each with a 50-900 scale + DEFAULT/foreground so
         // status badges, banners, and buttons all draw from the same tokens.
+        // The tint stops (50/100/200) and the text stops (700/800) are CSS
+        // variables with a dark-theme value in globals.css, so a status tint
+        // follows the theme by itself — opacity and hover variants included.
+        // Solid fills (500/600, DEFAULT) stay literal; buttons darken them with
+        // opacity rather than by stepping to 700.
         success: {
           DEFAULT: "#16A34A",
           foreground: "#FFFFFF",
-          50: "#F0FDF4",
-          100: "#DCFCE7",
-          200: "#BBF7D0",
+          50: "rgb(var(--success-50) / <alpha-value>)",
+          100: "rgb(var(--success-100) / <alpha-value>)",
+          200: "rgb(var(--success-200) / <alpha-value>)",
           300: "#86EFAC",
           400: "#4ADE80",
           500: "#22C55E",
           600: "#16A34A",
-          700: "#15803D",
-          800: "#166534",
+          700: "rgb(var(--success-700) / <alpha-value>)",
+          800: "rgb(var(--success-800) / <alpha-value>)",
           900: "#14532D"
         },
         error: {
-          DEFAULT: "#DC2626",
+          DEFAULT: "rgb(var(--error) / <alpha-value>)",
           foreground: "#FFFFFF",
-          50: "#FEF2F2",
-          100: "#FEE2E2",
-          200: "#FECACA",
+          50: "rgb(var(--error-50) / <alpha-value>)",
+          100: "rgb(var(--error-100) / <alpha-value>)",
+          200: "rgb(var(--error-200) / <alpha-value>)",
           300: "#FCA5A5",
           400: "#F87171",
           500: "#EF4444",
           600: "#DC2626",
-          700: "#B91C1C",
-          800: "#991B1B",
+          700: "rgb(var(--error-700) / <alpha-value>)",
+          800: "rgb(var(--error-800) / <alpha-value>)",
           900: "#7F1D1D"
         },
         warning: {
           DEFAULT: "#D97706",
           foreground: "#212121",
-          50: "#FFFBEB",
-          100: "#FEF3C7",
-          200: "#FDE68A",
+          50: "rgb(var(--warning-50) / <alpha-value>)",
+          100: "rgb(var(--warning-100) / <alpha-value>)",
+          200: "rgb(var(--warning-200) / <alpha-value>)",
           300: "#FCD34D",
           400: "#FBBF24",
           500: "#F59E0B",
           600: "#D97706",
-          700: "#B45309",
-          800: "#92400E",
+          700: "rgb(var(--warning-700) / <alpha-value>)",
+          800: "rgb(var(--warning-800) / <alpha-value>)",
           900: "#78350F"
         },
         info: {
           DEFAULT: "#0284C7",
           foreground: "#FFFFFF",
-          50: "#F0F9FF",
-          100: "#E0F2FE",
-          200: "#BAE6FD",
+          50: "rgb(var(--info-50) / <alpha-value>)",
+          100: "rgb(var(--info-100) / <alpha-value>)",
+          200: "rgb(var(--info-200) / <alpha-value>)",
           300: "#7DD3FC",
           400: "#38BDF8",
           500: "#0EA5E9",
           600: "#0284C7",
-          700: "#0369A1",
-          800: "#075985",
+          700: "rgb(var(--info-700) / <alpha-value>)",
+          800: "rgb(var(--info-800) / <alpha-value>)",
           900: "#0C4A6E"
         },
 
-        // Legacy scale kept for compatibility with older section styles.
-        surface: {
-          0: "#ffffff",
-          50: "#f4f4f5",
-          100: "#e4e4e7",
-          200: "#d4d4d8",
-          900: "#18181b"
+        // Surfaces with their own dark value (globals.css), usable with
+        // opacity and hover variants like any other color.
+        "surface-warm": "hsl(var(--surface-warm) / <alpha-value>)",
+        "pos-canvas": "hsl(var(--pos-canvas) / <alpha-value>)",
+        placeholder: {
+          from: "hsl(var(--placeholder-from) / <alpha-value>)",
+          to: "hsl(var(--placeholder-to) / <alpha-value>)"
         }
       },
+      // One ordered scale: sm (6) < md (10, controls) < lg = xl (12) < 2xl
+      // (16, cards and panels) < 3xl (24). --radius used to be 1rem, which put
+      // rounded-lg above rounded-xl and turned a rounded-sm checkbox round.
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)"
+        sm: "calc(var(--radius) - 6px)"
       },
       boxShadow: {
-        panel: "0 1px 2px 0 rgb(0 0 0 / 0.05)"
+        card: "var(--shadow-card)",
+        brand: "var(--shadow-brand)"
+      },
+      fontSize: {
+        // The one step below text-xs, for count badges and chart axis labels.
+        "2xs": ["0.6875rem", { lineHeight: "1rem" }]
+      },
+      spacing: {
+        sidebar: "232px",
+        "sidebar-collapsed": "72px"
       }
     }
   },

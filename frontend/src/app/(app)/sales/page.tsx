@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { PosWorkspace } from "@/components/sections/pos-workspace";
 import { requirePermission } from "@/lib/rbac";
 import {
@@ -5,6 +6,8 @@ import {
   getProducts,
   requireSession
 } from "@/services/erp";
+
+export const metadata: Metadata = { title: "ขายหน้าร้าน" };
 
 export default async function SalesPage() {
   const session = requirePermission(await requireSession(), ["invoice.create.pos"]);

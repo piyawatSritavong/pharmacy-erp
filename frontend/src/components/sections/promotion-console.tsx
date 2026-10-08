@@ -1,14 +1,16 @@
 "use client";
 
-import { startTransition, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Trash2 } from "lucide-react";
 
 import { SectionCard } from "@/components/sections/common";
 import { Field } from "@/components/ui/field";
-import { Badge, Button, EmptyState, Input, Notice, Select } from "@/components/ui/primitives";
+import { ProductSearchPicker } from "@/components/sections/product-search-picker";
+import { Badge, Button, Dialog, DialogContent, DialogFooter, DialogHeader, EmptyState, FeedbackNotice, Input, Select } from "@/components/ui/primitives";
+import type { Feedback } from "@/components/ui/primitives";
 import { currency } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Option = Record<string, unknown>;
 
@@ -44,12 +46,10 @@ const ROLES_BY_TYPE: Record<string, PromotionItemRow["role"][]> = {
 
 export function PromotionConsole({
   promotions,
-  products,
   branches,
   ownBranchName
 }: {
   promotions: Option[];
-  products: Option[];
   branches: Option[];
   /**
    * Set for a shop, empty for head office. A shop's promotions are its own —
@@ -58,7 +58,7 @@ export function PromotionConsole({
    */
   ownBranchName?: string;
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [promoType, setPromoType] = useState<keyof typeof TYPE_LABELS>("buy_x_get_y");
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -72,14 +72,13 @@ export function PromotionConsole({
   const [bundlePrice, setBundlePrice] = useState("");
   const [maxUses, setMaxUses] = useState("0");
   const [rows, setRows] = useState<PromotionItemRow[]>([{ product_id: "", quantity: "1", role: "condition" }]);
-  const [message, setMessage] = useState("");
+  const [feedback, setFeedback] = useState<Feedback>(null);
   const [saving, setSaving] = useState(false);
+  // Deleting asks first, like every other delete in the app.
+  const [deleting, setDeleting] = useState<Option | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const allowedRoles = ROLES_BY_TYPE[promoType] || ["condition"];
-  const productName = useMemo(() => {
-    const lookup = new Map(products.map((product) => [String(product.id), String(product.name)]));
-    return (id: string) => lookup.get(id) || id;
-  }, [products]);
 
   function updateRow(index: number, patch: Partial<PromotionItemRow>) {
     setRows((current) => current.map((row, position) => (position === index ? { ...row, ...patch } : row)));
@@ -94,7 +93,7 @@ export function PromotionConsole({
 
   async function save() {
     setSaving(true);
-    setMessage("");
+    setFeedback(null);
     try {
       const response = await proxyClient<{ message?: string }>("/promotions", {
         method: "POST",
@@ -121,23 +120,28 @@ export function PromotionConsole({
             }))
         })
       });
-      setMessage(response.message || "สร้างโปรโมชั่นแล้ว");
+      setFeedback({ tone: "success", text: response.message || "สร้างโปรโมชั่นแล้ว" });
       resetForm();
-      startTransition(() => router.refresh());
+      refresh();
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "บันทึกไม่สำเร็จ");
+      setFeedback({ tone: "error", text: caught instanceof Error ? caught.message : "บันทึกไม่สำเร็จ" });
     } finally {
       setSaving(false);
     }
   }
 
   async function remove(id: string) {
+    setRemoving(true);
+    setFeedback(null);
     try {
       await proxyClient(`/promotions/${id}`, { method: "DELETE" });
-      setMessage("ลบโปรโมชั่นแล้ว");
-      startTransition(() => router.refresh());
+      setDeleting(null);
+      setFeedback({ tone: "success", text: "ลบโปรโมชั่นแล้ว" });
+      refresh();
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "ลบไม่สำเร็จ");
+      setFeedback({ tone: "error", text: caught instanceof Error ? caught.message : "ลบไม่สำเร็จ" });
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -222,16 +226,13 @@ export function PromotionConsole({
           <p className="text-sm font-semibold">สินค้าในโปรโมชั่น</p>
           {rows.map((row, index) => (
             <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_auto]" key={index}>
-              <Select
-                aria-label={`สินค้า ${index + 1}`}
-                onChange={(event) => updateRow(index, { product_id: event.target.value })}
+              {/* Server-side search over the whole catalogue: the old dropdown
+                  held only the first 200 products the API would return. */}
+              <ProductSearchPicker
+                ariaLabel={`สินค้า ${index + 1}`}
+                onChange={(value) => updateRow(index, { product_id: value })}
                 value={row.product_id}
-              >
-                <option value="">เลือกสินค้า</option>
-                {products.map((product) => (
-                  <option key={String(product.id)} value={String(product.id)}>{String(product.name)}</option>
-                ))}
-              </Select>
+              />
               <Select
                 aria-label={`บทบาท ${index + 1}`}
                 onChange={(event) => updateRow(index, { role: event.target.value as PromotionItemRow["role"] })}
@@ -267,11 +268,11 @@ export function PromotionConsole({
           </Button>
         </div>
 
-        {message ? <Notice className="mt-4">{message}</Notice> : null}
+        {deleting ? null : <FeedbackNotice className="mt-4" feedback={feedback} />}
 
         <div className="mt-5">
-          <Button disabled={saving || !code || !name} onClick={save} type="button">
-            {saving ? "กำลังบันทึก..." : "สร้างโปรโมชั่น"}
+          <Button disabled={!code || !name} loading={saving} loadingText="กำลังบันทึก..." onClick={save} type="button">
+            สร้างโปรโมชั่น
           </Button>
         </div>
       </SectionCard>
@@ -288,7 +289,7 @@ export function PromotionConsole({
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold">{String(promotion.name)}</p>
                       <Badge>{TYPE_LABELS[String(promotion.promo_type)] || String(promotion.promo_type)}</Badge>
-                      <Badge className={promotion.active ? "bg-success/10 text-success" : "bg-muted"}>
+                      <Badge tone={promotion.active ? "success" : "neutral"}>
                         {promotion.active ? "เปิดใช้งาน" : "ปิดอยู่"}
                       </Badge>
                     </div>
@@ -299,7 +300,7 @@ export function PromotionConsole({
                     </p>
                     <p className="mt-2 text-xs text-muted-foreground">
                       {((promotion.items as Option[]) || [])
-                        .map((item) => `${ROLE_LABELS[String(item.role)]}: ${productName(String(item.product_id))} × ${Number(item.quantity)}`)
+                        .map((item) => `${ROLE_LABELS[String(item.role)]}: ${String(item.product_name || item.sku || "สินค้าที่ถูกลบแล้ว")} × ${Number(item.quantity)}`)
                         .join(" | ") || "ไม่ได้ระบุสินค้า"}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -316,7 +317,7 @@ export function PromotionConsole({
                   ) : (
                     <Button
                       aria-label={`ลบโปรโมชั่น ${String(promotion.name)}`}
-                      onClick={() => remove(String(promotion.id))}
+                      onClick={() => { setFeedback(null); setDeleting(promotion); }}
                       type="button"
                       variant="ghost"
                     >
@@ -329,6 +330,20 @@ export function PromotionConsole({
           </div>
         )}
       </SectionCard>
+
+      <Dialog onOpenChange={(open) => !open && setDeleting(null)} open={Boolean(deleting)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader
+            description="หน้าขายจะหยุดคิดโปรโมชั่นนี้ทันที บิลที่ขายไปแล้วไม่เปลี่ยน"
+            title={`ลบโปรโมชั่น “${String(deleting?.name || "")}”`}
+          />
+          {feedback?.tone === "error" ? <FeedbackNotice feedback={feedback} /> : null}
+          <DialogFooter>
+            <Button disabled={removing} onClick={() => setDeleting(null)} type="button" variant="secondary">ยกเลิก</Button>
+            <Button loading={removing} loadingText="กำลังลบ..." onClick={() => deleting && void remove(String(deleting.id))} type="button" variant="destructive">ลบโปรโมชั่น</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

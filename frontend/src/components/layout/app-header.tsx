@@ -45,7 +45,7 @@ export function AppHeader({ user, navigation }: { user: Session["user"]; navigat
     <header className="sticky top-0 z-30 -mx-3 -mt-4 mb-4 flex items-center justify-between gap-2 border-b bg-background/95 px-2 py-2 backdrop-blur sm:-mx-6 sm:-mt-6 sm:mb-6 sm:gap-4 sm:px-6 sm:py-3 lg:-mx-10 lg:-mt-8 lg:px-10 print:hidden">
       <MobileNav navigation={navigation} user={user} />
       <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-        <h1 className="break-words text-base leading-snug sm:truncate sm:text-xl font-semibold tracking-tight sm:text-2xl">{title}</h1>
+        <h1 className="break-words text-base font-semibold leading-snug tracking-tight sm:truncate sm:text-2xl">{title}</h1>
         {description ? (
           <p className="hidden max-w-2xl truncate text-sm leading-6 text-muted-foreground lg:block">{description}</p>
         ) : null}

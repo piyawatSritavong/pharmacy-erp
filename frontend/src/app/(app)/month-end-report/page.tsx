@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { MonthEndSummaryReportConsole } from "@/components/sections/month-end-summary-report-console";
 import { requireRole } from "@/lib/rbac";
 import { getBranches, getMonthEndReconciliations, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "รายงานสรุปสิ้นเดือน" };
 
 function text(value: unknown) {
   return value == null ? "" : String(value);

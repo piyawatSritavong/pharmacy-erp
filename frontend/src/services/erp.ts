@@ -85,7 +85,14 @@ export async function requireSession(): Promise<Session> {
     if (isNextSignal(error)) {
       throw error;
     }
-    redirect("/login");
+    // Only a refused session means "sign in again". Anything else — the API
+    // down, a timeout, a 500 — is rethrown to the error page: redirecting
+    // those to /login looked like being logged out, and signing in again
+    // could only fail the same way.
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      redirect("/login");
+    }
+    throw error;
   }
 }
 

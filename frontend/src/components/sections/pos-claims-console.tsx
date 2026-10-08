@@ -1,14 +1,14 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { PackageOpen, RotateCcw } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { DataTable, SectionCard, statusLabel } from "@/components/sections/common";
 import { Button, Dialog, DialogContent, DialogHeader, Input, Select, Textarea } from "@/components/ui/primitives";
 import { Field } from "@/components/ui/field";
 import { proxyClient } from "@/services/api";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Option = Record<string, unknown>;
 
@@ -22,10 +22,14 @@ function text(value: unknown) {
  * later; here it is just the front-counter act of taking goods back.
  */
 export function PosClaimsConsole({ initialItems, invoices }: { initialItems: Option[]; invoices: Option[] }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [open, setOpen] = useState(false);
   const [invoiceId, setInvoiceId] = useState("");
   const [items, setItems] = useState<Option[]>([]);
+  // The bill's lines load into the select; a failure is shown under it, not
+  // only in a toast that fades and leaves an empty select behind.
+  const [itemsState, setItemsState] = useState<"idle" | "loading" | "error">("idle");
+  const [itemsError, setItemsError] = useState("");
   const [itemId, setItemId] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [reason, setReason] = useState("");
@@ -38,12 +42,21 @@ export function PosClaimsConsole({ initialItems, invoices }: { initialItems: Opt
       return;
     }
     let cancelled = false;
+    setItemsState("loading");
     void (async () => {
       try {
         const detail = await proxyClient<{ items: Option[] }>(`/invoices/${invoiceId}`);
-        if (!cancelled) setItems(detail.items || []);
+        if (!cancelled) {
+          setItems(detail.items || []);
+          setItemsState("idle");
+        }
       } catch (error) {
-        if (!cancelled) toast.error(error instanceof Error ? error.message : "โหลดรายการในบิลไม่สำเร็จ");
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "โหลดรายการในบิลไม่สำเร็จ";
+        setItems([]);
+        setItemsError(message);
+        setItemsState("error");
+        toast.error(message);
       }
     })();
     return () => { cancelled = true; };
@@ -66,7 +79,7 @@ export function PosClaimsConsole({ initialItems, invoices }: { initialItems: Opt
       setItemId("");
       setQuantity("1");
       setReason("");
-      startTransition(() => router.refresh());
+      refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "บันทึกการคืนสินค้าไม่สำเร็จ");
     } finally {
@@ -108,9 +121,9 @@ export function PosClaimsConsole({ initialItems, invoices }: { initialItems: Opt
                 ))}
               </Select>
             </Field>
-            <Field label="สินค้าที่คืน">
-              <Select aria-label="สินค้าที่คืน" disabled={!invoiceId} onChange={(event) => setItemId(event.target.value)} value={itemId}>
-                <option value="">{invoiceId ? "เลือกสินค้า" : "เลือกบิลก่อน"}</option>
+            <Field error={itemsState === "error" ? itemsError : undefined} label="สินค้าที่คืน">
+              <Select aria-label="สินค้าที่คืน" disabled={!invoiceId || itemsState === "loading"} onChange={(event) => setItemId(event.target.value)} value={itemId}>
+                <option value="">{!invoiceId ? "เลือกบิลก่อน" : itemsState === "loading" ? "กำลังโหลดรายการในบิล..." : itemsState === "error" ? "โหลดรายการไม่สำเร็จ" : "เลือกสินค้า"}</option>
                 {items.map((item) => (
                   <option key={text(item.id)} value={text(item.id)}>
                     {text(item.actual_name || item.display_name)} · ขายไป {text(item.quantity)}

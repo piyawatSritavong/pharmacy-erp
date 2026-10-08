@@ -9,6 +9,7 @@ import {
   TableBody,
   TableCell,
   TableContainer,
+  EmptyState,
   TableEmptyState,
   TableHead,
   TableHeader,
@@ -28,7 +29,7 @@ const statusLabels: Record<string, string> = {
   finalized: "ยืนยันและล็อกแล้ว",
   ghost: "สต๊อกผี",
   in_transit: "กำลังขนส่ง",
-  issued: "ออกเอกสารแล้ว",
+  issued: "ออกบิลแล้ว",
   overdue: "เกินกำหนด",
   paid: "ชำระแล้ว",
   pending: "รอดำเนินการ",
@@ -101,6 +102,13 @@ const auditEntityLabels: Record<string, string> = {
   user: "ผู้ใช้"
 };
 
+/** What a month-end close did to a bill — one wording for every screen that shows it. */
+export const CLOSE_STATUS_LABEL = {
+  active: "ปกติ",
+  adjusted: "ปรับราคาแล้ว",
+  hidden: "ซ่อน/ลบแล้ว"
+} as const;
+
 export function statusLabel(value: unknown) {
   const key = String(value || "");
   return statusLabels[key] || key;
@@ -117,6 +125,7 @@ export function MetricGrid({
 }: {
   items: Array<{ key: string; label: string; value: string | number }>;
 }) {
+  if (items.length === 0) return <EmptyState description="ยังไม่มีตัวเลขสรุปในช่วงนี้" />;
   return (
     <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
       {items.map((item) => (
@@ -171,6 +180,7 @@ export function DataTable({
   rows,
   rowActions,
   emptyDescription,
+  emptyAction,
   mobileCards = false
 }: {
   /** Compact record cards; keep scroll tables for cross-column comparison. */
@@ -180,6 +190,8 @@ export function DataTable({
   rowActions?: (row: Record<string, unknown>) => ReactNode;
   /** Optional secondary line under the shared A3 "ไม่มีรายการแสดง" message. */
   emptyDescription?: string;
+  /** The next step when the list is truly empty (not just filtered). */
+  emptyAction?: ReactNode;
 }) {
   const columnCount = columns.length + (rowActions ? 1 : 0);
   return (
@@ -197,7 +209,7 @@ export function DataTable({
         </TableHeader>
         <TableBody role="rowgroup">
           {rows.length === 0 ? (
-            <TableEmptyState colSpan={columnCount} description={emptyDescription} />
+            <TableEmptyState action={emptyAction} colSpan={columnCount} description={emptyDescription} />
           ) : (
             rows.map((row, rowIndex) => (
               <TableRow key={String(row.id || rowIndex)} className="text-sm text-foreground" role="row">
@@ -253,7 +265,7 @@ export function InvoiceSummary({ summary }: { summary?: Record<string, unknown> 
       ].map((item) => (
         <div key={item.key}>
           <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
-          <p className="mt-2 text-lg font-semibold text-black">
+          <p className="mt-2 text-lg font-semibold text-foreground">
             {typeof summary[item.key] === "number"
               ? item.key === "tax_rate"
                 ? `${summary[item.key]}%`
@@ -340,10 +352,10 @@ export function AuditTimeline({ items }: { items: Array<Record<string, unknown>>
           className="rounded-lg border border-border bg-muted/50 p-4"
         >
           <div className="flex flex-wrap items-center gap-3">
-            <Badge className="bg-white">
+            <Badge className="bg-card">
               {auditActionLabels[String(item.action || "")] || "ตรวจสอบข้อมูล"}
             </Badge>
-            <p className="text-sm font-medium text-black">
+            <p className="text-sm font-medium text-foreground">
               {auditEntityLabels[String(item.entity_type || "")] || "ข้อมูลระบบ"}
             </p>
             <p className="text-xs text-muted-foreground">{String(item.actor_name || "ระบบ")}</p>

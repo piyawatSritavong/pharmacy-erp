@@ -1,6 +1,6 @@
 import "./globals.css";
 
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Thai } from "next/font/google";
 import type { ReactNode } from "react";
 
@@ -14,9 +14,33 @@ const notoSansThai = Noto_Sans_Thai({
   display: "swap"
 });
 
+const DESCRIPTION = "ระบบขายหน้าร้านและบริหารสต๊อกสำหรับเครือร้านขายยาหลายสาขา";
+
 export const metadata: Metadata = {
-  title: "PharmaPOS | ระบบบริหารร้านขายยา",
-  description: "ระบบขายหน้าร้าน สต๊อก เอกสาร และการเงินสำหรับร้านขายยา"
+  // Each page sets its own title; the tab then reads "ใบสั่งซื้อเข้า | PharmaPOS".
+  title: { default: "PharmaPOS | ระบบบริหารร้านขายยา", template: "%s | PharmaPOS" },
+  description: DESCRIPTION,
+  applicationName: "PharmaPOS",
+  // An internal back office: never in a search index, even if a URL leaks.
+  robots: { index: false, follow: false },
+  // Enough for a link pasted into LINE to show a proper card.
+  openGraph: { title: "PharmaPOS", description: DESCRIPTION, locale: "th_TH", type: "website" },
+  // Served from public/ rather than app/ metadata routes, so nothing here
+  // joins the prerendered route list.
+  icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }], apple: "/apple-touch-icon.png" },
+  manifest: "/manifest.webmanifest"
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // Lets env(safe-area-inset-*) take effect, so the till's bottom bar and
+  // dialog footers clear the home indicator on notched phones.
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#344ABF" },
+    { media: "(prefers-color-scheme: dark)", color: "#14171f" }
+  ]
 };
 
 export default function RootLayout({

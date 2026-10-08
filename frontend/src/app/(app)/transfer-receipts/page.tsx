@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { TransferConsole } from "@/components/sections/transfer-console";
 import { requirePermission } from "@/lib/rbac";
 import { getBranches, getProducts, getTransfers, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "รับโอนสินค้า" };
 
 export default async function TransferReceiptsPage() {
   const session = requirePermission(await requireSession(), ["transfer.receive"]);

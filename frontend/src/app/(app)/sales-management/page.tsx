@@ -1,5 +1,8 @@
+import type { Metadata } from "next";
 import { LockedPreview, ProGate } from "@/components/sections/pro-gate";
 import { requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "ใบขาย" };
 
 export default async function SalesManagementPage() {
   await requireSession();

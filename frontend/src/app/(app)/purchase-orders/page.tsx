@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { PurchaseOrderConsole } from "@/components/sections/purchase-order-console";
 import { requirePermission } from "@/lib/rbac";
@@ -7,6 +8,8 @@ import {
   getSuppliers,
   requireSession,
 } from "@/services/erp";
+
+export const metadata: Metadata = { title: "ใบสั่งซื้อเข้า" };
 
 export default async function PurchaseOrdersPage({
   searchParams

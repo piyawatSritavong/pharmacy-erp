@@ -1,17 +1,18 @@
 "use client";
 
-import { FormEvent, startTransition, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Globe, Minus, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { z } from "zod";
 
 import { DataTable, SectionCard } from "@/components/sections/common";
 import { MarketplaceConsole } from "@/components/sections/marketplace-console";
 import { Field } from "@/components/ui/field";
-import { AutoResizeTextarea, Badge, Button, Checkbox, CheckboxField, Dialog, DialogContent, DialogHeader, EmptyState, Input, Pagination, Select, Switch, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/primitives";
+import { AutoResizeTextarea, Badge, Button, Checkbox, CheckboxField, Dialog, DialogContent, DialogFooter, DialogHeader, EmptyState, FeedbackNotice, Input, Pagination, Select, Switch, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/primitives";
+import type { Feedback } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
 import { cn, generateReadableCode } from "@/lib/utils";
 import { rules, useFormErrors } from "@/lib/validation";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 const PAGE_SIZE_DEFAULT = 20;
 
@@ -83,8 +84,13 @@ export function SettingsConsole({
   currentUserId: string;
   defaultTab?: string;
 }) {
-  const router = useRouter();
-  const [message, setMessage] = useState("");
+  const refresh = useRefresh();
+  // One feedback line for every action, with its tone. While a dialog is open
+  // it is shown inside the dialog as well — the page-level line sat behind the
+  // modal, so a failed save looked like nothing had happened.
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [busy, setBusy] = useState(false);
+  const setMessage = (text: string, tone: "success" | "error" = "success") => setFeedback(text ? { tone, text } : null);
   const [deleteState, setDeleteState] = useState<DeleteState>(null);
   const [deleteText, setDeleteText] = useState("");
   const [newBranchCode, setNewBranchCode] = useState("");
@@ -217,17 +223,21 @@ export function SettingsConsole({
   }, [sequenceSearch, sequences]);
 
   async function submitJSON(path: string, method: "POST" | "PUT", body: Record<string, unknown>) {
+    setBusy(true);
+    setFeedback(null);
     try {
       const response = await proxyClient<{ message?: string }>(path, {
         method,
         body: JSON.stringify(body)
       });
       setMessage(response.message || "บันทึกแล้ว");
-      startTransition(() => router.refresh());
+      refresh();
       return true;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "บันทึกไม่สำเร็จ");
+      setMessage(error instanceof Error ? error.message : "บันทึกไม่สำเร็จ", "error");
       return false;
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -353,12 +363,14 @@ export function SettingsConsole({
         path
       });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ตรวจสอบผลกระทบไม่สำเร็จ");
+      setMessage(error instanceof Error ? error.message : "ตรวจสอบผลกระทบไม่สำเร็จ", "error");
     }
   }
 
   async function confirmDelete() {
     if (!deleteState) return;
+    setBusy(true);
+    setFeedback(null);
     try {
       const response = await proxyClient<{ message: string }>(deleteState.path, {
         method: "DELETE",
@@ -369,15 +381,17 @@ export function SettingsConsole({
       setUserEditor(null);
       setDeleteText("");
       setMessage(response.message);
-      startTransition(() => router.refresh());
+      refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ลบข้อมูลไม่สำเร็จ");
+      setMessage(error instanceof Error ? error.message : "ลบข้อมูลไม่สำเร็จ", "error");
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
     <div className="space-y-4">
-      {message ? <p className="rounded-2xl border bg-white px-4 py-3 text-sm shadow-card">{message}</p> : null}
+      <FeedbackNotice feedback={feedback} />
       <Tabs className="space-y-6" defaultValue={defaultTab}>
         <TabsList>
           <TabsTrigger value="branches">สาขา</TabsTrigger>
@@ -479,7 +493,7 @@ export function SettingsConsole({
                     )
                 }
               ]}
-              emptyDescription="ลองปรับคำค้นหาหรือตัวกรอง"
+              emptyDescription={branchSearch || branchTypeFilter || branchStatusFilter ? "ไม่พบสาขาตามตัวกรอง ลองปรับคำค้นหาหรือตัวกรอง" : "ยังไม่มีสาขา"}
               rowActions={(row) => (
                 <div className="flex justify-end gap-2">
                   <Button aria-label={`แก้ไขสาขา ${String(row.name)}`} onClick={() => openBranchEdit(row)} title="แก้ไข" type="button" variant="secondary">
@@ -576,7 +590,7 @@ export function SettingsConsole({
                   render: (row) => <StatusDot on={Boolean(row.active)} />
                 }
               ]}
-              emptyDescription="ลองปรับคำค้นหาหรือตัวกรอง"
+              emptyDescription={userSearch || userRoleFilter || userStatusFilter ? "ไม่พบผู้ใช้ตามตัวกรอง ลองปรับคำค้นหาหรือตัวกรอง" : "ยังไม่มีผู้ใช้"}
               rowActions={(row) => (
                 <div className="flex justify-end gap-2">
                   <Button aria-label={`แก้ไขผู้ใช้ ${String(row.email)}`} onClick={() => openUserEdit(row)} title="แก้ไข" type="button" variant="secondary">
@@ -642,11 +656,11 @@ export function SettingsConsole({
                         <form className="space-y-4" onSubmit={(event) => void savePermissions(roleId, event)}>
                           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                             {permissionGroups.map(([prefix, items]) => (
-                              <div className="space-y-2 rounded-xl border bg-white p-3" key={prefix}>
+                              <div className="space-y-2 rounded-xl border bg-card p-3" key={prefix}>
                                 <p className="text-xs font-bold uppercase text-muted-foreground">{prefix}</p>
                                 {items.map((permission) => (
                                   <label
-                                    className="flex items-start gap-2 text-sm"
+                                    className="flex min-h-11 cursor-pointer items-center gap-3 text-sm sm:min-h-0 sm:items-start sm:gap-2"
                                     key={String(permission.permission_key)}
                                     title={String(permission.description)}
                                   >
@@ -662,7 +676,7 @@ export function SettingsConsole({
                               </div>
                             ))}
                           </div>
-                          <Button type="submit">บันทึกสิทธิ์</Button>
+                          <Button loading={busy} loadingText="กำลังบันทึก..." type="submit">บันทึกสิทธิ์</Button>
                         </form>
                       )}
                     </div>
@@ -700,7 +714,7 @@ export function SettingsConsole({
                         <Field label="สถานะการแก้ไข" hint="ล็อกเพื่อป้องกันเลขเปลี่ยน">
                           <CheckboxField aria-label={`ล็อกเลขที่ ${String(sequence.doc_type)} ${String(sequence.branch_code)}`} defaultChecked={Boolean(sequence.is_locked)} label="ล็อกเลขที่เอกสาร" name="is_locked" />
                         </Field>
-                        <Button className="self-end" type="submit">บันทึก</Button>
+                        <Button className="self-end" disabled={busy} type="submit">บันทึก</Button>
                         <p className="text-sm text-muted-foreground md:col-span-4">ตัวอย่างเลขถัดไป <strong>{String(sequence.example_number)}</strong></p>
                       </form>
                     ))}
@@ -797,10 +811,11 @@ export function SettingsConsole({
                 <Switch defaultChecked={branchEditor.mode === "edit" && Boolean(branchEditor.record?.online_sales_enabled)} key={`online-${branchFormResetKey}`} name="online_sales_enabled" />
                 เปิดขายออนไลน์
               </label>
-              <div className="flex justify-end gap-2 md:col-span-2">
-                <Button onClick={() => setBranchEditor(null)} type="button" variant="secondary">ยกเลิก</Button>
-                <Button type="submit">{branchEditor.mode === "create" ? "เพิ่มสาขา" : "บันทึก"}</Button>
-              </div>
+              {feedback?.tone === "error" ? <FeedbackNotice className="md:col-span-2" feedback={feedback} /> : null}
+              <DialogFooter className="md:col-span-2">
+                <Button disabled={busy} onClick={() => setBranchEditor(null)} type="button" variant="secondary">ยกเลิก</Button>
+                <Button loading={busy} loadingText="กำลังบันทึก..." type="submit">{branchEditor.mode === "create" ? "เพิ่มสาขา" : "บันทึก"}</Button>
+              </DialogFooter>
             </form>
           ) : null}
         </DialogContent>
@@ -854,15 +869,16 @@ export function SettingsConsole({
                   label="เปิดใช้งาน"
                   name="active"
                 />
-                <div className="flex justify-end gap-2 md:col-span-2">
-                  <Button onClick={() => setUserEditor(null)} type="button" variant="secondary">ยกเลิก</Button>
-                  <Button type="submit">{userEditor.mode === "create" ? "เพิ่มผู้ใช้" : "บันทึกผู้ใช้"}</Button>
-                </div>
+                {feedback?.tone === "error" ? <FeedbackNotice className="md:col-span-2" feedback={feedback} /> : null}
+                <DialogFooter className="md:col-span-2">
+                  <Button disabled={busy} onClick={() => setUserEditor(null)} type="button" variant="secondary">ยกเลิก</Button>
+                  <Button loading={busy} loadingText="กำลังบันทึก..." type="submit">{userEditor.mode === "create" ? "เพิ่มผู้ใช้" : "บันทึกผู้ใช้"}</Button>
+                </DialogFooter>
               </form>
               {userEditor.mode === "edit" ? (
                 <form className="flex gap-2 border-t pt-4" onSubmit={(event) => void resetPassword(String(userEditor.record?.id), event)}>
                   <Input aria-label="รหัสผ่านใหม่" minLength={8} name="password" placeholder="รหัสผ่านใหม่" required type="password" />
-                  <Button className="shrink-0" type="submit" variant="secondary">ตั้งรหัสผ่านใหม่</Button>
+                  <Button className="shrink-0" disabled={busy} type="submit" variant="secondary">ตั้งรหัสผ่านใหม่</Button>
                 </form>
               ) : null}
             </div>
@@ -879,10 +895,11 @@ export function SettingsConsole({
             </div>
             <p className="text-sm">พิมพ์ <strong>{deleteState?.confirmation}</strong> เพื่อยืนยัน</p>
             <Input aria-label="ข้อความยืนยันการลบ" onChange={(event) => setDeleteText(event.target.value)} value={deleteText} />
-            <div className="flex justify-end gap-2">
-              <Button onClick={() => setDeleteState(null)} type="button" variant="secondary">ยกเลิก</Button>
-              <Button disabled={deleteText !== deleteState?.confirmation} onClick={() => void confirmDelete()} type="button" variant="destructive">ลบถาวร</Button>
-            </div>
+            {feedback?.tone === "error" ? <FeedbackNotice feedback={feedback} /> : null}
+            <DialogFooter>
+              <Button disabled={busy} onClick={() => setDeleteState(null)} type="button" variant="secondary">ยกเลิก</Button>
+              <Button disabled={deleteText !== deleteState?.confirmation} loading={busy} loadingText="กำลังลบ..." onClick={() => void confirmDelete()} type="button" variant="destructive">ลบถาวร</Button>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, startTransition, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Search } from "lucide-react";
 import { z } from "zod";
@@ -12,8 +12,10 @@ import {
   CheckboxField,
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   Input,
+  Notice,
   Pagination,
   Select,
   Textarea
@@ -21,6 +23,7 @@ import {
 import type { PaginationState } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
 import { rules, useFormErrors } from "@/lib/validation";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Option = Record<string, unknown>;
 
@@ -73,7 +76,12 @@ export function ProductCatalogConsole({
   pagination: PaginationState;
 }) {
   const router = useRouter();
+  const refresh = useRefresh();
   const [message, setMessage] = useState("");
+  // Errors from the dialog show inside it; the page-level line was hidden
+  // behind the modal, so a failed save looked like nothing happened.
+  const [dialogError, setDialogError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Option>(blankProduct);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -88,11 +96,14 @@ export function ProductCatalogConsole({
     [initialItems]
   );
 
+  const filtered = Boolean(defaultSearch || defaultCategoryId || defaultSalesChannel);
+
   function openCreate() {
     setEditing({ ...blankProduct });
     setEditingId(null);
     errors.setErrors({});
     setMessage("");
+    setDialogError("");
     setDialogOpen(true);
   }
 
@@ -101,6 +112,7 @@ export function ProductCatalogConsole({
     setEditingId(String(item.id));
     errors.setErrors({});
     setMessage("");
+    setDialogError("");
     setDialogOpen(true);
   }
 
@@ -135,6 +147,8 @@ export function ProductCatalogConsole({
       fda_registration_no: editing.fda_registration_no || ""
     };
 
+    setSaving(true);
+    setDialogError("");
     try {
       if (editingId) {
         await proxyClient(`/products/${editingId}`, { method: "PUT", body: JSON.stringify(body) });
@@ -144,9 +158,11 @@ export function ProductCatalogConsole({
         setMessage("เพิ่มสินค้าใหม่แล้ว");
       }
       setDialogOpen(false);
-      startTransition(() => router.refresh());
+      refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "บันทึกสินค้าไม่สำเร็จ");
+      setDialogError(error instanceof Error ? error.message : "บันทึกสินค้าไม่สำเร็จ");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -175,7 +191,7 @@ export function ProductCatalogConsole({
 
   return (
     <div className="space-y-4">
-      {message ? <p className="rounded-2xl border bg-card px-4 py-3 text-sm shadow-card">{message}</p> : null}
+      {message ? <Notice tone="success">{message}</Notice> : null}
       <SectionCard
         description="สินค้าทั้งหมดในระบบ — ต้นทาง ราคา หมวดหมู่ และช่องทางขาย ในที่เดียว ทุกสาขาดึงข้อมูลจากรายการนี้"
         title="รายการสินค้า"
@@ -225,7 +241,13 @@ export function ProductCatalogConsole({
             { key: "base_selling_price", label: "ราคาขายตั้งต้น", type: "currency" },
             { key: "sales_channel_label", label: "ช่องทางขาย" }
           ]}
-          emptyDescription="ลองปรับคำค้นหาหรือตัวกรอง"
+          emptyAction={filtered ? undefined : (
+            <Button onClick={openCreate} type="button">
+              <Plus className="h-4 w-4" />
+              เพิ่มสินค้าใหม่
+            </Button>
+          )}
+          emptyDescription={filtered ? "ไม่พบสินค้าตามตัวกรอง ลองปรับคำค้นหาหรือตัวกรอง" : "ยังไม่มีสินค้าในระบบ เริ่มจากเพิ่มสินค้ารายการแรก"}
           rowActions={(row) => (
             <Button onClick={() => openEdit(row)} type="button" variant="secondary">
               แก้ไข
@@ -301,10 +323,11 @@ export function ProductCatalogConsole({
             {/* The อย. flag + registration number moved out with the FDA (อย.)
                 feature into PharmaPOS Pro; the product still carries the fields
                 (kept on save) so nothing is lost when that feature returns. */}
-            <div className="md:col-span-2 flex justify-end gap-2">
-              <Button onClick={() => setDialogOpen(false)} type="button" variant="secondary">ยกเลิก</Button>
-              <Button type="submit">{editingId ? "บันทึก" : "เพิ่มสินค้า"}</Button>
-            </div>
+            {dialogError ? <Notice className="md:col-span-2" tone="error">{dialogError}</Notice> : null}
+            <DialogFooter className="md:col-span-2">
+              <Button disabled={saving} onClick={() => setDialogOpen(false)} type="button" variant="secondary">ยกเลิก</Button>
+              <Button loading={saving} loadingText="กำลังบันทึก..." type="submit">{editingId ? "บันทึก" : "เพิ่มสินค้า"}</Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

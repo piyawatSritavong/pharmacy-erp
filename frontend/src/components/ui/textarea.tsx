@@ -8,7 +8,7 @@ export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
       {...props}
       className={cn(
         // text-foreground explicit for the same reason as Input/Select.
-        "flex min-h-24 w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
+        "flex min-h-24 w-full rounded-md border border-input bg-card px-3 py-2 text-base text-foreground sm:text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
         props.className
       )}
     />
@@ -25,7 +25,7 @@ export function AutoResizeTextarea(props: TextareaHTMLAttributes<HTMLTextAreaEle
     <textarea
       {...props}
       className={cn(
-        "flex min-h-10 w-full resize-none overflow-hidden rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
+        "flex min-h-10 w-full resize-none overflow-hidden rounded-md border border-input bg-card px-3 py-2 text-base text-foreground sm:text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
         props.className
       )}
       onInput={(event) => {

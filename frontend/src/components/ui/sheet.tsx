@@ -51,7 +51,7 @@ export function SheetHeader({
   return (
     <div className="sticky -top-4 z-10 mb-4 flex shrink-0 items-start justify-between gap-2 bg-card pb-3 sm:-top-6">
       <div className="min-w-0">
-        <DialogPrimitive.Title className="text-lg font-semibold text-black">{title}</DialogPrimitive.Title>
+        <DialogPrimitive.Title className="text-lg font-semibold text-foreground">{title}</DialogPrimitive.Title>
         {description ? (
           <DialogPrimitive.Description className="mt-1 text-sm text-muted-foreground">
             {description}

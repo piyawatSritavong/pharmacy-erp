@@ -15,5 +15,8 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"]
+  // Static public files a browser fetches before (or without) signing in —
+  // the app icons, the web manifest and robots.txt — are left alone; they
+  // used to be redirected to the login page like any other path.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|icon-512.png|apple-touch-icon.png|manifest.webmanifest|robots.txt).*)"]
 };

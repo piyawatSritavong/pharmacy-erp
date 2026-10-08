@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
+
+export const metadata: Metadata = { title: "เอกสารใบขาย" };
 
 /**
  * A tax invoice is ink on paper. Whatever theme the operator has the app set to,

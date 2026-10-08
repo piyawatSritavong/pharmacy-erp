@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { InventoryConsole } from "@/components/sections/inventory-console";
 import { StockRequestConsole } from "@/components/sections/stock-request-console";
 import { requirePermission } from "@/lib/rbac";
 import { getBranches, getProducts, getStockTransferRequests, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "เช็กสต๊อก" };
 
 export default async function InventoryCheckPage() {
   const session = requirePermission(await requireSession(), ["inventory.view.branch"]);

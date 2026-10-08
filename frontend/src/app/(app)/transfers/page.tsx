@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { TransferHistoryTable } from "@/components/sections/transfer-history-table";
 import { TransfersWorkspace } from "@/components/sections/transfers-workspace";
 import { requirePermission } from "@/lib/rbac";
 import { getBranches, getProducts, getTransfers, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "โอนสินค้า" };
 
 export default async function TransfersPage() {
   const session = await requireSession();

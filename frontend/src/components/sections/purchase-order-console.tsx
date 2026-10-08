@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Eye,
   FilePlus2,
@@ -19,6 +19,7 @@ import {
   Button,
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   EmptyState,
   Input,
@@ -30,6 +31,7 @@ import {
 import type { PaginationState } from "@/components/ui/primitives";
 import { currency } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Item = Record<string, unknown>;
 // Lines reference existing catalog products only — brand-new products are
@@ -102,6 +104,7 @@ export function PurchaseOrderConsole({
   canUseGhost?: boolean;
 }) {
   const router = useRouter();
+  const refresh = useRefresh();
 
   function goToPage(page: number, pageSize = pagination?.page_size) {
     const params = new URLSearchParams();
@@ -125,7 +128,10 @@ export function PurchaseOrderConsole({
     reason: "",
   });
   const [loadingDetail, setLoadingDetail] = useState(false);
+  // Validation and failures from whichever PO dialog is open; each dialog
+  // shows it, so a failed correction or cancel is no longer invisible.
   const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
   const [branchId, setBranchId] = useState(String(branches[0]?.id || ""));
   const selectedBranch = branches.find((branch) => String(branch.id) === branchId);
   const canUseGhostAtBranch = canUseGhost && String(selectedBranch?.branch_type) === "main_warehouse";
@@ -247,7 +253,7 @@ export function PurchaseOrderConsole({
       setPickerBucket("real");
       if (lines.some((line) => line.stock_bucket === "ghost")) {
         setLines([]);
-        setMessage("เปลี่ยนเป็นสาขาขายแล้ว ระบบล้างรายการ Ghost เดิม กรุณาเลือกสินค้า Real ใหม่");
+        setMessage("เปลี่ยนเป็นสาขาขายแล้ว ระบบล้างรายการสต๊อกผีเดิม กรุณาเลือกสินค้าสต๊อกจริงใหม่");
       }
     }
     setBranchId(nextBranchId);
@@ -349,7 +355,7 @@ export function PurchaseOrderConsole({
       );
       setCreateOpen(false);
       resetForm();
-      startTransition(() => router.refresh());
+      refresh();
       await openDetail(response.id);
     } catch (error) {
       setMessage(
@@ -362,6 +368,7 @@ export function PurchaseOrderConsole({
 
   async function openDetail(id: string) {
     setLoadingDetail(true);
+    setMessage("");
     setDetailOpen(true);
     try {
       setDetail(await proxyClient<Item>(`/purchase-orders/${id}`));
@@ -407,15 +414,19 @@ export function PurchaseOrderConsole({
     if (!detail) return;
     const reason = window.prompt("เหตุผลการยกเลิกใบสั่งซื้อ");
     if (!reason) return;
+    setBusy(true);
+    setMessage("");
     try {
       await proxyClient(`/purchase-orders/${String(detail.id)}/cancel`, {
         method: "POST",
         body: JSON.stringify({ reason }),
       });
       setDetailOpen(false);
-      startTransition(() => router.refresh());
+      refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "ยกเลิกไม่สำเร็จ");
+    } finally {
+      setBusy(false);
     }
   }
   function openCorrection(item: Item) {
@@ -432,6 +443,7 @@ export function PurchaseOrderConsole({
       tracks_expiry: Boolean(item.expires_on),
       reason: "",
     });
+    setMessage("");
     setCorrectionOpen(true);
   }
   async function saveCorrection() {
@@ -439,6 +451,8 @@ export function PurchaseOrderConsole({
       setMessage("กรุณาระบุเหตุผลการแก้ไข");
       return;
     }
+    setBusy(true);
+    setMessage("");
     try {
       await proxyClient(`/purchase-orders/${String(detail.id)}`, {
         method: "PUT",
@@ -465,11 +479,13 @@ export function PurchaseOrderConsole({
       });
       setCorrectionOpen(false);
       await openDetail(String(detail.id));
-      startTransition(() => router.refresh());
+      refresh();
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "แก้ไขรายการไม่สำเร็จ",
       );
+    } finally {
+      setBusy(false);
     }
   }
   function openHeaderEdit() {
@@ -482,6 +498,7 @@ export function PurchaseOrderConsole({
       notes: String(detail.notes || ""),
       reason: "",
     });
+    setMessage("");
     setHeaderEditOpen(true);
   }
   async function saveHeaderEdit() {
@@ -489,6 +506,8 @@ export function PurchaseOrderConsole({
       setMessage("กรุณาระบุเหตุผลการแก้ไข");
       return;
     }
+    setBusy(true);
+    setMessage("");
     try {
       await proxyClient(`/purchase-orders/${String(detail.id)}`, {
         method: "PUT",
@@ -500,11 +519,13 @@ export function PurchaseOrderConsole({
       });
       setHeaderEditOpen(false);
       await openDetail(String(detail.id));
-      startTransition(() => router.refresh());
+      refresh();
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "แก้ไขยอดเอกสารไม่สำเร็จ",
       );
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -513,7 +534,7 @@ export function PurchaseOrderConsole({
       {/* print:hidden — same reasoning as the page header: the exported PDF
           from the detail dialog below should be the formal PO document
           alone, not this list/search view underneath it. */}
-      <section className="overflow-hidden rounded-3xl border bg-white shadow-card print:hidden">
+      <section className="overflow-hidden rounded-2xl border bg-card shadow-card print:hidden">
         <div className="flex flex-col gap-3 border-b bg-surface-warm p-3 sm:p-5 md:flex-row md:items-center md:justify-between">
           <div className="relative min-w-0 flex-1 md:max-w-xl">
             <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -595,7 +616,18 @@ export function PurchaseOrderConsole({
             </tbody>
           </table>
         </div>
-        {visibleOrders.length === 0 ? <EmptyState className="p-12" description="ยังไม่มีใบสั่งซื้อเข้า" /> : null}
+        {visibleOrders.length === 0 ? (
+          <EmptyState
+            action={query.trim() ? undefined : (
+              <Button onClick={() => { resetForm(); setCreateOpen(true); }} type="button">
+                <FilePlus2 className="h-4 w-4" />
+                สร้างใบสั่งซื้อเข้า
+              </Button>
+            )}
+            className="p-12"
+            description={query.trim() ? "ไม่พบใบสั่งซื้อตามคำค้นหา" : "ยังไม่มีใบสั่งซื้อเข้า"}
+          />
+        ) : null}
         {pagination ? (
           <Pagination
             className="border-t p-4 print:hidden"
@@ -845,9 +877,9 @@ export function PurchaseOrderConsole({
                 />
               </Field>
             </div>
-            <div className="space-y-3 rounded-2xl bg-foreground p-4 text-white">
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="VAT" labelClassName="text-white">
+            <div className="space-y-3 rounded-2xl bg-foreground p-4 text-background">
+              <div className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
+                <Field label="VAT" labelClassName="text-background">
                   <Select
                     onChange={(e) => setVATMode(e.target.value)}
                     value={vatMode}
@@ -857,7 +889,7 @@ export function PurchaseOrderConsole({
                     <option value="inclusive">ราคารวม VAT</option>
                   </Select>
                 </Field>
-                <Field label="อัตรา %" labelClassName="text-white">
+                <Field label="อัตรา %" labelClassName="text-background">
                   <Input
                     disabled={vatMode === "none"}
                     min={0}
@@ -866,7 +898,7 @@ export function PurchaseOrderConsole({
                     value={vatRate}
                   />
                 </Field>
-                <Field label="ส่วนลดท้ายบิล" labelClassName="text-white">
+                <Field label="ส่วนลดท้ายบิล" labelClassName="text-background">
                   <Input
                     min={0}
                     onChange={(e) => setHeaderDiscount(Number(e.target.value))}
@@ -874,7 +906,7 @@ export function PurchaseOrderConsole({
                     value={headerDiscount}
                   />
                 </Field>
-                <Field label="ค่าขนส่ง" labelClassName="text-white">
+                <Field label="ค่าขนส่ง" labelClassName="text-background">
                   <Input
                     min={0}
                     onChange={(e) => setShipping(Number(e.target.value))}
@@ -883,7 +915,7 @@ export function PurchaseOrderConsole({
                   />
                 </Field>
               </div>
-              <div className="space-y-1 border-t border-white/20 pt-3 text-sm">
+              <div className="space-y-1 border-t border-background/20 pt-3 text-sm">
                 <p className="flex justify-between">
                   <span>สินค้า</span>
                   <span>{currency(totals.subtotal)}</span>
@@ -903,27 +935,27 @@ export function PurchaseOrderConsole({
               </div>
             </div>
           </div>
-          {message ? (
-            <p className="mt-4 text-sm text-primary">{message}</p>
-          ) : null}
-          <div className="mt-5 flex justify-end gap-2">
+          {message ? <Notice className="mt-4" tone="error">{message}</Notice> : null}
+          <DialogFooter>
             <Button
+              disabled={saving}
               onClick={() => setCreateOpen(false)}
               type="button"
               variant="secondary"
             >
               ยกเลิก
             </Button>
-            <Button disabled={saving} onClick={save} type="button">
-              {saving ? "กำลังบันทึก..." : "บันทึกและรับเข้าสต๊อก"}
+            <Button loading={saving} loadingText="กำลังบันทึก..." onClick={save} type="button">
+              บันทึกและรับเข้าสต๊อก
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog onOpenChange={setDetailOpen} open={detailOpen}>
         <DialogContent className="max-w-5xl print:static print:max-h-none print:max-w-none print:translate-x-0 print:translate-y-0 print:border-0 print:shadow-none">
           <div className="print:hidden">
+            {message && !correctionOpen && !headerEditOpen ? <Notice className="mb-3" tone="error">{message}</Notice> : null}
             <DialogHeader
               description={
                 detail
@@ -977,7 +1009,7 @@ export function PurchaseOrderConsole({
                   <thead className="bg-muted text-left">
                     <tr>
                       <th className="p-3">สินค้า</th>
-                      {canUseGhost ? <th className="p-3">Bucket</th> : null}
+                      {canUseGhost ? <th className="p-3">ประเภทสต๊อก</th> : null}
                       <th className="p-3">รับเข้า</th>
                       <th className="p-3">คงเหลือ lot</th>
                       <th className="p-3">ต้นทุน</th>
@@ -1037,7 +1069,7 @@ export function PurchaseOrderConsole({
               </div>
               <div className="ml-auto max-w-sm space-y-1 text-sm">
                 <p className="flex justify-between">
-                  <span>Subtotal</span>
+                  <span>รวมก่อนภาษี</span>
                   <span>{currency(Number(detail.subtotal))}</span>
                 </p>
                 <p className="flex justify-between">
@@ -1102,6 +1134,7 @@ export function PurchaseOrderConsole({
                 </Button>
                 {detail.status === "posted" ? (
                   <Button
+                    loading={busy}
                     onClick={cancelOrder}
                     type="button"
                     variant="destructive"
@@ -1241,16 +1274,18 @@ export function PurchaseOrderConsole({
                     value={correction.reason}
                   />
                 </Field>
+                {message ? <Notice className="md:col-span-2" tone="error">{message}</Notice> : null}
                 <div className="flex justify-end gap-2 md:col-span-2">
                   <Button
+                    disabled={busy}
                     onClick={() => setCorrectionOpen(false)}
                     type="button"
                     variant="secondary"
                   >
                     ยกเลิก
                   </Button>
-                  <Button onClick={saveCorrection} type="button">
-                    บันทึก correction
+                  <Button loading={busy} loadingText="กำลังบันทึก..." onClick={saveCorrection} type="button">
+                    บันทึกการแก้ไข
                   </Button>
                 </div>
               </div>
@@ -1336,15 +1371,17 @@ export function PurchaseOrderConsole({
                 value={headerEdit.reason}
               />
             </Field>
+            {message ? <Notice className="md:col-span-2" tone="error">{message}</Notice> : null}
             <div className="flex justify-end gap-2 md:col-span-2">
               <Button
+                disabled={busy}
                 onClick={() => setHeaderEditOpen(false)}
                 type="button"
                 variant="secondary"
               >
                 ยกเลิก
               </Button>
-              <Button onClick={saveHeaderEdit} type="button">
+              <Button loading={busy} loadingText="กำลังบันทึก..." onClick={saveHeaderEdit} type="button">
                 บันทึก
               </Button>
             </div>
@@ -1377,7 +1414,7 @@ function PurchaseOrderPrintDocument({ detail }: { detail: Item }) {
     <div className="hidden print:block">
       <div className="mb-6 flex items-start justify-between border-b pb-4">
         <div>
-          <p className="text-lg font-black">PharmaPOS</p>
+          <p className="text-lg font-bold">PharmaPOS</p>
           <p className="mt-1 font-bold">{String(detail.branch_name)}</p>
           <p className="text-sm">{String(detail.branch_address || "-")}</p>
           {detail.branch_tax_id ? (
@@ -1385,8 +1422,8 @@ function PurchaseOrderPrintDocument({ detail }: { detail: Item }) {
           ) : null}
         </div>
         <div className="text-right">
-          <p className="text-2xl font-black">ใบสั่งซื้อ</p>
-          <p className="text-sm text-muted-foreground">Purchase Order</p>
+          <p className="text-2xl font-bold">ใบสั่งซื้อ</p>
+          <p className="text-sm text-muted-foreground">ใบสั่งซื้อ / Purchase Order</p>
         </div>
       </div>
 
@@ -1498,7 +1535,7 @@ function PurchaseOrderPrintDocument({ detail }: { detail: Item }) {
             <span>{currency(Number(detail.tax_amount))}</span>
           </p>
         ) : null}
-        <p className="flex justify-between border-t-2 border-foreground pt-1 text-base font-black">
+        <p className="flex justify-between border-t-2 border-foreground pt-1 text-base font-bold">
           <span>จำนวนเงินรวมทั้งสิ้น</span>
           <span>{currency(Number(detail.total_amount))}</span>
         </p>

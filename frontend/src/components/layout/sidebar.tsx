@@ -24,7 +24,6 @@ import {
   Settings,
   ShoppingBasket,
 	Handshake,
-  Sparkles,
   Store,
 	Tags,
   TableProperties,
@@ -35,6 +34,7 @@ import {
 
 import { LogoutButton } from "@/components/layout/logout-button";
 import { usePosBadges } from "@/components/layout/use-pos-badges";
+import { CountBadge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTrigger } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -71,14 +71,13 @@ function activePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** The little corner badge on a Pro-gated menu item. Decorative (aria-hidden)
- *  so it doesn't lengthen the link's accessible name — the Pro gate on the page
- *  itself is what announces the feature is locked. */
+/** The corner tag on a menu item whose feature is not switched on yet.
+ *  Decorative (aria-hidden) so it doesn't lengthen the link's accessible name —
+ *  the gate on the page itself is what says the feature is closed. */
 function ProTag() {
   return (
-    <span aria-hidden className="ml-auto inline-flex shrink-0 items-center gap-0.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none text-white shadow-sm">
-      <Sparkles className="h-2.5 w-2.5" />
-      Pro
+    <span aria-hidden className="ml-auto inline-flex shrink-0 items-center rounded-full bg-secondary px-1.5 py-0.5 text-2xs font-semibold leading-none text-secondary-foreground">
+      ยังไม่เปิด
     </span>
   );
 }
@@ -152,7 +151,7 @@ function MobileNavItem({ item, pathname, onNavigate, badges }: {
     <Icon className="h-5 w-5 shrink-0" />
     <span className="min-w-0 flex-1 break-words text-left">{item.title}</span>
     {item.pro ? <ProTag /> : null}
-    {badge > 0 ? <span className="rounded-full bg-red-600 px-1.5 text-xs text-white">{badge > 99 ? "99+" : badge}</span> : null}
+    <CountBadge count={badge} />
   </>;
   const classes = cn("flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active ? "bg-primary/10 text-primary" : "text-foreground hover:bg-muted");
 
@@ -197,15 +196,15 @@ export function Sidebar({
   }
 
   return (
-    <aside className={cn("sticky top-0 flex h-screen min-h-0 flex-col border-r bg-white py-4 transition-[width,padding] duration-300", collapsed ? "w-[72px] px-2" : "w-[232px] px-3")}>
+    <aside className={cn("sticky top-0 flex h-screen min-h-0 flex-col border-r bg-card py-4 transition-[width,padding] duration-300", collapsed ? "w-sidebar-collapsed px-2" : "w-sidebar px-3")}>
       <div className={cn("flex shrink-0 items-center", collapsed ? "justify-center" : "justify-between gap-2")}>
       <Link className={cn("flex items-center gap-2.5", !collapsed && "px-1")} href="/dashboard" title="PharmaPOS">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-primary text-white shadow-brand">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-brand">
           <Cross className="h-5 w-5" strokeWidth={3} />
         </span>
         <span className={collapsed ? "sr-only" : "block min-w-0"}>
           <span className="block truncate text-base font-bold tracking-tight">PharmaPOS</span>
-          <span className="block truncate text-[11px] font-medium text-muted-foreground">ระบบบริหารร้านขายยา</span>
+          <span className="block truncate text-2xs font-medium text-muted-foreground">ระบบบริหารร้านขายยา</span>
         </span>
       </Link>
       {!collapsed ? (
@@ -232,13 +231,13 @@ export function Sidebar({
                 className={cn(
                   "flex items-center rounded-xl py-2.5 text-sm font-semibold transition",
                   collapsed ? "justify-center px-3" : "gap-3 px-3",
-                  active ? "bg-secondary text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
                 href={item.href}
                 key={item.key}
                 title={collapsed ? item.title : undefined}
               >
-                <Icon className={cn("h-5 w-5 shrink-0", active && "text-primary")} />
+                <Icon className="h-5 w-5 shrink-0" />
                 <span className={collapsed ? "sr-only" : "truncate"}>{item.title}</span>
               </Link>
             );
@@ -254,12 +253,12 @@ export function Sidebar({
                     aria-label={item.title}
                     className={cn(
                       "flex w-full items-center justify-center rounded-xl py-2.5 transition",
-                      active ? "bg-secondary text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                     title={item.title}
                     type="button"
                   >
-                    <Icon className={cn("h-5 w-5", active && "text-primary")} />
+                    <Icon className="h-5 w-5" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" side="right">
@@ -284,24 +283,24 @@ export function Sidebar({
                 aria-expanded={expanded}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition",
-                  active ? "bg-secondary text-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
                 onClick={() => selectParent(item)}
                 type="button"
               >
-                <Icon className={cn("h-5 w-5 shrink-0", active && "text-primary")} />
+                <Icon className="h-5 w-5 shrink-0" />
                 <span className="flex-1 truncate text-left">{item.title}</span>
                 <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", expanded && "rotate-180")} />
               </button>
               {expanded ? (
-                <div className="ml-[19px] mt-1 space-y-0.5 border-l pl-4">
+                <div className="ml-5 mt-1 space-y-0.5 border-l pl-4">
                   {item.children.map((child) => {
                     const childActive = activePath(pathname, child.href);
                     return (
                       <Link
                         className={cn(
                           "flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium transition",
-                          childActive ? "bg-secondary/60 font-bold text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                          childActive ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                         )}
                         href={child.href}
                         key={child.key}
@@ -339,21 +338,21 @@ export function PosBottomNav({
   const badges = usePosBadges(String(user.branch_id || ""));
 
   return (
-    <footer className="z-40 shrink-0 border-t bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur print:hidden">
+    <footer className="z-40 shrink-0 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur print:hidden">
       <nav aria-label="เมนูจุดขายบนมือถือ" className="flex items-center gap-1 px-2 py-1 sm:hidden">
         {navigation.filter((item) => ["/sales", "/parked-bills", "/sales-history"].includes(item.href)).map((item) => {
           const Icon = iconByKey[item.key] || Store;
           const active = activePath(pathname, item.href);
           return <Link aria-current={active ? "page" : undefined} className={cn("relative flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg px-1 text-xs font-medium", active ? "bg-primary/10 text-primary" : "text-muted-foreground")} href={item.href} key={item.key}>
-            <Icon className="h-5 w-5" /><span>{item.title}</span>
-            {badges[item.key] > 0 ? <span className="absolute right-1 top-0 rounded-full bg-red-600 px-1 text-[10px] text-white">{badges[item.key] > 99 ? "99+" : badges[item.key]}</span> : null}
+            <Icon className="h-5 w-5" /><span className="text-center leading-tight">{item.title}</span>
+            <CountBadge className="absolute right-1 top-0" count={badges[item.key] || 0} />
           </Link>;
         })}
         <MobileNav badges={badges} bottom navigation={navigation} user={user} />
       </nav>
       <div className="hidden min-h-20 items-center gap-4 px-4 sm:flex lg:px-6">
         <Link className="flex shrink-0 items-center gap-2" href="/sales">
-          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-foreground text-white">
+          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-foreground text-background">
             <Store className="h-5 w-5" />
           </span>
           <span className="hidden font-bold sm:block">PharmaPOS</span>
@@ -368,18 +367,14 @@ export function PosBottomNav({
               <Link
                 className={cn(
                   "relative flex shrink-0 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition",
-                  active ? "bg-primary text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
                 href={item.href}
                 key={item.key}
               >
                 <Icon className="h-4 w-4" />
                 <span>{item.title}</span>
-                {badge > 0 ? (
-                  <span className="absolute -right-0.5 -top-0.5 grid min-w-5 animate-pulse place-items-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-5 text-white">
-                    {badge > 99 ? "99+" : badge}
-                  </span>
-                ) : null}
+                <CountBadge className="absolute -right-0.5 -top-0.5 animate-pulse" count={badge} />
               </Link>
             );
           })}

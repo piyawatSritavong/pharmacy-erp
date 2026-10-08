@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Search } from "lucide-react";
 
 import { SectionCard, statusLabel } from "@/components/sections/common";
 import { Field } from "@/components/ui/field";
-import { Input, Pagination, Select, usePagedRows } from "@/components/ui/primitives";
+import { Input, Pagination, Select, TableEmptyState, usePagedRows } from "@/components/ui/primitives";
 import { cn, dateTime } from "@/lib/utils";
 
 type Option = Record<string, unknown>;
@@ -134,11 +134,7 @@ export function TransferHistoryTable({
           </thead>
           <tbody className="divide-y">
             {pageRows.length === 0 ? (
-              <tr>
-                <td className="px-3 py-10 text-center text-muted-foreground" colSpan={columnCount}>
-                  ไม่มีใบโอน · ลองปรับคำค้นหาหรือตัวกรอง
-                </td>
-              </tr>
+              <TableEmptyState colSpan={columnCount} description="ไม่พบใบโอน ลองปรับคำค้นหาหรือตัวกรอง" />
             ) : (
               pageRows.map((row) => {
                 const id = text(row.id) || text(row.transfer_code);
@@ -172,7 +168,7 @@ export function TransferHistoryTable({
                     {open ? (
                       <tr>
                         <td className="bg-muted/20 px-3 pb-4 pt-0" colSpan={columnCount}>
-                          <div className="overflow-hidden rounded-lg border bg-white">
+                          <div className="overflow-hidden rounded-lg border bg-card">
                             <table className="w-full text-sm">
                               <thead className="bg-muted/60 text-xs text-muted-foreground">
                                 <tr>
@@ -186,11 +182,7 @@ export function TransferHistoryTable({
                               </thead>
                               <tbody className="divide-y">
                                 {lines.length === 0 ? (
-                                  <tr>
-                                    <td className="px-3 py-6 text-center text-muted-foreground" colSpan={canUseGhost ? 6 : 5}>
-                                      ไม่มีรายการในใบโอนนี้
-                                    </td>
-                                  </tr>
+                                  <TableEmptyState className="[&>div]:p-6" colSpan={canUseGhost ? 6 : 5} description="ไม่มีรายการในใบโอนนี้" />
                                 ) : (
                                   lines.map((line, index) => (
                                     <tr key={text(line.id) || index}>

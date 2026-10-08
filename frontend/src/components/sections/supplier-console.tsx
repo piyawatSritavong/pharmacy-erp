@@ -2,13 +2,11 @@
 
 import {
   FormEvent,
-  startTransition,
   useEffect,
   useMemo,
   useState,
 } from "react";
 import { Building2, Pencil, Plus, Search, Trash2 } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 import { Field } from "@/components/ui/field";
 import {
@@ -16,8 +14,10 @@ import {
   CheckboxField,
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   EmptyState,
+  FeedbackNotice,
   Input,
   Notice,
   Pagination,
@@ -25,7 +25,9 @@ import {
   Textarea,
   usePagedRows
 } from "@/components/ui/primitives";
+import type { Feedback } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Item = Record<string, unknown>;
 
@@ -49,13 +51,14 @@ const blankSupplier: Item = {
 };
 
 export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [items, setItems] = useState(initialItems);
   const [query, setQuery] = useState("");
   const [creditFilter, setCreditFilter] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Item>(blankSupplier);
-  const [message, setMessage] = useState("");
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [busy, setBusy] = useState(false);
   const [deleteState, setDeleteState] = useState<{
     id: string;
     label: string;
@@ -87,12 +90,12 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
 
   function openCreate() {
     setEditing({ ...blankSupplier });
-    setMessage("");
+    setFeedback(null);
     setDialogOpen(true);
   }
   function openEdit(item: Item) {
     setEditing({ ...item });
-    setMessage("");
+    setFeedback(null);
     setDialogOpen(true);
   }
   function update(key: string, value: unknown) {
@@ -101,6 +104,8 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    setBusy(true);
+    setFeedback(null);
     try {
       const id = String(editing.id || "");
       await proxyClient(id ? `/suppliers/${id}` : "/suppliers", {
@@ -108,11 +113,12 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
         body: JSON.stringify(editing),
       });
       setDialogOpen(false);
-      startTransition(() => router.refresh());
+      setFeedback({ tone: "success", text: id ? "บันทึกบริษัทคู่ค้าแล้ว" : "เพิ่มบริษัทคู่ค้าแล้ว" });
+      refresh();
     } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "บันทึกบริษัทคู่ค้าไม่สำเร็จ",
-      );
+      setFeedback({ tone: "error", text: error instanceof Error ? error.message : "บันทึกบริษัทคู่ค้าไม่สำเร็จ" });
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -133,12 +139,14 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
         counts: impact.counts,
       });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ตรวจสอบผลกระทบไม่สำเร็จ");
+      setFeedback({ tone: "error", text: error instanceof Error ? error.message : "ตรวจสอบผลกระทบไม่สำเร็จ" });
     }
   }
 
   async function confirmDelete() {
     if (!deleteState) return;
+    setBusy(true);
+    setFeedback(null);
     try {
       const response = await proxyClient<{ message: string }>(`/suppliers/${deleteState.id}`, {
         method: "DELETE",
@@ -146,17 +154,21 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
       });
       setDeleteState(null);
       setDeleteText("");
-      setMessage(response.message);
-      startTransition(() => router.refresh());
+      setFeedback({ tone: "success", text: response.message });
+      refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ลบบริษัทคู่ค้าไม่สำเร็จ");
+      setFeedback({ tone: "error", text: error instanceof Error ? error.message : "ลบบริษัทคู่ค้าไม่สำเร็จ" });
+    } finally {
+      setBusy(false);
     }
   }
 
 
+  const filtered = Boolean(query || creditFilter);
+
   return (
     <>
-      <section className="overflow-hidden rounded-3xl border bg-white shadow-card">
+      <section className="overflow-hidden rounded-2xl border bg-card shadow-card">
         <div className="flex flex-col gap-3 border-b bg-surface-warm p-3 sm:p-5 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-wrap items-center gap-3">
             <div className="relative min-w-0 flex-1 md:max-w-md">
@@ -185,11 +197,7 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
             เพิ่มบริษัทคู่ค้า
           </Button>
         </div>
-        {message ? (
-          <Notice className="rounded-none border-b" tone="error">
-            {message}
-          </Notice>
-        ) : null}
+        {dialogOpen || deleteState ? null : <FeedbackNotice className="rounded-none border-b" feedback={feedback} />}
         <div className="overflow-x-auto p-3 sm:p-0">
           <table role="table" className="responsive-table mobile-card-table w-full min-w-[980px] text-sm">
             <thead role="rowgroup" className="bg-muted text-left">
@@ -263,7 +271,14 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
             </tbody>
           </table>
         </div>
-        {visible.length === 0 ? <EmptyState className="p-12" description="ไม่พบบริษัทคู่ค้าตามเงื่อนไข" icon={Building2} /> : null}
+        {visible.length === 0 ? (
+          <EmptyState
+            action={filtered ? undefined : <Button onClick={openCreate} type="button"><Plus className="h-4 w-4" />เพิ่มบริษัทคู่ค้า</Button>}
+            className="p-12"
+            description={filtered ? "ไม่พบบริษัทคู่ค้าตามเงื่อนไข ลองปรับคำค้นหาหรือตัวกรอง" : "ยังไม่มีบริษัทคู่ค้า"}
+            icon={Building2}
+          />
+        ) : null}
         <Pagination className="border-t p-4" {...pager} />
       </section>
 
@@ -291,19 +306,21 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
                 value={deleteText}
               />
             </Field>
-            <div className="flex justify-end gap-2">
-              <Button onClick={() => setDeleteState(null)} type="button" variant="secondary">
+            {feedback?.tone === "error" ? <FeedbackNotice feedback={feedback} /> : null}
+            <DialogFooter>
+              <Button disabled={busy} onClick={() => setDeleteState(null)} type="button" variant="secondary">
                 ยกเลิก
               </Button>
               <Button
                 disabled={deleteText !== deleteState?.confirmation}
+                loading={busy}
                 onClick={() => void confirmDelete()}
                 type="button"
                 variant="destructive"
               >
                 ลบถาวร
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>
@@ -387,7 +404,7 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
                 value={String(editing.phone || "")}
               />
             </Field>
-            <Field label="Email">
+            <Field label="อีเมล">
               <Input
                 onChange={(e) => update("email", e.target.value)}
                 type="email"
@@ -417,19 +434,18 @@ export function SupplierConsole({ initialItems }: { initialItems: Item[] }) {
                 onChange={(e) => update("active", e.target.checked)}
               />
             ) : null}
-            {message ? (
-              <p className="md:col-span-2 text-sm text-primary">{message}</p>
-            ) : null}
-            <div className="flex justify-end gap-2 md:col-span-2">
+            {feedback?.tone === "error" ? <FeedbackNotice className="md:col-span-2" feedback={feedback} /> : null}
+            <DialogFooter className="md:col-span-2">
               <Button
+                disabled={busy}
                 onClick={() => setDialogOpen(false)}
                 type="button"
                 variant="secondary"
               >
                 ยกเลิก
               </Button>
-              <Button type="submit">บันทึก</Button>
-            </div>
+              <Button loading={busy} loadingText="กำลังบันทึก..." type="submit">บันทึก</Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

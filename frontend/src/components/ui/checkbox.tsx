@@ -63,7 +63,9 @@ export const Checkbox = forwardRef<HTMLButtonElement, CheckboxProps>(function Ch
         ref={ref}
         checked={resolvedChecked}
         className={cn(
-          "peer h-4 w-4 shrink-0 rounded-sm border border-black/20 bg-white shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/10 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-black data-[state=checked]:bg-black data-[state=checked]:text-white",
+          // The ::before extends the touch target to 44px around the 16px box
+          // without changing layout, for checkboxes used bare in tables/lists.
+          "peer relative h-4 w-4 shrink-0 rounded-sm border border-input bg-card shadow-sm transition before:absolute before:-inset-3.5 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
           className
         )}
         disabled={disabled}

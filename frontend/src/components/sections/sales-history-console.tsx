@@ -1,14 +1,17 @@
 "use client";
 
-import { FormEvent, startTransition, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { FileText, RotateCcw, Search } from "lucide-react";
 
-import { DataTable, SectionCard } from "@/components/sections/common";
+import { CLOSE_STATUS_LABEL, DataTable, SectionCard } from "@/components/sections/common";
 import { Field } from "@/components/ui/field";
-import { Button, Dialog, DialogContent, DialogHeader, Input, Pagination, Select, Textarea } from "@/components/ui/primitives";
+import { badgeVariants, Button, Dialog, DialogContent, DialogFooter, DialogHeader, EmptyState, Input, LoadingState, Notice, Pagination, Select, Textarea } from "@/components/ui/primitives";
+import type { BadgeTone } from "@/components/ui/primitives";
+import { cn } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Option = Record<string, unknown>;
 
@@ -16,11 +19,11 @@ const PAGE_SIZE_DEFAULT = 20;
 
 /** The three states a bill can be in after a month-end close — same wording and
  *  colours as รายงานสรุปสิ้นเดือน, so a bill reads the same on either screen. */
-const CLOSE_STATUS: Record<string, { label: string; tone: string }> = {
+const CLOSE_STATUS: Record<string, { label: string; tone: BadgeTone }> = {
   // Declaration order is the order the filter lists them.
-  adjusted: { label: "Adjusted", tone: "bg-amber-100 text-amber-800" },
-  active: { label: "Active", tone: "bg-emerald-100 text-emerald-700" },
-  hidden: { label: "Hidden/Deleted", tone: "bg-red-100 text-red-700" }
+  adjusted: { label: CLOSE_STATUS_LABEL.adjusted, tone: "warning" },
+  active: { label: CLOSE_STATUS_LABEL.active, tone: "success" },
+  hidden: { label: CLOSE_STATUS_LABEL.hidden, tone: "error" }
 };
 
 // Part B, Rule 4 — the POS half of the return workflow: look up the
@@ -38,8 +41,12 @@ export function SalesHistoryConsole({
    *  and the close status, and no returns to issue from here. */
   isSuperAdmin?: boolean;
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [message, setMessage] = useState("");
+  // The page-level line is for results; failures inside the return dialog
+  // stay in the dialog.
+  const [messageTone, setMessageTone] = useState<"success" | "error">("success");
+  const [returning, setReturning] = useState(false);
   const [activeInvoice, setActiveInvoice] = useState<Option | null>(null);
   const [items, setItems] = useState<Option[]>([]);
   const [selectedItemId, setSelectedItemId] = useState("");
@@ -147,16 +154,21 @@ export function SalesHistoryConsole({
       setMessage("กรุณาเลือกสินค้าที่จะคืน");
       return;
     }
+    setReturning(true);
     try {
       const result = await proxyClient<{ message: string }>("/product-returns", {
         method: "POST",
         body: JSON.stringify({ invoice_item_id: selectedItemId, quantity, reason })
       });
       setMessage(result.message);
+      setMessageTone("success");
       setActiveInvoice(null);
-      startTransition(() => router.refresh());
+      refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "บันทึกการคืนสินค้าไม่สำเร็จ");
+      setMessageTone("error");
+    } finally {
+      setReturning(false);
     }
   }
 
@@ -182,12 +194,14 @@ export function SalesHistoryConsole({
         body: JSON.stringify({ customer_name: fullTaxName, customer_tax_id: fullTaxId })
       });
       setMessage(`${String(result.message || "")} เลขที่ใหม่ ${String(result.invoice_number || "")}`);
+      setMessageTone("success");
       setFullTaxInvoice(null);
       setFullTaxName("");
       setFullTaxId("");
-      startTransition(() => router.refresh());
+      refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "ออกใบกำกับภาษีเต็มรูปไม่สำเร็จ");
+      setMessageTone("error");
     } finally {
       setFullTaxBusy(false);
     }
@@ -195,7 +209,7 @@ export function SalesHistoryConsole({
 
   return (
     <div className="space-y-4">
-      {message && !activeInvoice ? <p className="rounded-2xl border bg-card px-4 py-3 text-sm shadow-card">{message}</p> : null}
+      {message && !activeInvoice && !fullTaxInvoice ? <Notice tone={messageTone}>{message}</Notice> : null}
       <SectionCard description="ค้นหาด้วยเลขที่ใบขายหรือชื่อลูกค้า กรองตามสถานะและช่วงวันที่" title="ใบขายย้อนหลัง">
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <Field className="w-60" label="ค้นหา">
@@ -297,7 +311,7 @@ export function SalesHistoryConsole({
                     render: (row: Option) => {
                       const state = CLOSE_STATUS[String(row.reconciliation_status || "active")] || CLOSE_STATUS.active;
                       return (
-                        <span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${state.tone}`}>
+                        <span className={cn(badgeVariants({ tone: state.tone }), "whitespace-nowrap rounded-full px-2 py-1 font-semibold")}>
                           {state.label}
                         </span>
                       );
@@ -363,11 +377,11 @@ export function SalesHistoryConsole({
             title={`คืน/เปลี่ยนสินค้า — ใบขาย ${String(activeInvoice?.invoice_number || "")}`}
           />
           {loading ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">กำลังโหลดรายการสินค้า...</p>
+            <LoadingState compact label="กำลังโหลดรายการสินค้า..." />
           ) : (
             <form className="space-y-4" onSubmit={submit}>
               <div className="space-y-2">
-                {items.length === 0 ? <p className="text-sm text-muted-foreground">ไม่พบรายการสินค้าในใบขายนี้</p> : null}
+                {items.length === 0 ? <EmptyState className="p-4" description="ไม่พบรายการสินค้าในใบขายนี้" /> : null}
                 {items.map((item) => (
                   <label className="flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/5" key={String(item.id)}>
                     <input
@@ -397,11 +411,11 @@ export function SalesHistoryConsole({
               <Field label="เหตุผลการคืน">
                 <Textarea onChange={(event) => setReason(event.target.value)} placeholder="เช่น สินค้าชำรุด, เปิดกล่องแล้วใช้งานไม่ได้" value={reason} />
               </Field>
-              {message ? <p className="text-sm text-destructive">{message}</p> : null}
-              <div className="flex justify-end gap-2">
-                <Button onClick={() => setActiveInvoice(null)} type="button" variant="secondary">ยกเลิก</Button>
-                <Button disabled={!selectedItemId} type="submit">ออกสินค้าทดแทน</Button>
-              </div>
+              {message ? <Notice tone="error">{message}</Notice> : null}
+              <DialogFooter>
+                <Button disabled={returning} onClick={() => setActiveInvoice(null)} type="button" variant="secondary">ยกเลิก</Button>
+                <Button disabled={!selectedItemId} loading={returning} loadingText="กำลังบันทึก..." type="submit">ออกสินค้าทดแทน</Button>
+              </DialogFooter>
             </form>
           )}
         </DialogContent>
@@ -421,6 +435,7 @@ export function SalesHistoryConsole({
               <Input aria-label="เลขประจำตัวผู้เสียภาษี" inputMode="numeric" onChange={(event) => setFullTaxId(event.target.value)} placeholder="13 หลัก" value={fullTaxId} />
             </Field>
           </div>
+          {message && messageTone === "error" ? <Notice className="mt-4" tone="error">{message}</Notice> : null}
           <div className="mt-5 flex justify-end gap-2">
             <Button onClick={() => setFullTaxInvoice(null)} type="button" variant="secondary">ยกเลิก</Button>
             <Button disabled={fullTaxBusy || !fullTaxName.trim() || !fullTaxId.trim()} onClick={() => void submitFullTaxInvoice()} type="button">

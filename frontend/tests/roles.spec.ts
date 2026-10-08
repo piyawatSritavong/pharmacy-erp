@@ -75,7 +75,7 @@ test.describe("สิทธิ์และการนำทางสองบ�
     // visible alongside whichever group is open — count it in each total.
     await expect(adminNav.getByRole("link", { name: "ขายหน้าร้าน", exact: true })).toBeVisible();
     const adminGroups: Array<[string, string[]]> = [
-      ["รายงาน", ["Dashboard", "สรุปสิ้นเดือน", "รายงานสรุปสิ้นเดือน"]],
+      ["รายงาน", ["แดชบอร์ด", "สรุปสิ้นเดือน", "รายงานสรุปสิ้นเดือน"]],
       ["คลังสินค้า", ["รายการสินค้า", "สต๊อกจริง", "สต๊อกผี", "หมวดสินค้า", "โปรโมชั่น", "เบิกสินค้า", "โอนสินค้า"]],
       ["ใบเอกสาร", ["ใบสั่งซื้อเข้า", "บริษัทคู่ค้า", "เคลม/คืนสินค้า", "รพ.สต.", "ใบขาย", "อย."]],
       ["ระบบ", ["ตั้งค่า", "ประวัติระบบ", "ประวัติการขาย"]],
@@ -100,7 +100,7 @@ test.describe("สิทธิ์และการนำทางสองบ�
     const posLinks = [
       "ขายหน้าร้าน",
       "พักบิล",
-      "ประวัติ",
+      "ประวัติการขาย",
       "เบิกสินค้า",
       "รับโอนสินค้า",
       "เคลม/คืนสินค้า",
@@ -157,13 +157,14 @@ test.describe("สิทธิ์และการนำทางสองบ�
       await page.getByRole("dialog").getByRole("button", { name: "บันทึก" }).click();
       await expect(page.getByText(editedName, { exact: true })).toBeVisible();
 
-      page.once("dialog", (prompt) => prompt.accept());
       const deleteResponsePromise = page.waitForResponse(
         (response) =>
           response.url().includes(`/api/backend/product-categories/${categoryID}`) &&
           response.request().method() === "DELETE",
       );
+      // Delete asks in the app's own dialog now, not window.confirm.
       await page.getByRole("button", { name: `ลบ ${editedName}` }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "ลบหมวด", exact: true }).click();
       expect((await deleteResponsePromise).status()).toBe(200);
       await expect(page.getByText(editedName, { exact: true })).toHaveCount(0);
       categoryID = "";
@@ -236,7 +237,7 @@ test.describe("สิทธิ์และการนำทางสองบ�
       ["รายงานสรุปสิ้นเดือน", "/month-end-report", "รายงานสรุปสิ้นเดือน"],
       ["รายงาน", "/global-reports", "รายงาน"],
       ["ตั้งค่า", "/settings", "ตั้งค่า"],
-      ["แดชบอร์ด", "/dashboard", "Dashboard"],
+      ["แดชบอร์ด", "/dashboard", "แดชบอร์ด"],
     ];
 
     for (const [, path, heading] of pages) {
@@ -246,12 +247,11 @@ test.describe("สิทธิ์และการนำทางสองบ�
         session.page.getByRole("heading", { level: 1, name: heading, exact: true }),
       ).toBeVisible();
     }
-    // รพ.สต. and ใบขาย are Pro features now: the page renders the upgrade gate.
+    // รพ.สต. and ใบขาย are not switched on: the page says so, without a sales pitch.
     for (const path of ["/government-sales", "/sales-management"]) {
       await session.page.goto(path);
       await session.page.waitForURL(new RegExp(`${path}$`));
-      await expect(session.page.getByText("PharmaPOS Pro").first()).toBeVisible();
-      await expect(session.page.getByRole("button", { name: "สมัคร Pro รายเดือน" })).toBeVisible();
+      await expect(session.page.getByRole("heading", { name: /ยังไม่เปิดใช้งาน$/ })).toBeVisible();
     }
     await session.context.close();
   });
@@ -380,7 +380,7 @@ test.describe("สิทธิ์และการนำทางสองบ�
   test("พนักงานขายเปิดทุกหน้าจาก top nav ได้จริง", async ({ browser }) => {
     const session = await openSession(browser, "pos.mes@erp.local", "/sales");
     const pages = [
-      ["ประวัติ", "/sales-history", "ประวัติ"],
+      ["ประวัติการขาย", "/sales-history", "ประวัติการขาย"],
       ["เบิกสินค้า", "/requisitions", "เบิกสินค้า"],
       ["รับโอนสินค้า", "/transfer-receipts", "รับโอนสินค้า"],
       ["สรุปยอดขาย", "/daily-sales", /สรุปยอดขาย/],

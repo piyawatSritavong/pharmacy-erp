@@ -1,15 +1,16 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { ArrowRight, CheckCircle2, PackageCheck, Plus, Send, Trash2, TriangleAlert } from "lucide-react";
 
 import { SectionCard, statusLabel } from "@/components/sections/common";
 import { ProductSearchPicker } from "@/components/sections/product-search-picker";
 import { Field } from "@/components/ui/field";
-import { Badge, Button, Dialog, DialogContent, DialogHeader, EmptyState, Input, Select } from "@/components/ui/primitives";
+import { Badge, Button, Dialog, DialogContent, DialogFooter, DialogHeader, EmptyState, FeedbackNotice, Input, Select } from "@/components/ui/primitives";
+import type { Feedback } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Option = Record<string, unknown>;
 type TransferLineDraft = {
@@ -60,7 +61,7 @@ export function TransferConsole({
   onCreateOpenChange?: (open: boolean) => void;
   canUseGhost?: boolean;
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [sourceBranchId, setSourceBranchId] = useState(defaultBranchId || "");
   const [destinationBranchId, setDestinationBranchId] = useState("");
   const [lines, setLines] = useState<TransferLineDraft[]>([newLine()]);
@@ -69,7 +70,9 @@ export function TransferConsole({
   const [courierName, setCourierName] = useState("");
   const [receiptDrafts, setReceiptDrafts] = useState<Record<string, ReceiptDraft>>({});
   const [busyId, setBusyId] = useState("");
-  const [message, setMessage] = useState("");
+  // Outcomes with their tone; failures while creating show in the dialog.
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const setMessage = (text: string, tone: "success" | "error" = "success") => setFeedback(text ? { tone, text } : null);
   const [internalCreateOpen, setInternalCreateOpen] = useState(false);
   const externallyControlled = onCreateOpenChange !== undefined;
   const createOpen = externallyControlled ? Boolean(controlledCreateOpen) : internalCreateOpen;
@@ -154,9 +157,9 @@ export function TransferConsole({
       setLines([newLine()]);
       setRequestNote("");
       setCreateOpen(false);
-      startTransition(() => router.refresh());
+      refresh();
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "สร้างรายการโอนไม่สำเร็จ");
+      setMessage(caught instanceof Error ? caught.message : "สร้างรายการโอนไม่สำเร็จ", "error");
     } finally {
       setBusyId("");
     }
@@ -170,9 +173,9 @@ export function TransferConsole({
         body: JSON.stringify({ pickup_name: pickupName, courier_name: courierName })
       });
       setMessage("ยืนยันส่งสินค้าออกจากต้นทางแล้ว");
-      startTransition(() => router.refresh());
+      refresh();
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "ส่งสินค้าไม่สำเร็จ");
+      setMessage(caught instanceof Error ? caught.message : "ส่งสินค้าไม่สำเร็จ", "error");
     } finally {
       setBusyId("");
     }
@@ -197,9 +200,9 @@ export function TransferConsole({
         })
       });
       setMessage(`รับสินค้าใบโอน ${String(transfer.transfer_code)} แล้ว`);
-      startTransition(() => router.refresh());
+      refresh();
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "รับโอนสินค้าไม่สำเร็จ");
+      setMessage(caught instanceof Error ? caught.message : "รับโอนสินค้าไม่สำเร็จ", "error");
     } finally {
       setBusyId("");
     }
@@ -208,7 +211,7 @@ export function TransferConsole({
   if (mode === "receipt") {
     return (
       <div className="space-y-5">
-        {message ? <p className="rounded-2xl border bg-white px-4 py-3 text-sm shadow-card">{message}</p> : null}
+        {createOpen ? null : <FeedbackNotice feedback={feedback} />}
         {receivableTransfers.map((transfer) => {
           const transferId = String(transfer.id);
           const items = transferItems(transfer);
@@ -257,7 +260,7 @@ export function TransferConsole({
                             <strong className="block">{String(item.product_name)}</strong>
                             <span className="text-xs text-muted-foreground">{String(item.sku)}</span>
                           </td>
-                          <td className="px-4 py-4 text-center text-lg font-black">{sent.toLocaleString("th-TH")}</td>
+                          <td className="px-4 py-4 text-center text-lg font-bold">{sent.toLocaleString("th-TH")}</td>
                           <td className="px-4 py-4">
                             <Input
                               aria-label={`จำนวนที่ได้รับจริง ${String(item.product_name)}`}
@@ -305,7 +308,7 @@ export function TransferConsole({
           );
         })}
         {receivableTransfers.length === 0 ? (
-          <EmptyState className="rounded-3xl border border-dashed bg-white p-12" description="ไม่มีรายการโอนที่รอรับในขณะนี้" />
+          <EmptyState description="ไม่มีรายการโอนที่รอรับในขณะนี้" variant="card" />
         ) : null}
       </div>
     );
@@ -339,7 +342,7 @@ export function TransferConsole({
 
         <div className="mt-5 space-y-3">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="font-bold">รายการสินค้า</h3>
+            <h3 className="font-semibold">รายการสินค้า</h3>
             <Button onClick={() => setLines((current) => [...current, newLine()])} type="button" variant="secondary">
               <Plus className="h-4 w-4" />เพิ่มสินค้าอีก
             </Button>
@@ -387,14 +390,18 @@ export function TransferConsole({
           <Field label="ชื่อผู้รับสินค้า"><Input aria-label="ชื่อผู้รับสินค้า" onChange={(event) => setPickupName(event.target.value)} placeholder="ไม่บังคับ" value={pickupName} /></Field>
           <Field label="ผู้ขนส่ง"><Input aria-label="ชื่อผู้ขนส่ง" onChange={(event) => setCourierName(event.target.value)} placeholder="ไม่บังคับ" value={courierName} /></Field>
         </div>
-        <Button
-          className="mt-5"
-          disabled={busyId === "create" || !sourceBranchId || !destinationBranchId || lines.some((line) => !line.product_id || Number(line.quantity) <= 0)}
-          onClick={() => void createTransfer()}
-          type="button"
-        >
-          <Plus className="h-4 w-4" />{busyId === "create" ? "กำลังสร้าง..." : "สร้างรายการโอน"}
-        </Button>
+        {feedback?.tone === "error" ? <FeedbackNotice className="mt-4" feedback={feedback} /> : null}
+        <DialogFooter className="mt-5">
+          <Button
+            disabled={!sourceBranchId || !destinationBranchId || lines.some((line) => !line.product_id || Number(line.quantity) <= 0)}
+            loading={busyId === "create"}
+            loadingText="กำลังสร้าง..."
+            onClick={() => void createTransfer()}
+            type="button"
+          >
+            <Plus className="h-4 w-4" />สร้างรายการโอน
+          </Button>
+        </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>
@@ -402,10 +409,10 @@ export function TransferConsole({
       <SectionCard title={`รายการรอส่ง (${dispatchableTransfers.length.toLocaleString("th-TH")})`} description="ตรวจสอบรายการก่อนตัดสต๊อกจากต้นทางและส่งให้สาขาปลายทาง">
         <div className="space-y-4">
           {dispatchableTransfers.map((transfer) => (
-            <article className="rounded-2xl border bg-white p-4" key={String(transfer.id)}>
+            <article className="rounded-2xl border bg-card p-4" key={String(transfer.id)}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-black">{String(transfer.transfer_code)}</h3>
+                  <h3 className="font-semibold">{String(transfer.transfer_code)}</h3>
                   <p className="mt-1 text-sm text-muted-foreground">{String(transfer.source_branch_name)} → {String(transfer.destination_branch_name)}</p>
                 </div>
                 <Badge>{statusLabel(transfer.status)}</Badge>
@@ -423,9 +430,9 @@ export function TransferConsole({
               </Button>
             </article>
           ))}
-          {dispatchableTransfers.length === 0 ? <EmptyState className="rounded-2xl border border-dashed p-8" description="ไม่มีรายการรอส่ง" /> : null}
+          {dispatchableTransfers.length === 0 ? <EmptyState description="ไม่มีรายการรอส่ง" variant="card" /> : null}
         </div>
-        {message ? <p className="mt-4 text-sm text-muted-foreground">{message}</p> : null}
+        {createOpen ? null : <FeedbackNotice className="mt-4" feedback={feedback} />}
       </SectionCard>
     </div>
   );

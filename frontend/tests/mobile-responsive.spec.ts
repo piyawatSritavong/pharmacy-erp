@@ -27,12 +27,16 @@ async function noPageOverflow(page: Page) {
 
 async function fitsViewport(locator: Locator, page: Page) {
   await expect(locator).toBeVisible();
-  const box = await locator.boundingBox();
-  expect(box).not.toBeNull();
-  expect(box!.x).toBeGreaterThanOrEqual(0);
-  expect(box!.y).toBeGreaterThanOrEqual(0);
-  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
-  expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1);
+  // Polled: overlays size themselves from the VisualViewport, which updates on
+  // the resize event — a box read in the same frame as setViewportSize can
+  // still carry the previous height.
+  const viewport = page.viewportSize()!;
+  await expect.poll(async () => {
+    const box = await locator.boundingBox();
+    if (!box) return "no box";
+    const fits = box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width + 1 && box.y + box.height <= viewport.height + 1;
+    return fits ? "fits" : `x=${box.x} y=${box.y} w=${box.width} h=${box.height} in ${viewport.width}x${viewport.height}`;
+  }).toBe("fits");
   expect(await locator.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
 }
 
@@ -79,7 +83,8 @@ for (const [portal, email, start] of [
     await trigger.click();
     await expandTree(drawer.getByRole("navigation"), session.navigation);
     const destination = leaves(session.navigation).find((item) => item.href !== start)!;
-    await drawer.getByRole("link", { name: destination.title, exact: true }).click();
+    // Not exact: a menu link carries its count badge in its name ("พักบิล 1").
+    await drawer.getByRole("link", { name: new RegExp(`^${destination.title}( \\d+| 99\\+)?$`) }).click();
     await expect(page).toHaveURL(new RegExp(`${destination.href}$`));
     await expect(drawer).toHaveCount(0);
 

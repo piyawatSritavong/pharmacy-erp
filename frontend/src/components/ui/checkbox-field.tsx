@@ -43,8 +43,8 @@ export function CheckboxField({
   return (
     <label
       className={cn(
-        "flex min-h-11 cursor-pointer select-none items-center gap-3 rounded-xl border bg-white px-4 py-2.5 text-sm font-medium transition hover:bg-muted",
-        disabled && "cursor-not-allowed opacity-50 hover:bg-white",
+        "flex min-h-11 cursor-pointer select-none items-center gap-3 rounded-xl border bg-card px-4 py-2.5 text-sm font-medium transition hover:bg-muted",
+        disabled && "cursor-not-allowed opacity-50 hover:bg-muted",
         className
       )}
       htmlFor={id}

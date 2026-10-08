@@ -1,12 +1,13 @@
 "use client";
 
-import { startTransition, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { PlugZap } from "lucide-react";
 
 import { SectionCard } from "@/components/sections/common";
-import { Button, Checkbox, Input, Select } from "@/components/ui/primitives";
+import { Button, Checkbox, FeedbackNotice, Input, Select } from "@/components/ui/primitives";
+import type { Feedback } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Option = Record<string, unknown>;
 
@@ -19,13 +20,14 @@ export function MarketplaceConsole({
   branches: Option[];
   defaultBranchId?: string;
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [providerId, setProviderId] = useState(String(providers[0]?.id || ""));
   const [branchId, setBranchId] = useState(defaultBranchId || "");
   const [connectionName, setConnectionName] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [webhookEnabled, setWebhookEnabled] = useState(true);
-  const [message, setMessage] = useState("");
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -58,15 +60,19 @@ export function MarketplaceConsole({
   }
 
   async function save() {
+    setSaving(true);
+    setFeedback(null);
     try {
       await proxyClient("/marketplace/connections", {
         method: "POST",
         body: JSON.stringify(currentPayload())
       });
-      setMessage("บันทึกการเชื่อมต่อตลาดออนไลน์แล้ว");
-      startTransition(() => router.refresh());
+      setFeedback({ tone: "success", text: "บันทึกการเชื่อมต่อตลาดออนไลน์แล้ว" });
+      refresh();
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "บันทึกการเชื่อมต่อไม่สำเร็จ");
+      setFeedback({ tone: "error", text: caught instanceof Error ? caught.message : "บันทึกการเชื่อมต่อไม่สำเร็จ" });
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -99,17 +105,17 @@ export function MarketplaceConsole({
         เปิดรับคำสั่งซื้อผ่าน webhook
       </label>
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button onClick={save} type="button">
+        <Button loading={saving} loadingText="กำลังบันทึก..." onClick={save} type="button">
           บันทึกการเชื่อมต่อ
         </Button>
         <Button disabled={testing || !providerId || !branchId} onClick={() => void testConnection()} type="button" variant="secondary">
           <PlugZap className="h-4 w-4" />
           {testing ? "กำลังทดสอบ..." : "ทดสอบการเชื่อมต่อ"}
         </Button>
-        {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
+        <FeedbackNotice feedback={feedback} />
       </div>
       {testResult ? (
-        <p className={`mt-3 rounded-xl px-4 py-3 text-sm ${testResult.success ? "bg-success-50 text-success-800" : "bg-error-50 text-error"}`} role="status">
+        <p className={`mt-3 rounded-xl px-4 py-3 text-sm ${testResult.success ? "bg-success-50 text-success-800" : "bg-error-50 text-error-800"}`} role="status">
           {testResult.message}
         </p>
       ) : null}

@@ -1,8 +1,7 @@
 "use client";
 
-import { FormEvent, startTransition, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Search, Tags, Trash2 } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 import { Field } from "@/components/ui/field";
 import {
@@ -10,32 +9,42 @@ import {
   CheckboxField,
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   EmptyState,
+  FeedbackNotice,
   Input,
-  Notice,
   Pagination,
   Select,
   usePagedRows
 } from "@/components/ui/primitives";
+import type { Feedback } from "@/components/ui/primitives";
 import { proxyClient } from "@/services/api";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Category = Record<string, unknown>;
 
+/** The colour a category gets until someone picks one. */
+const DEFAULT_CATEGORY_COLOR = "#D71920";
+
 const blankCategory: Category = {
   name: "",
-  color: "#D71920",
+  color: DEFAULT_CATEGORY_COLOR,
   active: true,
 };
 
 export function ProductCategoryConsole({ initialItems }: { initialItems: Category[] }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [items, setItems] = useState(initialItems);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Category>(blankCategory);
-  const [message, setMessage] = useState("");
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [busy, setBusy] = useState(false);
+  // Delete asks first in the app's own dialog (window.confirm can be
+  // suppressed by the browser and looked like no other delete in the app).
+  const [deleting, setDeleting] = useState<Category | null>(null);
 
   useEffect(() => setItems(initialItems), [initialItems]);
 
@@ -52,56 +61,60 @@ export function ProductCategoryConsole({ initialItems }: { initialItems: Categor
 
   function openCreate() {
     setEditing({ ...blankCategory });
-    setMessage("");
+    setFeedback(null);
     setDialogOpen(true);
   }
 
   function openEdit(item: Category) {
     setEditing({ ...item });
-    setMessage("");
+    setFeedback(null);
     setDialogOpen(true);
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    setBusy(true);
+    setFeedback(null);
     try {
       const id = String(editing.id || "");
       await proxyClient(id ? `/product-categories/${id}` : "/product-categories", {
         method: id ? "PUT" : "POST",
         body: JSON.stringify({
           name: String(editing.name || "").trim(),
-          color: String(editing.color || "#D71920"),
+          color: String(editing.color || DEFAULT_CATEGORY_COLOR),
           active: Boolean(editing.active),
         }),
       });
       setDialogOpen(false);
-      startTransition(() => router.refresh());
+      setFeedback({ tone: "success", text: "บันทึกหมวดสินค้าแล้ว" });
+      refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "บันทึกหมวดสินค้าไม่สำเร็จ");
+      setFeedback({ tone: "error", text: error instanceof Error ? error.message : "บันทึกหมวดสินค้าไม่สำเร็จ" });
+    } finally {
+      setBusy(false);
     }
   }
 
   async function deleteCategory(item: Category) {
-    if (
-      !window.confirm(
-        `ลบหมวด "${String(item.name)}" หรือไม่? สินค้าในหมวดนี้จะถูกย้ายไปยัง "ยังไม่จัดหมวด" โดยอัตโนมัติ ไม่มีสินค้าใดถูกลบ`,
-      )
-    )
-      return;
+    setBusy(true);
+    setFeedback(null);
     try {
       const response = await proxyClient<{ message: string }>(`/product-categories/${String(item.id)}`, {
         method: "DELETE",
       });
-      setMessage(response.message);
-      startTransition(() => router.refresh());
+      setDeleting(null);
+      setFeedback({ tone: "success", text: response.message });
+      refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ลบหมวดสินค้าไม่สำเร็จ");
+      setFeedback({ tone: "error", text: error instanceof Error ? error.message : "ลบหมวดสินค้าไม่สำเร็จ" });
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
     <div className="space-y-6">
-      <section className="overflow-hidden rounded-3xl border bg-white shadow-card">
+      <section className="overflow-hidden rounded-2xl border bg-card shadow-card">
         <div className="flex flex-col gap-3 border-b bg-surface-warm p-3 sm:p-5 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-wrap items-center gap-3">
             <div className="relative min-w-0 flex-1 md:max-w-md">
@@ -131,7 +144,7 @@ export function ProductCategoryConsole({ initialItems }: { initialItems: Categor
           </Button>
         </div>
 
-        {message ? <Notice className="rounded-none border-b" tone="error">{message}</Notice> : null}
+        {dialogOpen || deleting ? null : <FeedbackNotice className="rounded-none border-b" feedback={feedback} />}
 
         <div className="overflow-x-auto p-3 sm:p-0">
           <table role="table" className="responsive-table mobile-card-table w-full min-w-[720px] text-sm">
@@ -153,23 +166,23 @@ export function ProductCategoryConsole({ initialItems }: { initialItems: Categor
                       <span
                         aria-hidden="true"
                         className="h-5 w-5 rounded-full border"
-                        style={{ backgroundColor: String(item.color || "#D71920") }}
+                        style={{ backgroundColor: String(item.color || DEFAULT_CATEGORY_COLOR) }}
                       />
-                      {String(item.color || "#D71920")}
+                      {String(item.color || DEFAULT_CATEGORY_COLOR)}
                     </span>
                   </td>
                   <td role="cell" data-label="จำนวนสินค้า" className="p-3 text-right font-semibold">{Number(item.product_count || 0).toLocaleString("th-TH")}</td>
                   <td role="cell" data-label="สถานะ" className="p-3">
-                    <span className={item.active ? "text-emerald-700" : "text-muted-foreground"}>
+                    <span className={item.active ? "text-success-700" : "text-muted-foreground"}>
                       {item.active ? "เปิดใช้งาน" : "เก็บแล้ว"}
                     </span>
                   </td>
                   <td role="cell" data-label="จัดการ" data-actions="true" className="p-3">
                     <div className="flex justify-end gap-2">
-                      <Button aria-label={`แก้ไข ${String(item.name)}`} className="h-8 px-3" onClick={() => openEdit(item)} type="button" variant="secondary">
+                      <Button aria-label={`แก้ไข ${String(item.name)}`} onClick={() => openEdit(item)} size="sm" type="button" variant="secondary">
                         <Pencil className="h-4 w-4" /> แก้ไข
                       </Button>
-                      <Button aria-label={`ลบ ${String(item.name)}`} className="h-8 px-3" onClick={() => void deleteCategory(item)} type="button" variant="destructive">
+                      <Button aria-label={`ลบ ${String(item.name)}`} onClick={() => { setFeedback(null); setDeleting(item); }} size="sm" type="button" variant="destructive">
                         <Trash2 className="h-4 w-4" /> ลบ
                       </Button>
                     </div>
@@ -180,7 +193,14 @@ export function ProductCategoryConsole({ initialItems }: { initialItems: Categor
           </table>
         </div>
 
-        {visible.length === 0 ? <EmptyState className="border-t p-12" description="ไม่พบหมวดสินค้าที่ค้นหา" icon={Tags} /> : null}
+        {visible.length === 0 ? (
+          <EmptyState
+            action={query || statusFilter ? undefined : <Button onClick={openCreate} type="button"><Plus className="h-4 w-4" />เพิ่มหมวดสินค้า</Button>}
+            className="border-t p-12"
+            description={query || statusFilter ? "ไม่พบหมวดสินค้าที่ค้นหา ลองปรับคำค้นหาหรือตัวกรอง" : "ยังไม่มีหมวดสินค้า"}
+            icon={Tags}
+          />
+        ) : null}
 
         <Pagination className="border-t p-4" {...pager} />
       </section>
@@ -198,18 +218,18 @@ export function ProductCategoryConsole({ initialItems }: { initialItems: Categor
               />
             </Field>
             <Field label="สีประจำหมวด">
-              <div className="flex items-center gap-3 rounded-xl border bg-white p-2">
+              <div className="flex items-center gap-3 rounded-xl border bg-card p-2">
                 <input
                   aria-label="สีประจำหมวด"
-                  className="h-10 w-14 cursor-pointer rounded border-0 bg-transparent"
+                  className="h-11 w-14 cursor-pointer rounded border-0 bg-transparent sm:h-10"
                   onChange={(event) => setEditing((current) => ({ ...current, color: event.target.value }))}
                   type="color"
-                  value={String(editing.color || "#D71920")}
+                  value={String(editing.color || DEFAULT_CATEGORY_COLOR)}
                 />
                 <Input
                   onChange={(event) => setEditing((current) => ({ ...current, color: event.target.value }))}
                   pattern="^#[0-9A-Fa-f]{6}$"
-                  value={String(editing.color || "#D71920")}
+                  value={String(editing.color || DEFAULT_CATEGORY_COLOR)}
                 />
               </div>
             </Field>
@@ -218,12 +238,26 @@ export function ProductCategoryConsole({ initialItems }: { initialItems: Categor
               label="เปิดใช้งานหมวดนี้"
               onChange={(event) => setEditing((current) => ({ ...current, active: event.target.checked }))}
             />
-            {message ? <p className="text-sm text-primary">{message}</p> : null}
-            <div className="flex justify-end gap-2">
-              <Button onClick={() => setDialogOpen(false)} type="button" variant="secondary">ยกเลิก</Button>
-              <Button type="submit">บันทึก</Button>
-            </div>
+            {feedback?.tone === "error" ? <FeedbackNotice feedback={feedback} /> : null}
+            <DialogFooter>
+              <Button disabled={busy} onClick={() => setDialogOpen(false)} type="button" variant="secondary">ยกเลิก</Button>
+              <Button loading={busy} loadingText="กำลังบันทึก..." type="submit">บันทึก</Button>
+            </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog onOpenChange={(open) => !open && setDeleting(null)} open={Boolean(deleting)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader
+            description="สินค้าในหมวดนี้จะถูกย้ายไปยัง “ยังไม่จัดหมวด” โดยอัตโนมัติ ไม่มีสินค้าใดถูกลบ"
+            title={`ลบหมวด “${String(deleting?.name || "")}”`}
+          />
+          {feedback?.tone === "error" ? <FeedbackNotice feedback={feedback} /> : null}
+          <DialogFooter>
+            <Button disabled={busy} onClick={() => setDeleting(null)} type="button" variant="secondary">ยกเลิก</Button>
+            <Button loading={busy} loadingText="กำลังลบ..." onClick={() => deleting && void deleteCategory(deleting)} type="button" variant="destructive">ลบหมวด</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

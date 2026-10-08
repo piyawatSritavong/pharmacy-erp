@@ -1,9 +1,12 @@
+import type { Metadata } from "next";
 import { MetricGrid, PageIntro, SectionCard } from "@/components/sections/common";
 import { SalesSummaryInvoices } from "@/components/sections/sales-summary-invoices";
 import { Download, FileSpreadsheet } from "lucide-react";
-import { Button, Input } from "@/components/ui/primitives";
+import { Button, buttonVariants, Input } from "@/components/ui/primitives";
 import { requirePermission } from "@/lib/rbac";
 import { getDailySales, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "สรุปยอดขาย" };
 
 export default async function DailySalesPage({
   searchParams
@@ -41,16 +44,16 @@ export default async function DailySalesPage({
           </label>
           <Button className="self-end" type="submit">แสดงสรุปยอด</Button>
           <a
-            className="inline-flex h-10 items-center justify-center gap-2 self-end rounded-lg border bg-white px-4 text-sm font-semibold hover:bg-muted"
+            className={buttonVariants({ variant: "secondary", className: "h-11 self-end sm:h-10" })}
             href={`/api/backend/dashboard/sales-export?${exportQuery.toString()}&format=pdf`}
           >
-            <Download className="h-4 w-4" />Export PDF
+            <Download className="h-4 w-4" />ส่งออก PDF
           </a>
           <a
-            className="inline-flex h-10 items-center justify-center gap-2 self-end rounded-lg border bg-white px-4 text-sm font-semibold hover:bg-muted"
+            className={buttonVariants({ variant: "secondary", className: "h-11 self-end sm:h-10" })}
             href={`/api/backend/dashboard/sales-export?${exportQuery.toString()}&format=xlsx`}
           >
-            <FileSpreadsheet className="h-4 w-4" />Export Excel
+            <FileSpreadsheet className="h-4 w-4" />ส่งออก Excel
           </a>
         </form>
       </SectionCard>

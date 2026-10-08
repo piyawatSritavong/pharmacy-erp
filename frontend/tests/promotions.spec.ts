@@ -22,6 +22,21 @@ async function pick(page: Page, label: string, option: string | RegExp) {
   await page.getByRole("option", { name: option }).first().click();
 }
 
+/**
+ * The product field is a server-side search, not a preloaded dropdown. It
+ * lists what this account can sell — a shop with no stock gets no rows — so a
+ * product is chosen only when one is offered; the old dropdown's "เลือกสินค้า"
+ * placeholder used to count as a pick there.
+ */
+async function pickFirstProduct(page: Page, label: string) {
+  await page.getByRole("combobox", { name: label }).click();
+  const options = page.getByRole("option");
+  const empty = page.getByText("ไม่พบสินค้าที่ค้นหา");
+  await expect(options.first().or(empty)).toBeVisible();
+  if (await options.count()) await options.first().click();
+  else await page.getByLabel("ชื่อโปรโมชั่น").click(); // blur closes the empty results
+}
+
 async function createPercentPromotion(page: Page, code: string, name: string, branchOption?: string | RegExp) {
   await page.goto("/promotions");
   await pick(page, "ชนิดโปรโมชั่น", "ลดเป็นเปอร์เซ็นต์");
@@ -31,7 +46,7 @@ async function createPercentPromotion(page: Page, code: string, name: string, br
     await pick(page, "สาขาโปรโมชั่น", branchOption);
   }
   await page.getByLabel("ส่วนลดเปอร์เซ็นต์").fill("10");
-  await pick(page, "สินค้า 1", /.+/);
+  await pickFirstProduct(page, "สินค้า 1");
   await page.getByRole("button", { name: "สร้างโปรโมชั่น" }).click();
   await expect(page.getByText(/สร้างโปรโมชั่นแล้ว|รหัสโปรโมชั่นนี้ถูกใช้แล้ว/)).toBeVisible();
 }

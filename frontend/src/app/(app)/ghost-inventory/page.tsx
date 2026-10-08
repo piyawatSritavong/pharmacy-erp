@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import { InventoryConsole } from "@/components/sections/inventory-console";
 import { PageIntro } from "@/components/sections/common";
 import { ErrorState } from "@/components/ui/primitives";
 import { requireRole } from "@/lib/rbac";
 import { getBranches, getInventory, getProducts, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "สต๊อกผี" };
 
 export default async function GhostInventoryPage({
   searchParams

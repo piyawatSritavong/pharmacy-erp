@@ -120,7 +120,7 @@ export function ParkedBillsConsole() {
                   <p className="font-semibold">
                     {bill.customer_name || "ลูกค้าหน้าร้าน"}
                     <span className="ml-2 font-normal text-muted-foreground">
-                      {bill.item_count.toLocaleString("th-TH")} ชิ้น · {currency(Number(bill.estimated_total))}
+                      {bill.item_count.toLocaleString("th-TH")} ชิ้น · ยอดก่อนภาษี {currency(Number(bill.estimated_total))}
                     </span>
                   </p>
                   {bill.note ? <p className="text-sm text-muted-foreground">{bill.note}</p> : null}

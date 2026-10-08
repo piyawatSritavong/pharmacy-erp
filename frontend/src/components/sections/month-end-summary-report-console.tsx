@@ -5,8 +5,10 @@ import { useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
-import { SectionCard } from "@/components/sections/common";
-import { Button, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/primitives";
+import { CLOSE_STATUS_LABEL, SectionCard } from "@/components/sections/common";
+import { Field } from "@/components/ui/field";
+import { Badge, Button, EmptyState, ErrorState, Input, LoadingState, Select, Table, TableBody, TableCell, TableContainer, TableEmptyState, TableHead, TableHeader, TableRow } from "@/components/ui/primitives";
+import type { BadgeTone } from "@/components/ui/primitives";
 import { currency } from "@/lib/utils";
 import { byPeriodDesc, groupByPeriod, periodLabel, shortDate } from "@/lib/month-end-groups";
 import { proxyClient } from "@/services/api";
@@ -82,34 +84,31 @@ const paymentLabels: Record<ReportRow["payment_method"], string> = {
   unpaid: "ยังไม่ชำระ"
 };
 
-const statusLabels: Record<ReportRow["status"], string> = {
-  active: "Active",
-  hidden: "Hidden/Deleted",
-  adjusted: "Adjusted"
-};
+const statusLabels: Record<ReportRow["status"], string> = CLOSE_STATUS_LABEL;
+const statusTones: Record<ReportRow["status"], BadgeTone> = { active: "success", adjusted: "warning", hidden: "error" };
 
 const movementLabels: Record<string, string> = {
   sale_source_reversal: "คืนสต๊อกที่เคยตัดตอนขาย",
   branch_return_dispatch: "สาขาส่งของกลับโกดัง",
   warehouse_return_receive: "โกดังรับของคืน",
   invoice_ghost_source: "ตัดสต๊อกผีแทน",
-  warehouse_ghost_deficit: "Ghost ไม่พอ บันทึกส่วนขาด"
+  warehouse_ghost_deficit: "สต๊อกผีไม่พอ บันทึกส่วนขาด"
 };
 
 // The stock steps of a hidden bill run in a fixed order; the report groups them
 // per product and reads them top to bottom as a timeline.
 const MOVEMENT_STEPS: Record<string, { order: number; title: string; detail: string }> = {
-  sale_source_reversal: { order: 1, title: "คืนสต๊อกที่เคยตัดตอนขาย", detail: "ยกเลิกการตัด Real ที่สาขาเมื่อตอนออกบิล (รายการภายใน)" },
-  branch_return_dispatch: { order: 2, title: "สาขาส่งของกลับโกดัง", detail: "ตัด Real ออกจากสาขา ส่งคืนไปยังโกดังกลาง" },
-  warehouse_return_receive: { order: 3, title: "โกดังรับของคืน", detail: "รับ Real เข้าโกดัง" },
-  invoice_ghost_source: { order: 4, title: "ตัดสต๊อกผีแทน", detail: "หักออกจาก Ghost ที่โกดัง เป็นแหล่งตัดจริงของบิลนี้" },
-  warehouse_ghost_deficit: { order: 5, title: "Ghost ไม่พอ บันทึกส่วนขาด", detail: "Ghost หมด บันทึกส่วนที่ขาดไว้ใน deficit ledger" }
+  sale_source_reversal: { order: 1, title: "คืนสต๊อกที่เคยตัดตอนขาย", detail: "ยกเลิกการตัดสต๊อกจริงที่สาขาเมื่อตอนออกบิล (รายการภายใน)" },
+  branch_return_dispatch: { order: 2, title: "สาขาส่งของกลับโกดัง", detail: "ตัดสต๊อกจริงออกจากสาขา ส่งคืนไปยังโกดังกลาง" },
+  warehouse_return_receive: { order: 3, title: "โกดังรับของคืน", detail: "รับสต๊อกจริงเข้าโกดังกลาง" },
+  invoice_ghost_source: { order: 4, title: "ตัดสต๊อกผีแทน", detail: "หักออกจากสต๊อกผีที่โกดังกลาง เป็นแหล่งตัดจริงของบิลนี้" },
+  warehouse_ghost_deficit: { order: 5, title: "สต๊อกผีไม่พอ บันทึกส่วนขาด", detail: "สต๊อกผีหมด บันทึกส่วนที่ขาดไว้ในบัญชีส่วนขาด" }
 };
 
 function stockSource(value: ReportRow["stock_deduction_source"]) {
-  if (value === "real") return "Real Stock (สต๊อกจริง)";
-  if (value === "ghost") return "Ghost Stock (สต๊อกผี)";
-  return "None";
+  if (value === "real") return "สต๊อกจริง";
+  if (value === "ghost") return "สต๊อกผี";
+  return "ไม่ตัดสต๊อก";
 }
 
 function dateTime(value: string) {
@@ -136,6 +135,7 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
   const [expanded, setExpanded] = useState<string | null>(null);
   const [foldedRounds, setFoldedRounds] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     if (selectedReconciliation) {
@@ -147,6 +147,7 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
   const loadReport = useCallback(async (nextPage = 1) => {
     if (!reconciliationID && (!dateFrom || !dateTo)) return;
     setLoading(true);
+    setLoadError("");
     try {
       const query = new URLSearchParams({ page: String(nextPage), page_size: "50" });
       if (reconciliationID) query.set("reconciliation_id", reconciliationID);
@@ -165,7 +166,11 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
       setFoldedRounds({});
     } catch (error) {
       setReport(null);
-      toast.error(error instanceof Error ? error.message : "โหลดรายงานสรุปสิ้นเดือนไม่สำเร็จ");
+      // Kept on the page, not only in a toast: the table would otherwise be
+      // left blank once the toast fades.
+      const text = error instanceof Error ? error.message : "โหลดรายงานสรุปสิ้นเดือนไม่สำเร็จ";
+      setLoadError(text);
+      toast.error(text);
     } finally {
       setLoading(false);
     }
@@ -217,7 +222,7 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
   }, [reconciliations, report]);
 
   if (reconciliations.length === 0) {
-    return <SectionCard title="ยังไม่มีรอบสรุปสิ้นเดือน" description="เมื่อยืนยันการสรุปแล้ว รายงาน Before/After และ movement จะปรากฏที่นี่"><div /></SectionCard>;
+    return <SectionCard title="ยังไม่มีรอบสรุปสิ้นเดือน" description="เมื่อยืนยันการสรุปแล้ว รายงานก่อน/หลังปิดรอบ และการเคลื่อนไหวสต๊อกจะปรากฏที่นี่"><EmptyState description="ยังไม่มีรอบที่ยืนยันแล้ว" /></SectionCard>;
   }
 
   const summary = report?.summary;
@@ -226,14 +231,16 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
 
   return (
     <div className="space-y-6">
-      <SectionCard title="ตัวกรองรายงาน" description="เลือก reconciliation โดยตรงเป็นหลัก หรือเลือกค้นด้วยช่วงวันที่">
+      <SectionCard title="ตัวกรองรายงาน" description="เลือกรอบสรุปสิ้นเดือนเป็นหลัก หรือค้นด้วยช่วงวันที่">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1fr_auto] xl:items-end">
-          <label className="space-y-2 text-sm font-medium"><span>รอบ reconciliation</span><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" onChange={(event) => setReconciliationID(event.target.value)} value={reconciliationID}><option value="">ค้นด้วยช่วงวันที่</option>{groupByPeriod(reconciliations).map((bucket) => <optgroup key={bucket.key} label={bucket.label}>{bucket.rounds.map((item) => <option key={item.id} value={item.id}>{item.reconciliation_number} · {shortDate(item.period_start)} ถึง {shortDate(item.period_end)}</option>)}</optgroup>)}</select></label>
-          <label className="space-y-2 text-sm font-medium"><span>วันที่เริ่มต้น</span><input className="h-10 w-full rounded-md border bg-white px-3 text-sm" disabled={Boolean(reconciliationID)} onChange={(event) => setDateFrom(event.target.value)} type="date" value={dateFrom} /></label>
-          <label className="space-y-2 text-sm font-medium"><span>วันที่สิ้นสุด</span><input className="h-10 w-full rounded-md border bg-white px-3 text-sm" disabled={Boolean(reconciliationID)} min={dateFrom} onChange={(event) => setDateTo(event.target.value)} type="date" value={dateTo} /></label>
-          <label className="space-y-2 text-sm font-medium"><span>สาขาขาย</span><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" onChange={(event) => setBranchID(event.target.value)} value={branchID}><option value="">ทุกสาขาในรอบ</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
-          <label className="space-y-2 text-sm font-medium"><span>ประเภทการชำระเงิน</span><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" onChange={(event) => setPaymentMethod(event.target.value)} value={paymentMethod}><option value="">ทุกประเภท</option><option value="cash">เงินสด</option><option value="bank_transfer">เงินโอน</option><option value="mixed">เงินสด + โอน ผสม</option><option value="unpaid">ค้างชำระ</option></select></label>
-          <label className="space-y-2 text-sm font-medium"><span>สถานะ</span><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" onChange={(event) => setStatus(event.target.value)} value={status}><option value="">ทุกสถานะ</option><option value="active">Active — ไม่ถูกแตะ</option><option value="adjusted">Adjusted — ปรับราคา</option><option value="hidden">Hidden — ถูกซ่อน</option></select></label>
+          {/* Native select: rounds are grouped by month in <optgroup>, which the
+              shared Select doesn't render. Styled with the same input tokens. */}
+          <Field label="รอบสรุปสิ้นเดือน"><select className="ui-select h-10 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40" onChange={(event) => setReconciliationID(event.target.value)} value={reconciliationID}><option value="">ค้นด้วยช่วงวันที่</option>{groupByPeriod(reconciliations).map((bucket) => <optgroup key={bucket.key} label={bucket.label}>{bucket.rounds.map((item) => <option key={item.id} value={item.id}>{item.reconciliation_number} · {shortDate(item.period_start)} ถึง {shortDate(item.period_end)}</option>)}</optgroup>)}</select></Field>
+          <Field label="วันที่เริ่มต้น"><Input disabled={Boolean(reconciliationID)} onChange={(event) => setDateFrom(event.target.value)} type="date" value={dateFrom} /></Field>
+          <Field label="วันที่สิ้นสุด"><Input disabled={Boolean(reconciliationID)} min={dateFrom} onChange={(event) => setDateTo(event.target.value)} type="date" value={dateTo} /></Field>
+          <Field label="สาขาขาย"><Select aria-label="สาขาขาย" onChange={(event) => setBranchID(event.target.value)} value={branchID}><option value="">ทุกสาขาในรอบ</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</Select></Field>
+          <Field label="ประเภทการชำระเงิน"><Select aria-label="ประเภทการชำระเงิน" onChange={(event) => setPaymentMethod(event.target.value)} value={paymentMethod}><option value="">ทุกประเภท</option><option value="cash">เงินสด</option><option value="bank_transfer">เงินโอน</option><option value="mixed">เงินสด + โอน ผสม</option><option value="unpaid">ค้างชำระ</option></Select></Field>
+          <Field label="สถานะ"><Select aria-label="สถานะ" onChange={(event) => setStatus(event.target.value)} value={status}><option value="">ทุกสถานะ</option><option value="active">{CLOSE_STATUS_LABEL.active} — ไม่ถูกแตะ</option><option value="adjusted">{CLOSE_STATUS_LABEL.adjusted}</option><option value="hidden">{CLOSE_STATUS_LABEL.hidden}</option></Select></Field>
           <Button disabled={loading} onClick={() => void loadReport(1)}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}โหลดรายงาน</Button>
         </div>
         {selectedReconciliation ? <p className="mt-3 text-xs text-muted-foreground">ยืนยันเมื่อ {dateTime(selectedReconciliation.finalized_at)}</p> : null}
@@ -241,7 +248,7 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
 
       {summary ? (
         <div className="grid gap-3 lg:grid-cols-2">
-          <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">ใบขาย Active ก่อน → หลัง</p><p className="mt-1 text-xl font-semibold">{summary.active_invoices_before.toLocaleString("th-TH")} → {summary.active_invoices_after.toLocaleString("th-TH")}</p><p className="mt-1 text-xs text-muted-foreground">ซ่อน {invoiceDifference.toLocaleString("th-TH")} ใบ</p></div>
+          <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">ใบขายปกติ ก่อน → หลัง</p><p className="mt-1 text-xl font-semibold">{summary.active_invoices_before.toLocaleString("th-TH")} → {summary.active_invoices_after.toLocaleString("th-TH")}</p><p className="mt-1 text-xs text-muted-foreground">ซ่อน {invoiceDifference.toLocaleString("th-TH")} ใบ</p></div>
           <div className="rounded-lg border bg-card p-4"><p className="text-xs text-muted-foreground">รายได้ก่อน → หลัง</p><p className="mt-1 text-xl font-semibold">{currency(summary.revenue_before)} → {currency(summary.revenue_after)}</p><p className="mt-1 text-xs text-muted-foreground">ลดลง {currency(revenueDifference)}</p></div>
           {/* Branch-returned, WH-received and Ghost-deducted are the SAME physical
               quantity seen at three points of one atomic transfer, so they are
@@ -252,9 +259,9 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
             <p className="text-xs text-muted-foreground">สินค้าที่ส่งคืนโกดังและตัดจากสต๊อกผี</p>
             <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-stretch">
               {[
-                ["สาขาส่งคืน Real", summary.branch_real_returned],
-                ["โกดังรับ Real", summary.warehouse_real_received],
-                ["ตัด Ghost ที่โกดัง", summary.ghost_quantity_deducted]
+                ["สาขาส่งคืนสต๊อกจริง", summary.branch_real_returned],
+                ["โกดังกลางรับสต๊อกจริง", summary.warehouse_real_received],
+                ["ตัดสต๊อกผีที่โกดังกลาง", summary.ghost_quantity_deducted]
               ].map(([label, value], index) => (
                 <div className="flex flex-1 items-center gap-3" key={String(label)}>
                   <div className="flex-1 rounded-lg bg-muted/50 px-3 py-2.5">
@@ -265,18 +272,21 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
                 </div>
               ))}
             </div>
-            <p className="mt-3 text-xs text-muted-foreground">สินค้าชุดเดียวกันเดินผ่าน 3 ขั้นของการซ่อนบิล ทั้งสามค่าจึงเท่ากันเสมอ · {summary.ghost_deficit_quantity > 0 ? <span className="font-medium text-red-700">Ghost ไม่พอ {summary.ghost_deficit_quantity.toLocaleString("th-TH")} ชิ้น บันทึกเป็น deficit ledger</span> : "Ghost ที่โกดังเพียงพอทุกชิ้น ไม่มีส่วนขาด"}</p>
+            <p className="mt-3 text-xs text-muted-foreground">สินค้าชุดเดียวกันเดินผ่าน 3 ขั้นของการซ่อนบิล ทั้งสามค่าจึงเท่ากันเสมอ · {summary.ghost_deficit_quantity > 0 ? <span className="font-medium text-error-700">สต๊อกผีไม่พอ {summary.ghost_deficit_quantity.toLocaleString("th-TH")} ชิ้น บันทึกในบัญชีส่วนขาด</span> : "สต๊อกผีที่โกดังกลางเพียงพอทุกชิ้น ไม่มีส่วนขาด"}</p>
           </div>
         </div>
       ) : null}
 
-      <SectionCard title="เปรียบเทียบใบขายและสินค้า Before / After" description={report ? `${report.date_from} ถึง ${report.date_to} · ${report.pagination.total.toLocaleString("th-TH")} ใบขาย · กดลูกศรเพื่อดูรายการในบิล` : "กำลังโหลดข้อมูล"}>
+      <SectionCard title="เปรียบเทียบใบขายและสินค้า ก่อน / หลังปิดรอบ" description={report ? `${report.date_from} ถึง ${report.date_to} · ${report.pagination.total.toLocaleString("th-TH")} ใบขาย · กดลูกศรเพื่อดูรายการในบิล` : "กำลังโหลดข้อมูล"}>
         <TableContainer>
           <Table>
-            <TableHeader><TableRow><TableHead /><TableHead>สาขา</TableHead><TableHead>Original Invoice No.</TableHead><TableHead>Current Invoice No.</TableHead><TableHead className="text-right">รายการในบิล</TableHead><TableHead className="text-right">ส่วนลดรวมของบิล<span className="block text-[10px] font-normal text-muted-foreground">รวม VAT</span></TableHead><TableHead>การชำระ</TableHead><TableHead>สถานะ</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead /><TableHead>สาขา</TableHead><TableHead>เลขบิลเดิม</TableHead><TableHead>เลขบิลปัจจุบัน</TableHead><TableHead className="text-right">รายการในบิล</TableHead><TableHead className="text-right">ส่วนลดรวมของบิล<span className="block text-2xs font-normal text-muted-foreground">รวม VAT</span></TableHead><TableHead>การชำระ</TableHead><TableHead>สถานะ</TableHead></TableRow></TableHeader>
             <TableBody>
-              {loading && !report ? <TableRow><TableCell className="py-12 text-center" colSpan={8}><Loader2 className="mx-auto h-5 w-5 animate-spin" /></TableCell></TableRow> : null}
-              {!loading && report?.rows.length === 0 ? <TableRow><TableCell className="py-12 text-center text-muted-foreground" colSpan={8}>ไม่พบรายการในรอบและสาขาที่เลือก</TableCell></TableRow> : null}
+              {loading && !report ? <TableRow><TableCell colSpan={8}><LoadingState compact label="กำลังโหลดรายงาน..." /></TableCell></TableRow> : null}
+              {!loading && !report && loadError ? (
+                <TableRow><TableCell colSpan={8}><ErrorState action={<Button onClick={() => void loadReport(1)} variant="secondary">ลองใหม่</Button>} description={loadError} title="โหลดรายงานไม่สำเร็จ" /></TableCell></TableRow>
+              ) : null}
+              {!loading && report?.rows.length === 0 ? <TableEmptyState colSpan={8} description="ไม่พบรายการในรอบและสาขาที่เลือก" /> : null}
               {roundGroups.flatMap((group, groupIndex) => {
                 // A single round needs no fold; several rounds open the newest only.
                 const folded = foldedRounds[group.id] ?? (roundGroups.length > 1 && groupIndex > 0);
@@ -312,16 +322,16 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
                       <TableCell className="text-right tabular-nums">{invoice.items.length.toLocaleString("th-TH")}</TableCell>
                       <TableCell className="whitespace-nowrap text-right tabular-nums">{invoice.discountTotal > 0 ? currency(invoice.discountTotal) : "—"}</TableCell>
                       <TableCell>{paymentLabels[invoice.paymentMethod]}</TableCell>
-                      <TableCell><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${invoice.status === "hidden" ? "bg-red-100 text-red-700" : invoice.status === "adjusted" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>{statusLabels[invoice.status]}</span></TableCell>
+                      <TableCell><Badge className="whitespace-nowrap rounded-full px-2 py-1 font-semibold" tone={statusTones[invoice.status]}>{statusLabels[invoice.status]}</Badge></TableCell>
                     </TableRow>,
                     isExpanded ? (
                       <TableRow key={`${key}:items`}>
                         <TableCell colSpan={8}>
                           <div className="m-2 space-y-3 rounded-lg border bg-muted/30 p-4">
                             <p className="text-sm font-semibold">รายการในบิล {invoice.originalNo}</p>
-                            <TableContainer className="bg-white">
+                            <TableContainer className="bg-card">
                               <Table>
-                                <TableHeader><TableRow><TableHead>สินค้า</TableHead><TableHead className="text-right">จำนวน</TableHead><TableHead className="text-right">ราคาเดิม/หน่วย<span className="block text-[10px] font-normal text-muted-foreground">ก่อน VAT</span></TableHead><TableHead className="text-right">ราคาหลังปรับ/หน่วย<span className="block text-[10px] font-normal text-muted-foreground">ก่อน VAT</span></TableHead><TableHead className="text-right">ส่วนลด<span className="block text-[10px] font-normal text-muted-foreground">รวม VAT · (เดิม−ใหม่) × จำนวน</span></TableHead><TableHead>สถานะ</TableHead><TableHead>แหล่งตัดสต๊อก</TableHead></TableRow></TableHeader>
+                                <TableHeader><TableRow><TableHead>สินค้า</TableHead><TableHead className="text-right">จำนวน</TableHead><TableHead className="text-right">ราคาเดิม/หน่วย<span className="block text-2xs font-normal text-muted-foreground">ก่อน VAT</span></TableHead><TableHead className="text-right">ราคาหลังปรับ/หน่วย<span className="block text-2xs font-normal text-muted-foreground">ก่อน VAT</span></TableHead><TableHead className="text-right">ส่วนลด<span className="block text-2xs font-normal text-muted-foreground">รวม VAT · (เดิม−ใหม่) × จำนวน</span></TableHead><TableHead>สถานะ</TableHead><TableHead>แหล่งตัดสต๊อก</TableHead></TableRow></TableHeader>
                                 <TableBody>
                                   {invoice.items.map((item) => (
                                     <TableRow key={item.invoice_item_id}>
@@ -330,7 +340,7 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
                                       <TableCell className="whitespace-nowrap text-right tabular-nums">{currency(item.original_price)}</TableCell>
                                       <TableCell className="whitespace-nowrap text-right tabular-nums">{item.adjusted_price == null ? <span className="text-muted-foreground">ไม่ปรับลด</span> : currency(item.adjusted_price)}</TableCell>
                                       <TableCell className="whitespace-nowrap text-right tabular-nums">{item.discount_amount > 0 ? currency(item.discount_amount) : "—"}</TableCell>
-                                      <TableCell><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${item.status === "hidden" ? "bg-red-100 text-red-700" : item.status === "adjusted" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>{statusLabels[item.status]}</span></TableCell>
+                                      <TableCell><Badge className="whitespace-nowrap rounded-full px-2 py-1 font-semibold" tone={statusTones[item.status]}>{statusLabels[item.status]}</Badge></TableCell>
                                       <TableCell className="min-w-40">{stockSource(item.stock_deduction_source)}</TableCell>
                                     </TableRow>
                                   ))}
@@ -346,7 +356,7 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
                                   {invoice.items.filter((item) => item.movements.length > 0).map((item) => {
                                     const steps = [...item.movements].sort((a, b) => (MOVEMENT_STEPS[a.role]?.order ?? 99) - (MOVEMENT_STEPS[b.role]?.order ?? 99));
                                     return (
-                                      <div className="rounded-lg border bg-white p-4" key={item.invoice_item_id}>
+                                      <div className="rounded-lg border bg-card p-4" key={item.invoice_item_id}>
                                         <div className="flex flex-wrap items-center gap-2 border-b pb-3">
                                           <span className="text-base font-semibold">{item.product_name}</span>
                                           <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">ตัดจาก {stockSource(item.stock_deduction_source)}</span>
@@ -365,8 +375,8 @@ export function MonthEndSummaryReportConsole({ branches, reconciliations }: { br
                                                     <p className="font-medium">{step?.title || movementLabels[movement.role] || movement.role}</p>
                                                     <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs">
                                                       <span className="text-muted-foreground">{movement.branch_name}</span>
-                                                      <span className={`rounded px-1.5 py-0.5 font-medium ${isGhost ? "bg-violet-100 text-violet-700" : "bg-sky-100 text-sky-700"}`}>{isGhost ? "Ghost" : "Real"}</span>
-                                                      <span className={`font-semibold tabular-nums ${movement.quantity < 0 ? "text-red-700" : "text-emerald-700"}`}>{movement.quantity > 0 ? "+" : ""}{movement.quantity.toLocaleString("th-TH")}</span>
+                                                      <Badge className="rounded px-1.5 py-0.5" tone={isGhost ? "primary" : "info"}>{isGhost ? "สต๊อกผี" : "สต๊อกจริง"}</Badge>
+                                                      <span className={`font-semibold tabular-nums ${movement.quantity < 0 ? "text-error-700" : "text-success-700"}`}>{movement.quantity > 0 ? "+" : ""}{movement.quantity.toLocaleString("th-TH")}</span>
                                                     </span>
                                                   </div>
                                                   {step?.detail ? <p className="mt-0.5 text-xs text-muted-foreground">{step.detail}</p> : null}

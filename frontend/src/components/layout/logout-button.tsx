@@ -38,8 +38,8 @@ export function LogoutButton({ compact = false }: { compact?: boolean }) {
     <button
       aria-label="ออกจากระบบ"
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-full border border-border bg-white px-4 py-2 text-sm font-semibold text-foreground transition hover:border-primary hover:bg-primary hover:text-primary-foreground disabled:opacity-50",
-        compact && "h-10 w-10 px-0"
+        "inline-flex items-center justify-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition hover:border-primary hover:bg-primary hover:text-primary-foreground disabled:opacity-50",
+        compact && "h-11 w-11 px-0 sm:h-10 sm:w-10"
       )}
       disabled={loading}
       onClick={() => void logout()}

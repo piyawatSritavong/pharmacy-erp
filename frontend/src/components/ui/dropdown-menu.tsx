@@ -30,7 +30,7 @@ export function DropdownMenuContent({
       <DropdownMenuPrimitive.Content
         align={align}
         className={cn(
-          "z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-40 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-black/10 bg-white p-2 shadow-xl",
+          "z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-40 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-card p-2 shadow-xl",
           className
         )}
         side={side}

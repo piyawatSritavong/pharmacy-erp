@@ -61,13 +61,31 @@ export function DialogContent({
           }
         }}
         className={cn(
-          "app-dialog fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-y-auto overscroll-contain rounded-2xl border border-black/10 bg-white p-4 shadow-2xl sm:p-6",
+          "app-dialog fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-y-auto overscroll-contain rounded-2xl border border-border bg-card p-4 shadow-2xl sm:p-6",
           className
         )}
       >
         {children}
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
+  );
+}
+
+/**
+ * The dialog's action row. On a phone it sticks to the bottom of the
+ * scrolling dialog, so Save is in reach without scrolling past a long form;
+ * from sm up it is an ordinary row at the end of the content.
+ */
+export function DialogFooter({ className, children }: PropsWithChildren<{ className?: string }>) {
+  return (
+    <div
+      className={cn(
+        "sticky -bottom-4 z-10 -mx-4 mt-4 flex shrink-0 flex-wrap justify-end gap-2 border-t bg-card px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0",
+        className
+      )}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -89,7 +107,7 @@ export function DialogHeader({
   return (
     <div className="dialog-header sticky -top-4 z-10 mb-4 flex shrink-0 items-start justify-between gap-2 bg-card pb-2 pt-1 sm:static sm:gap-4">
       <div className="min-w-0 flex-1">
-        <DialogPrimitive.Title className="text-lg font-semibold text-black">{title}</DialogPrimitive.Title>
+        <DialogPrimitive.Title className="text-lg font-semibold text-foreground">{title}</DialogPrimitive.Title>
         {description ? (
           <DialogPrimitive.Description className="mt-1 text-sm text-muted-foreground">
             {description}

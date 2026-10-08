@@ -235,7 +235,7 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 		// พักบิล needs no permission — parking a cart is ordinary counter
 		// behaviour, and branch_pos deliberately holds no document rights.
 		items = appendItem(items, "parked_bills", "พักบิล", "/parked-bills", "บิลที่พักไว้ รอกลับมาชำระเงิน")
-		items = appendItemIf(items, has("invoice.view"), "sales_history", "ประวัติ", "/sales-history", "ดูและพิมพ์ใบขายย้อนหลัง")
+		items = appendItemIf(items, has("invoice.view"), "sales_history", "ประวัติการขาย", "/sales-history", "ดูและพิมพ์ใบขายย้อนหลัง")
 		items = appendItemIf(items, has("inventory.view.branch"), "requisitions", "เบิกสินค้า", "/requisitions", "ขอเติมสต๊อกจากผู้ดูแลและติดตามสถานะ")
 		items = appendItemIf(items, has("transfer.receive"), "goods_transfer_receipt", "รับโอนสินค้า", "/transfer-receipts", "ตรวจจำนวนที่ส่งและยืนยันจำนวนสินค้าที่ได้รับจริง")
 		items = appendItem(items, "pos_claims", "เคลม/คืนสินค้า", "/claims", "แจ้งคืนหรือเคลมสินค้าที่ขายไปแล้ว")
@@ -247,8 +247,8 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	}
 
 	var reportsChildren []map[string]any
-	reportsChildren = appendItemIf(reportsChildren, has("dashboard.view.global"), "dashboard", "Dashboard", "/dashboard", "ภาพรวมยอดขายและสต๊อกทุกสาขา")
-	reportsChildren = appendItemIf(reportsChildren, user.RoleKey == "super_admin" && has("month_end.view", "month_end.manage"), "month_end", "สรุปสิ้นเดือน", "/month-end", "ซ่อนบิลที่เข้าเงื่อนไข ส่ง Real คืน WH และตัด Ghost แบบตรวจสอบย้อนหลังได้")
+	reportsChildren = appendItemIf(reportsChildren, has("dashboard.view.global"), "dashboard", "แดชบอร์ด", "/dashboard", "ภาพรวมยอดขายและสต๊อกทุกสาขา")
+	reportsChildren = appendItemIf(reportsChildren, user.RoleKey == "super_admin" && has("month_end.view", "month_end.manage"), "month_end", "สรุปสิ้นเดือน", "/month-end", "ซ่อนบิลที่เข้าเงื่อนไข ส่งสต๊อกจริงคืนโกดังกลาง และตัดสต๊อกผี โดยตรวจสอบย้อนหลังได้")
 	// This comparison exposes hidden invoices and Ghost Stock deductions, so the
 	// literal superadmin role is required in addition to the report permission.
 	reportsChildren = appendItemIf(reportsChildren, user.RoleKey == "super_admin" && has("reports.view.global", "reports.generate.global"), "month_end_report", "รายงานสรุปสิ้นเดือน", "/month-end-report", "เปรียบเทียบบิล ราคา และการตัดสต๊อกก่อนกับหลังปิดรอบ")
@@ -275,8 +275,9 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	documentsChildren = appendItemIf(documentsChildren, has("purchase_orders.view.global", "purchase_orders.manage.global"), "purchase_orders", "ใบสั่งซื้อเข้า", "/purchase-orders", "ประวัติและสร้างใบสั่งซื้อพร้อมรับสินค้าเข้าคลัง")
 	documentsChildren = appendItemIf(documentsChildren, has("suppliers.view.global", "suppliers.manage.global"), "suppliers", "บริษัทคู่ค้า", "/suppliers", "จัดการบริษัทคู่ค้าส่วนกลาง")
 	documentsChildren = appendItemIf(documentsChildren, has("returns.manage"), "claims", "เคลม/คืนสินค้า", "/claims", "ส่งเคลมให้คู่ค้าและปิดเคลมรับรุ่นเดิมหรือรุ่นทดแทน")
-	// The three Pro features sit last, each badged; they stay in the menu so the
-	// upsell is reachable, but no live feature links into them (D-gating).
+	// The three features not yet switched on sit last, each tagged ยังไม่เปิด;
+	// they stay in the menu so the gate page says so, but no live feature links
+	// into them (D-gating).
 	documentsChildren = appendProItemIf(documentsChildren, has("quotation.manage"), "government_sales", "รพ.สต.", "/government-sales", "ใบเสนอราคาและใบขายสำหรับงานราชการ")
 	documentsChildren = appendProItemIf(documentsChildren, has("quotation.manage"), "sales_management", "ใบขาย", "/sales-management", "ใบเสนอราคา ใบขาย และประวัติเอกสาร")
 	documentsChildren = appendProItemIf(documentsChildren, has("fda.manage"), "fda_reports", "อย.", "/fda-reports", "เลือกสินค้าและสร้างเอกสารนำส่ง อย.")

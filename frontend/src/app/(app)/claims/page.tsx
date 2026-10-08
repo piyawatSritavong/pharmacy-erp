@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { ClaimsConsole } from "@/components/sections/claims-console";
 import { PosClaimsConsole } from "@/components/sections/pos-claims-console";
 import { requirePermission } from "@/lib/rbac";
 import { getBranches, getInvoices, getProductReturns, getSuppliers, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "เคลม/คืนสินค้า" };
 
 export default async function ClaimsPage() {
   // Admin manages the full claim (send to supplier, resolve); a POS cashier

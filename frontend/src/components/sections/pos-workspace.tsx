@@ -3,15 +3,16 @@
 import Image from "next/image";
 import Link from "next/link";
 import { CheckCircle2, Minus, Package, PauseCircle, Plus, Printer, Search, ShoppingCart, Trash2, X } from "lucide-react";
-import { startTransition, useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { Field } from "@/components/ui/field";
 import { PosCart } from "@/components/sections/pos-cart";
-import { Button, CheckboxField, Dialog, DialogContent, DialogHeader, EmptyState, Input, Notice, Select } from "@/components/ui/primitives";
+import { Button, buttonVariants, CheckboxField, Dialog, DialogContent, DialogHeader, EmptyState, ErrorState, Input, LoadingState, Notice, Select } from "@/components/ui/primitives";
 import { cn, currency } from "@/lib/utils";
 import { RESUME_KEY } from "@/components/sections/parked-bills-console";
 import { proxyClient } from "@/services/api";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 /** The grid pages in from the server rather than shipping the whole catalogue
  *  (and one image request per product) on first paint. */
@@ -109,10 +110,13 @@ export function PosWorkspace({
   /** POS: watch for a cart head office has left waiting at this till. */
   watchRemote?: boolean;
 }) {
-  const router = useRouter();
+  const refresh = useRefresh();
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [billDiscount, setBillDiscount] = useState("");
+  const [previewError, setPreviewError] = useState("");
+  const [gridError, setGridError] = useState("");
+  const [brokenImages, setBrokenImages] = useState<Set<string>>(() => new Set());
   const [lotProduct, setLotProduct] = useState<Option | null>(null);
   const [lotOptions, setLotOptions] = useState<Option[]>([]);
   const [lotsLoading, setLotsLoading] = useState(false);
@@ -197,9 +201,11 @@ export function PosWorkspace({
         setGridItems((current) => (replace ? items : [...current, ...items]));
         setGridDone(Boolean(promoIdsKey) || items.length < GRID_PAGE_SIZE);
         setGridPage(page);
-      } catch {
-        // A failed page stops the scroll from asking again in a loop.
+      } catch (error) {
+        // A failed page stops the scroll from asking again in a loop, and says
+        // so — an empty grid would read as "no such product".
         setGridDone(true);
+        setGridError(error instanceof Error ? error.message : "โหลดรายการสินค้าไม่สำเร็จ");
       } finally {
         setGridLoading(false);
       }
@@ -209,6 +215,7 @@ export function PosWorkspace({
 
   // Any change of branch, search term or promotion starts the list over.
   useEffect(() => {
+    setGridError("");
     void loadProducts(1, true);
   }, [loadProducts]);
 
@@ -368,6 +375,7 @@ export function PosWorkspace({
   useEffect(() => {
     if (!cart.length) {
       setPreview(null);
+      setPreviewError("");
       return;
     }
     const timer = window.setTimeout(() => {
@@ -375,8 +383,18 @@ export function PosWorkspace({
         method: "POST",
         body: JSON.stringify(payload())
       })
-        .then(setPreview)
-        .catch((error) => setMessage(error instanceof Error ? error.message : "คำนวณยอดไม่สำเร็จ"));
+        .then((next) => {
+          setPreview(next);
+          setPreviewError("");
+        })
+        .catch((error) => {
+          // A total that failed to recalculate must not stay on screen as if
+          // it still applied, and must not be payable.
+          setPreview(null);
+          const text = error instanceof Error ? error.message : "คำนวณยอดไม่สำเร็จ";
+          setPreviewError(text);
+          setMessage(text);
+        });
     }, 250);
     return () => window.clearTimeout(timer);
     // payload intentionally follows every cart and tax-document field.
@@ -388,7 +406,10 @@ export function PosWorkspace({
     // filters out expired ones when active_only is set.
     void proxyClient<{ items: Option[] }>("/promotions?active_only=true")
       .then((response) => setPromotions(response.items || []))
-      .catch(() => setPromotions([]));
+      .catch(() => {
+        setPromotions([]);
+        toast.error("โหลดโปรโมชั่นไม่สำเร็จ แถบโปรโมชั่นจึงไม่แสดง");
+      });
   }, []);
 
   async function chooseProductLot(product: Option) {
@@ -396,6 +417,8 @@ export function PosWorkspace({
     setReceipt(null);
     if (!isSellable(inventoryByProduct.get(String(product.id)))) {
       setMessage("สินค้านี้หมดสต๊อก");
+      // The message above lives in the cart, which is a closed sheet on a phone.
+      toast.error("สินค้านี้หมดสต๊อก");
       return;
     }
     setLotProduct(product);
@@ -706,10 +729,14 @@ export function PosWorkspace({
       setReceipt(result);
       setCartOpen(false);
       setCart([]);
+      // A bill discount or a parked bill's note belongs to this bill only;
+      // left in state they were applied to the next customer's sale too.
+      setBillDiscount("");
+      setParkNote("");
       setPaymentReady(false);
       setPaymentError("");
       setMessage("");
-      startTransition(() => router.refresh());
+      refresh();
     } catch (error) {
       setPaymentError(error instanceof Error ? error.message : "ชำระเงินไม่สำเร็จ");
     } finally {
@@ -720,6 +747,8 @@ export function PosWorkspace({
   function startNewSale() {
     setPaymentOpen(false);
     setReceipt(null);
+    setBillDiscount("");
+    setParkNote("");
     setCustomerName("");
     setCustomerTaxId("");
     setFullTaxInvoice(false);
@@ -735,11 +764,11 @@ export function PosWorkspace({
     <div className="h-full min-h-0 overflow-hidden">
       <section className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="flex min-h-0 min-w-0 flex-col gap-3">
-	          <div className="shrink-0 rounded-2xl border bg-white p-3 shadow-card">
+	          <div className="shrink-0 rounded-2xl border bg-card p-3 shadow-card">
 	            <div className="grid grid-cols-[1fr_auto] gap-2 sm:flex sm:flex-col sm:gap-3 lg:flex-row lg:items-center">
 	              <div className="shrink-0">
 	                <p className="text-xs font-semibold text-primary">{branchName}</p>
-	                <h1 className="text-lg font-bold">ขายหน้าร้าน</h1>
+	                <h1 className="text-lg font-semibold tracking-tight">ขายหน้าร้าน</h1>
 	              </div>
 	              <label className="relative col-span-2 row-start-2 block min-w-0 flex-1">
                 <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
@@ -756,7 +785,7 @@ export function PosWorkspace({
                   <ShoppingCart className="h-4 w-4" />
                   ตะกร้า
                   {cart.length ? (
-                    <span className="grid h-5 min-w-5 place-items-center rounded-full bg-white px-1 text-xs text-primary">
+                    <span className="grid h-5 min-w-5 place-items-center rounded-full bg-card px-1 text-xs text-primary">
                       {cart.length}
                     </span>
                   ) : null}
@@ -772,7 +801,7 @@ export function PosWorkspace({
                 <button
                   className={cn(
                     "shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
-                    activePromoId ? "text-muted-foreground hover:bg-muted" : "border-primary bg-primary text-white"
+                    activePromoId ? "text-muted-foreground hover:bg-muted" : "border-primary bg-primary text-primary-foreground"
                   )}
                   onClick={() => setActivePromoId("")}
                   type="button"
@@ -787,7 +816,7 @@ export function PosWorkspace({
                     <button
                       className={cn(
                         "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition",
-                        active ? "border-primary bg-primary text-white" : "hover:border-primary/40 hover:bg-muted"
+                        active ? "border-primary bg-primary text-primary-foreground" : "hover:border-primary/40 hover:bg-muted"
                       )}
                       key={id}
                       onClick={() => setActivePromoId(active ? "" : id)}
@@ -795,8 +824,8 @@ export function PosWorkspace({
                       title={String(promo.name)}
                     >
                       <span className="max-w-40 truncate">{String(promo.name)}</span>
-                      <span className={cn("rounded-full px-1.5 text-[10px]", active ? "bg-white/20" : "bg-primary/10 text-primary")}>{promoTypeLabel(String(promo.promo_type))}</span>
-                      {productCount > 0 ? <span className={active ? "text-white/80" : "text-muted-foreground"}>· {productCount}</span> : null}
+                      <span className={cn("rounded-full px-1.5 text-2xs", active ? "bg-primary-foreground/20" : "bg-primary/10 text-primary")}>{promoTypeLabel(String(promo.promo_type))}</span>
+                      {productCount > 0 ? <span className={active ? "text-primary-foreground/80" : "text-muted-foreground"}>· {productCount}</span> : null}
                     </button>
                   );
                 })}
@@ -809,19 +838,22 @@ export function PosWorkspace({
               {filteredProducts.map((product) => {
               const stock = inventoryByProduct.get(String(product.id));
               return (
-                <article className="overflow-hidden rounded-2xl border bg-white shadow-card" key={String(product.id)}>
+                <article className="overflow-hidden rounded-2xl border bg-card shadow-card" key={String(product.id)}>
                   <button
                     aria-label={`เพิ่ม ${String(product.name)} ลงตะกร้า`}
                     className="grid w-full grid-cols-[80px_minmax(0,1fr)] text-left sm:block"
                     onClick={() => void chooseProductLot(product)}
                     type="button"
                   >
-                    <div className="relative h-full min-h-28 overflow-hidden sm:h-44 bg-gradient-to-br from-orange-50 to-amber-100">
-                      {Boolean(product.image_available) ? (
+                    <div className="relative h-full min-h-28 overflow-hidden sm:h-44 bg-gradient-to-br from-placeholder-from to-placeholder-to">
+                      {Boolean(product.image_available) && !brokenImages.has(String(product.id)) ? (
                         <Image
                           alt={String(product.name)}
                           className="object-cover transition duration-300 hover:scale-105"
                           fill
+                          // A photo that fails to load falls back to the
+                          // placeholder rather than a broken-image box.
+                          onError={() => setBrokenImages((current) => new Set(current).add(String(product.id)))}
                           sizes="(max-width: 639px) 80px, (max-width: 1023px) 50vw, 33vw"
                           src={`/api/backend/products/${String(product.id)}/image`}
                           unoptimized
@@ -854,7 +886,7 @@ export function PosWorkspace({
                       </p>
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-xs sm:mt-4">
                         <span>{stockLabel(stock, String(product.unit_name || "ชิ้น"))}</span>
-                        <span className="rounded-full bg-primary px-3 py-1.5 font-bold text-white">
+                        <span className="rounded-full bg-primary px-3 py-1.5 font-bold text-primary-foreground">
                           {isSellable(stock) ? "+ เพิ่ม" : "หมด"}
                         </span>
                       </div>
@@ -865,12 +897,18 @@ export function PosWorkspace({
               })}
             </div>
 
-            {!gridLoading && filteredProducts.length === 0 ? (
-              <EmptyState className="rounded-3xl border border-dashed bg-white p-12" description="ไม่พบสินค้าที่ค้นหา" />
+            {gridError && !gridLoading ? (
+              <ErrorState
+                action={<Button onClick={() => { setGridError(""); setGridDone(false); void loadProducts(1, true); }} variant="secondary">ลองใหม่</Button>}
+                className="rounded-2xl border border-dashed bg-card"
+                description={gridError}
+                title="โหลดรายการสินค้าไม่สำเร็จ"
+              />
             ) : null}
-            {gridLoading ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">กำลังโหลดสินค้า...</p>
+            {!gridLoading && !gridError && filteredProducts.length === 0 ? (
+              <EmptyState description="ไม่พบสินค้าที่ค้นหา" variant="card" />
             ) : null}
+            {gridLoading ? <LoadingState compact label="กำลังโหลดสินค้า..." /> : null}
             {/* Scrolling this into view asks for the next page. */}
             <div aria-hidden className="h-6" ref={sentinelRef} />
           </div>
@@ -932,7 +970,7 @@ export function PosWorkspace({
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="break-words text-sm font-semibold xl:truncate" title={String(line.product.name)}>{String(line.product.name)}</p>
-                      <p className="truncate text-[11px] text-muted-foreground">
+                      <p className="truncate text-2xs text-muted-foreground">
                         {String(line.product.sku || "")} · Lot {String(line.lot.lot_number)} × {line.quantity}
                         {line.lot.expires_on ? ` · หมดอายุ ${new Date(String(line.lot.expires_on)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}` : ""}
                       </p>
@@ -952,7 +990,7 @@ export function PosWorkspace({
                   {units.length > 1 ? (
                     <Select
                       aria-label={`หน่วยขาย ${String(line.product.name)}`}
-                      className="mt-2 h-9 text-xs"
+                      className="mt-2 h-11 text-xs xl:h-9"
                       onChange={(event) => updateLine(key, { unitId: event.target.value })}
                       value={line.unitId}
                     >
@@ -968,14 +1006,14 @@ export function PosWorkspace({
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <Input
                       aria-label={`ส่วนลด ${String(line.product.name)}`}
-                      className="h-9 min-w-[5rem] flex-1 text-xs"
+                      className="h-11 min-w-[5rem] flex-1 text-xs xl:h-9"
                       inputMode="decimal"
                       disabled={Boolean(remoteLock)}
                       onChange={(event) => updateLine(key, { discount: event.target.value })}
-                      placeholder="ส่วนลด (บาท)"
+                      placeholder="ส่วนลด ฿"
                       value={line.discount}
                     />
-                    <div className="flex shrink-0 items-center rounded-full bg-white">
+                    <div className="flex shrink-0 items-center rounded-full bg-card">
                       <button
                         aria-label={`ลดจำนวน ${String(line.product.name)}`}
                         className="grid h-11 w-11 place-items-center disabled:opacity-30 xl:h-8 xl:w-8"
@@ -1000,7 +1038,7 @@ export function PosWorkspace({
                     </div>
                     <button
                       aria-label={`ลบ ${String(line.product.name)}`}
-                      className="grid h-11 w-11 shrink-0 place-items-center rounded-full p-1.5 text-muted-foreground hover:bg-white hover:text-destructive disabled:opacity-30"
+                      className="grid h-11 w-11 shrink-0 place-items-center rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive disabled:opacity-30"
                       disabled={Boolean(remoteLock)}
                       onClick={() => setCart((current) => current.filter((item) => cartLineKey(item) !== key))}
                       type="button"
@@ -1091,7 +1129,7 @@ export function PosWorkspace({
               ) : null}
             </div>
           ) : null}
-          <div className="sticky -bottom-3 mt-3 grid shrink-0 grid-cols-[44px_auto_1fr] gap-2 border-t bg-card py-3 sm:-bottom-4 xl:static xl:mt-4 xl:grid-cols-[auto_auto_1fr] xl:border-0 xl:py-0">
+          <div className="sticky -bottom-3 mt-3 grid shrink-0 grid-cols-[44px_auto_1fr] gap-2 border-t bg-card pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:-bottom-4 xl:static xl:mt-4 xl:grid-cols-[auto_auto_1fr] xl:border-0 xl:py-0">
             <Button
               aria-label="ล้างรายการขาย"
               disabled={!cart.length || Boolean(remoteLock)}
@@ -1111,7 +1149,7 @@ export function PosWorkspace({
               <PauseCircle className="h-4 w-4" />
               พักบิล
             </Button>
-            <Button className="rounded-full" disabled={!cart.length} onClick={() => void openPayment()} type="button">
+            <Button disabled={!cart.length || Boolean(previewError)} onClick={() => void openPayment()} type="button">
               รับชำระเงิน
             </Button>
           </div>
@@ -1150,7 +1188,7 @@ export function PosWorkspace({
             description="หนึ่งบรรทัดขายใช้หนึ่ง Lot ระบบจะแจ้งเตือนหากจำนวนที่กรอกมากกว่ายอดใน Lot"
           />
           {lotsLoading ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">กำลังโหลด Lot...</p>
+            <LoadingState compact label="กำลังโหลด Lot..." />
           ) : (
             <div className="grid max-h-[60vh] gap-3 overflow-y-auto">
               {lotOptions.map((lot) => (
@@ -1171,7 +1209,7 @@ export function PosWorkspace({
                   </div>
                 </button>
               ))}
-              {!lotOptions.length ? <p className="py-10 text-center text-sm text-muted-foreground">ไม่มี Lot ที่พร้อมขาย</p> : null}
+              {!lotOptions.length ? <EmptyState description="ไม่มี Lot ที่พร้อมขาย" /> : null}
             </div>
           )}
         </DialogContent>
@@ -1186,8 +1224,8 @@ export function PosWorkspace({
           <DialogHeader closeDisabled={submitting} closeLabel="ปิดหน้าชำระเงิน" closeOnDesktop title={receipt ? "ชำระเงินเสร็จสิ้น" : "รับชำระเงิน"} />
             {receipt ? (
               <div className="py-4 text-center">
-                <CheckCircle2 className="mx-auto h-20 w-20 text-emerald-500" />
-                <p className="mt-5 text-sm font-semibold text-emerald-700">ชำระเงินเสร็จสิ้น</p>
+                <CheckCircle2 className="mx-auto h-20 w-20 text-success" />
+                <p className="mt-5 text-sm font-semibold text-success-700">ชำระเงินเสร็จสิ้น</p>
                 <h2 className="mt-1 text-2xl font-bold">{String(receipt.invoice_number)}</h2>
                 <p className="mt-2 text-3xl font-bold">{currency(Number(receipt.total_amount || 0))}</p>
                 <div className="mt-6 grid grid-cols-2 gap-3 rounded-2xl bg-muted p-4 text-left text-sm">
@@ -1198,13 +1236,13 @@ export function PosWorkspace({
                 </div>
                 <div className="mt-6 grid gap-3 sm:grid-cols-2">
                   <Link
-                    className="inline-flex h-12 items-center justify-center gap-2 rounded-full border px-4 font-bold hover:bg-muted"
+                    className={buttonVariants({ variant: "secondary", size: "lg", shape: "pill" })}
                     href={`/print/invoices/${String(receipt.invoice_id)}`}
                     target="_blank"
                   >
                     <Printer className="h-4 w-4" />พิมพ์ใบเสร็จ
                   </Link>
-                  <Button className="h-12 rounded-full" onClick={startNewSale} type="button">เริ่มรายการใหม่</Button>
+                  <Button onClick={startNewSale} shape="pill" size="lg" type="button">เริ่มรายการใหม่</Button>
                 </div>
               </div>
             ) : (
@@ -1289,7 +1327,7 @@ export function PosWorkspace({
                 <span className="text-2xl font-bold">{currency(localChangeCents / 100)}</span>
               </div>
               {paymentError ? <Notice tone="error">{paymentError}</Notice> : null}
-              <Button className="h-12 rounded-full" disabled={submitting || paymentChecking || !paymentReady} onClick={() => void checkout()} type="button">
+              <Button disabled={submitting || paymentChecking || !paymentReady} onClick={() => void checkout()} shape="pill" size="lg" type="button">
                 {submitting ? "กำลังชำระเงิน..." : paymentChecking ? "กำลังตรวจสอบยอด..." : "ยืนยันการชำระเงิน"}
               </Button>
             </div>

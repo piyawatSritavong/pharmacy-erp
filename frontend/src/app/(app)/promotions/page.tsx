@@ -1,15 +1,16 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { PromotionConsole } from "@/components/sections/promotion-console";
 import { requirePermission } from "@/lib/rbac";
-import { getBranches, getProducts, getPromotions, requireSession } from "@/services/erp";
+import { getBranches, getPromotions, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "โปรโมชั่น" };
 
 export default async function PromotionsPage() {
   const session = requirePermission(await requireSession(), ["promotion.manage"]);
-  const [promotions, products, branches] = await Promise.all([
-    getPromotions(),
-    getProducts(undefined, { pageSize: 500 }),
-    getBranches()
-  ]);
+  // Products are searched on demand by the form's picker, not preloaded:
+  // the API caps a page at 200, which hid the rest of the catalogue.
+  const [promotions, branches] = await Promise.all([getPromotions(), getBranches()]);
 
   // A shop runs its own promotions and only its own, so it is told which shop
   // rather than asked. Head office keeps the choice, including "every branch".
@@ -28,7 +29,6 @@ export default async function PromotionsPage() {
       <PromotionConsole
         branches={branches.items}
         ownBranchName={ownBranchName}
-        products={products.items}
         promotions={promotions.items}
       />
     </div>

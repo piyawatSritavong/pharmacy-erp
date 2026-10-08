@@ -47,7 +47,7 @@ export function PageIntro({ title, description }: { title: string; description?:
   if (context) return null;
   return (
     <div className="mb-6 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-      <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+      <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{title}</h1>
       {description ? <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p> : null}
     </div>
   );

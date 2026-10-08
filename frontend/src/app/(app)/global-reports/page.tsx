@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { DataTable, PageIntro, SectionCard } from "@/components/sections/common";
 import { requirePermission } from "@/lib/rbac";
 import { getProfitLossReport, getTaxReport, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "รายงาน" };
 
 export default async function GlobalReportsPage() {
   requirePermission(await requireSession(), ["reports.view.global"]);

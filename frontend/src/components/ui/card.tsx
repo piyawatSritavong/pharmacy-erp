@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 export function Card({ className, children }: PropsWithChildren<{ className?: string }>) {
   return (
-    <section className={cn("min-w-0 rounded-lg border bg-card text-card-foreground shadow-sm", className)}>
+    <section className={cn("min-w-0 rounded-2xl border bg-card text-card-foreground shadow-sm", className)}>
       {children}
     </section>
   );

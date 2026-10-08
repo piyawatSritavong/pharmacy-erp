@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, FileClock } from "lucide-react";
 
 import { SectionCard } from "@/components/sections/common";
-import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/primitives";
+import { EmptyState, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/primitives";
 import { currency } from "@/lib/utils";
 import { periodLabel, shortDate } from "@/lib/month-end-groups";
 
@@ -80,7 +80,7 @@ export function SalesSummaryInvoices({ invoices, everyone = false }: { invoices:
       description={`${everyone ? "ใบขายทุกสาขาในช่วงวันที่เลือก" : "แสดงเฉพาะใบขายที่พนักงานคนปัจจุบันสร้างในช่วงวันที่เลือก"} · ยุบเป็นกลุ่มตามรอบสรุปสิ้นเดือน`}
     >
       {groups.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">ไม่มีใบขายในช่วงวันที่เลือก</p>
+        <EmptyState description="ไม่มีใบขายในช่วงวันที่เลือก" />
       ) : (
         <div className="space-y-3">
           {groups.map((group, index) => {

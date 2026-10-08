@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { PackageSearch, Search } from "lucide-react";
 
 import { usePopoverPosition } from "@/components/ui/use-popover-position";
-import { EmptyState, Input } from "@/components/ui/primitives";
+import { EmptyState, Input, LoadingState } from "@/components/ui/primitives";
 import { ProductThumbnail } from "@/components/sections/product-thumbnail";
 import { cn } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
@@ -34,6 +34,7 @@ export function ProductSearchPicker({
   const [items, setItems] = useState<ProductOption[]>(initialOptions.slice(0, 20));
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const deferredQuery = useDeferredValue(query);
 
   // A5 fix: the results panel is portaled to <body> and positioned via
@@ -84,6 +85,7 @@ export function ProductSearchPicker({
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setLoading(true);
+      setLoadError("");
       try {
         const search = deferredQuery.includes(" · ") && value ? "" : deferredQuery.trim();
         const response = await proxyClient<{ items: ProductOption[] }>(
@@ -92,7 +94,11 @@ export function ProductSearchPicker({
         );
         setItems(response.items);
       } catch (error) {
-        if (!(error instanceof DOMException && error.name === "AbortError")) setItems([]);
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          // Say the search failed; an empty list would read as "no such product".
+          setItems([]);
+          setLoadError(error instanceof Error ? error.message : "ค้นหาสินค้าไม่สำเร็จ");
+        }
       } finally {
         setLoading(false);
       }
@@ -143,8 +149,9 @@ export function ProductSearchPicker({
             <span className="hidden max-w-32 shrink-0 text-xs text-muted-foreground sm:block">{String(product.category_name || "")}</span>
           </button>
         ))}
-        {!loading && items.length === 0 ? <EmptyState className="p-5" icon={PackageSearch} /> : null}
-        {loading ? <p className="p-4 text-center text-sm text-muted-foreground">กำลังค้นหา...</p> : null}
+        {!loading && loadError ? <p className="p-4 text-center text-sm text-error" role="alert">ค้นหาไม่สำเร็จ: {loadError}</p> : null}
+        {!loading && !loadError && items.length === 0 ? <EmptyState className="p-5" description="ไม่พบสินค้าที่ค้นหา" icon={PackageSearch} /> : null}
+        {loading ? <LoadingState compact label="กำลังค้นหา..." /> : null}
       </div>
     ) : null;
 

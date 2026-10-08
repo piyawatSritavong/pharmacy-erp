@@ -1,3 +1,6 @@
+import { notFound } from "next/navigation";
+
+import { ApiError } from "@/services/api-server";
 import { getInvoicePrint, requireSession } from "@/services/erp";
 import { currency, dateTime } from "@/lib/utils";
 import { PrintButton } from "@/components/ui/print-button";
@@ -9,7 +12,11 @@ export default async function InvoicePrintPage({
 }) {
   await requireSession();
   const { invoiceID } = await params;
-  const payload = await getInvoicePrint(invoiceID);
+  const payload = await getInvoicePrint(invoiceID).catch((error: unknown) => {
+    // A wrong or deleted invoice number is "not found", not a crash.
+    if (error instanceof ApiError && error.status === 404) notFound();
+    throw error;
+  });
   const document = (payload.document as Record<string, unknown>) || {};
   const company = (payload.company as Record<string, unknown>) || {};
   const branch = (payload.branch as Record<string, unknown>) || {};
@@ -27,7 +34,7 @@ export default async function InvoicePrintPage({
     <main className="mx-auto max-w-4xl bg-white px-8 py-10 text-black print:max-w-none print:px-4">
       {cancelled ? (
         <div className="mb-6 rounded-lg border-2 border-black px-5 py-4">
-          <p className="text-lg font-bold tracking-[0.2em]">ยกเลิกแล้ว</p>
+          <p className="text-lg font-bold tracking-widest">ยกเลิกแล้ว</p>
           <p className="mt-1 text-sm">
             เอกสารนี้ถูกยกเลิกและออกใบกำกับภาษีเต็มรูปแทนแล้ว ใช้เป็นหลักฐานการชำระเงินไม่ได้
           </p>
@@ -35,7 +42,7 @@ export default async function InvoicePrintPage({
       ) : null}
       <div className="flex items-start justify-between gap-6 border-b border-black pb-6">
         <div className="space-y-2">
-          <p className="text-xs tracking-[0.18em] text-muted-foreground">{document.tax_invoice_type === "full" ? "ใบกำกับภาษีเต็มรูป / ใบเสร็จรับเงิน" : "ใบกำกับภาษีอย่างย่อ / ใบเสร็จรับเงิน"}</p>
+          <p className="text-xs tracking-widest text-muted-foreground">{document.tax_invoice_type === "full" ? "ใบกำกับภาษีเต็มรูป / ใบเสร็จรับเงิน" : "ใบกำกับภาษีอย่างย่อ / ใบเสร็จรับเงิน"}</p>
           <h1 className="text-3xl font-semibold">{String(document.invoice_number || "-")}</h1>
           <p className="text-sm text-muted-foreground">{dateTime(String(document.issued_at || ""))}</p>
         </div>
@@ -80,6 +87,9 @@ export default async function InvoicePrintPage({
             </tr>
           </thead>
           <tbody>
+            {items.length === 0 ? (
+              <tr><td className="py-6 text-center text-sm text-muted-foreground" colSpan={6}>เอกสารนี้ไม่มีรายการสินค้า</td></tr>
+            ) : null}
             {items.map((item, index) => (
               <tr key={String(item.id || index)} className="border-b border-border">
                 <td className="py-3 pr-3">{String(item.display_name || "-")}</td>

@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { ParkedBillsConsole } from "@/components/sections/parked-bills-console";
 import { requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "พักบิล" };
 
 export default async function ParkedBillsPage() {
   // No permission gate by design: พักบิล is ordinary POS counter behaviour and

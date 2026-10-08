@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { InventoryConsole } from "@/components/sections/inventory-console";
 import { PageIntro } from "@/components/sections/common";
 import { requirePermission } from "@/lib/rbac";
 import { getBranches, getInventory, getProducts, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "สต๊อก" };
 
 export default async function RealInventoryPage({
   searchParams

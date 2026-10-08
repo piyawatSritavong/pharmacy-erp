@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { ProductCatalogConsole } from "@/components/sections/product-catalog-console";
 import { requirePermission } from "@/lib/rbac";
 import { getProductCategories, getProducts, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "รายการสินค้า" };
 
 export default async function ProductCatalogPage({
   searchParams

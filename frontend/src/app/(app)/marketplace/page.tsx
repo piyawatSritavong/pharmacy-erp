@@ -1,5 +1,8 @@
+import type { Metadata } from "next";
 import { LockedPreview, ProGate } from "@/components/sections/pro-gate";
 import { requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "ตลาดออนไลน์" };
 
 export default async function MarketplacePage() {
   await requireSession();

@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { StockRequestConsole } from "@/components/sections/stock-request-console";
 import { requirePermission } from "@/lib/rbac";
 import { getBranches, getProducts, getStockTransferRequests, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "เบิกสินค้า" };
 
 export default async function RequisitionsPage() {
   const session = requirePermission(await requireSession(), ["inventory.view.branch"]);

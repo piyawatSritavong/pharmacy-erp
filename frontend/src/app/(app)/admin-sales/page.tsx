@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { AdminSalesConsole } from "@/components/sections/admin-sales-console";
 import { requirePermission } from "@/lib/rbac";
 import { getBranches, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "ขายหน้าร้าน" };
 
 export default async function AdminSalesPage() {
   const session = requirePermission(await requireSession(), ["invoice.create.remote"]);

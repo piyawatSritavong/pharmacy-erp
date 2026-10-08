@@ -1,7 +1,10 @@
+import type { Metadata } from "next";
 import { PageIntro } from "@/components/sections/common";
 import { SalesHistoryConsole } from "@/components/sections/sales-history-console";
 import { requirePermission } from "@/lib/rbac";
 import { getInvoices, requireSession } from "@/services/erp";
+
+export const metadata: Metadata = { title: "ประวัติการขาย" };
 
 export default async function SalesHistoryPage() {
   const session = requirePermission(await requireSession(), ["invoice.view"]);
@@ -10,7 +13,7 @@ export default async function SalesHistoryPage() {
   return (
     <div className="space-y-6">
       <PageIntro
-        title="ประวัติ"
+        title="ประวัติการขาย"
         description={
           session.user.role_key === "super_admin"
             ? "รายการขายย้อนหลังทุกสาขา พร้อมเลขบิลก่อน/หลังปิดรอบและสถานะของบิล"

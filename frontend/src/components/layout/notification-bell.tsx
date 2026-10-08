@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, Bell, PackagePlus, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge, CountBadge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { proxyClient } from "@/services/api";
 
@@ -83,13 +84,9 @@ export function NotificationBell() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger>
-        <button aria-label={`การแจ้งเตือน${total > 0 ? ` ${total} รายการ` : ""}`} className="relative grid h-10 w-10 place-items-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground" onClick={markRead} type="button">
+        <button aria-label={`การแจ้งเตือน${total > 0 ? ` ${total} รายการ` : ""}`} className="relative grid h-11 w-11 place-items-center rounded-full text-muted-foreground sm:h-10 sm:w-10 transition hover:bg-muted hover:text-foreground" onClick={markRead} type="button">
           <Bell className="h-5 w-5" />
-          {showBadge ? (
-            <span className="absolute -right-0.5 -top-0.5 grid min-w-5 animate-pulse place-items-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-5 text-white">
-              {total > 99 ? "99+" : total}
-            </span>
-          ) : null}
+          {showBadge ? <CountBadge className="absolute -right-0.5 -top-0.5 animate-pulse" count={total} /> : null}
         </button>
       </DropdownMenuTrigger>
       {/* notif-flush-right pins the panel to the header's right edge via a
@@ -112,11 +109,11 @@ export function NotificationBell() {
                       act on an item does too, so the count is gone when you
                       come back. */}
                   <Link className="flex items-start gap-3 px-4 py-3 transition hover:bg-muted" href={item.href} onClick={markRead}>
-                    <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700"><Icon className="h-4 w-4" /></span>
+                    <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-warning-100 text-warning-700"><Icon className="h-4 w-4" /></span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-2">
                         <span className="text-sm font-medium">{item.label}</span>
-                        <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">{item.count.toLocaleString("th-TH")}</span>
+                        <Badge className="shrink-0 rounded-full" tone="error">{item.count.toLocaleString("th-TH")}</Badge>
                       </span>
                       <span className="mt-0.5 block text-xs text-muted-foreground">{item.detail}</span>
                     </span>

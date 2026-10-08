@@ -1,0 +1,1358 @@
+{
+  "generated": "2026-10-08",
+  "scope": "frontend PharmaPOS — 5 read-only agents, 20 checks (1-4 design, 5-8 mobile, 9-12 states, 13-16 real user, 17-20 launch)",
+  "notes": [
+    "Duplicates found by more than one agent are merged into a single issue (see merged_from).",
+    "U1 (bill discount carries over to the next bill) also exists in the committed code = live on production now. U2 (parked-bill note carries over) only exists in the uncommitted WIP in pos-workspace.tsx.",
+    "pos-workspace.tsx, parked-bills-console.tsx, logout-button.tsx and api/backend/[...path]/route.ts contain someone else's uncommitted WIP. Fixing those files means committing my changes only, not the WIP mixed in.",
+    "The User agent created test bills in the local DB (MES-BL2026100800001-0011) — local only, production untouched.",
+    "The Mobile agent left the gitignored frontend/.next-dev-alt folder behind and can delete it."
+  ],
+  "summary": {
+    "total": 85,
+    "high": 14,
+    "medium": 41,
+    "low": 30,
+    "passed_checks": [
+      "8: every dialog/sheet/popover fits 320x568 with the close button visible — no issues"
+    ]
+  },
+  "issues": [
+    {
+      "id": "U1",
+      "check": 14,
+      "agent": "user",
+      "severity": "high",
+      "title": "Bill discount carries over to the next customer's bill after 'เริ่มรายการใหม่'",
+      "locations": [
+        "frontend/src/components/sections/pos-workspace.tsx:898-911 startNewSale",
+        "pos-workspace.tsx:880-890 checkout success",
+        "pos-workspace.tsx:457 payload"
+      ],
+      "evidence": "Set bill discount 2 → paid → เริ่มรายการใหม่: the field still reads 2; the next bills 0002, 0003, 0007-0011 were all discounted 2 baht (DB bill_discount_amount=2.00). The cashier gets no warning",
+      "fix": "Add a resetBill() helper that clears billDiscount, parkNote, customer and tendered; call it from startNewSale, checkout success and clearCurrentCart",
+      "outcome": "fixed"
+    },
+    {
+      "id": "U2",
+      "check": 14,
+      "agent": "user",
+      "severity": "medium",
+      "title": "A resumed parked bill's note is written onto every later bill (WIP)",
+      "locations": [
+        "pos-workspace.tsx:671",
+        "pos-workspace.tsx:458 document_note",
+        "pos-workspace.tsx:880-911"
+      ],
+      "evidence": "Bill 0011 (an unrelated product) got notes='QA park phone' from the earlier parked bill",
+      "fix": "Clear parkNote in resetBill(); send document_note only for bills resumed from a parked bill",
+      "outcome": "fixed",
+      "outcome_note": "fixed in the working tree only — this bug lives in the uncommitted WIP code, so it goes in when the WIP is committed"
+    },
+    {
+      "id": "S1",
+      "check": 9,
+      "agent": "states",
+      "severity": "high",
+      "title": "No loading.tsx/Suspense at all — navigating freezes on the old page with no indicator",
+      "locations": [
+        "src/app/(app)/ (no loading.tsx)",
+        "src/app/print/"
+      ],
+      "count": 24,
+      "evidence": "find src/app -name loading.tsx = 0; every page awaits Promise.all before rendering",
+      "fix": "Add (app)/loading.tsx + print/loading.tsx using LoadingState; keep force-dynamic",
+      "outcome": "fixed",
+      "outcome_note": "switched approach: a thin top progress bar shows while navigating between pages (RefreshIndicator), instead of (app)/loading.tsx — a loading.tsx swaps the whole page for a fallback on every search-param change, and testing showed it aborted the dashboard filter navigations (URL never updated). print/loading.tsx is kept"
+    },
+    {
+      "id": "S2",
+      "check": 9,
+      "agent": "states",
+      "severity": "high",
+      "title": "Save/delete buttons have no pending/disabled state — double clicks create duplicate records or move stock twice",
+      "locations": [
+        "product-catalog-console.tsx:306",
+        "sales-history-console.tsx:403",
+        "claims-console.tsx:259,364,515",
+        "settings-console.tsx:665,703,802,859,865,884",
+        "supplier-console.tsx:431",
+        "product-category-console.tsx:224",
+        "inventory-console.tsx:1043,1077",
+        "purchase-order-console.tsx:1105,1252,1347",
+        "promotion-console.tsx:319",
+        "marketplace-console.tsx:102",
+        "pos-workspace.tsx:1273"
+      ],
+      "count": 22,
+      "evidence": "e.g. ออกสินค้าทดแทน → POST /product-returns (moves stock) with no busy flag",
+      "fix": "Add a loading prop to Button + a shared useAsyncAction hook, used by every console",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S3",
+      "check": 11,
+      "agent": "states+user",
+      "merged_from": [
+        "states#11 error.tsx",
+        "user#15 raw 500"
+      ],
+      "severity": "high",
+      "title": "No error.tsx/global-error/not-found in (app) — a failed fetch shows Next's default 500 page with no retry and no menu",
+      "locations": [
+        "src/app/(app)/",
+        "src/app/print/",
+        "src/app/global-error.tsx (missing)"
+      ],
+      "count": 22,
+      "evidence": "/purchase-orders returned 500 (fetch ETIMEDOUT) → 'Application error' page, no way back",
+      "fix": "Add (app)/error.tsx (Thai message + retry button, inside AppShell), (app)/not-found.tsx, global-error.tsx, print/error.tsx + print/not-found.tsx",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S4",
+      "check": 11,
+      "agent": "states+launch",
+      "merged_from": [
+        "states#11",
+        "launch#20"
+      ],
+      "severity": "high",
+      "title": "src/app/page.tsx calls redirect() inside try/catch → logged-in users who open / are sent to /login (including the 404 page's 'กลับหน้าหลัก' button)",
+      "locations": [
+        "src/app/page.tsx:6-11",
+        "src/app/not-found.tsx:12-14"
+      ],
+      "evidence": "catch swallows NEXT_REDIRECT",
+      "fix": "Resolve the session inside try, call redirect(home) outside it, rethrow isNextSignal",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S5",
+      "check": 11,
+      "agent": "states+user",
+      "merged_from": [
+        "states#11 errors behind modal",
+        "user#16"
+      ],
+      "severity": "high",
+      "title": "Errors from dialog submits appear behind the modal — the user sees nothing and clicks again",
+      "locations": [
+        "product-catalog-console.tsx:149→178",
+        "settings-console.tsx:229→380",
+        "claims-console.tsx:139→214",
+        "inventory-console.tsx:296→792",
+        "stock-request-console.tsx:82→239,291"
+      ],
+      "count": 5,
+      "evidence": "Duplicate SKU → 409 'SKU หรือบาร์โค้ดนี้มีอยู่แล้ว' shows on the page behind the overlay",
+      "fix": "Keep a dialogError state and render <Notice tone=error> inside DialogContent",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S6",
+      "check": 11,
+      "agent": "states",
+      "severity": "medium",
+      "title": "requireSession treats a backend outage as a logout → sends the user to /login in a loop",
+      "locations": [
+        "src/services/erp.ts:77,88"
+      ],
+      "evidence": "redirect('/login') on every error, not just 401",
+      "fix": "Redirect only on ApiError 401/403; rethrow anything else to error.tsx",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S7",
+      "check": 11,
+      "agent": "states",
+      "severity": "medium",
+      "title": "The print page doesn't map a 404 to notFound()",
+      "locations": [
+        "src/app/print/invoices/[invoiceID]/page.tsx:12"
+      ],
+      "fix": "catch ApiError 404 → notFound()",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S8",
+      "check": 11,
+      "agent": "states",
+      "severity": "medium",
+      "title": "catch blocks swallow errors and show them as 'no data'",
+      "locations": [
+        "pos-workspace.tsx:251,363,437,496,1273",
+        "inventory-console.tsx:318,337",
+        "product-image-gallery.tsx:64",
+        "reconciliation-round-picker.tsx:63",
+        "product-search-picker.tsx:94",
+        "purchase-product-picker.tsx:64",
+        "admin-sales-console.tsx:93",
+        "use-pos-badges.ts:43",
+        "notification-bell.tsx:64"
+      ],
+      "count": 14,
+      "fix": "Keep an error state and show ErrorState/Notice with a retry button instead of setting []",
+      "outcome": "fixed",
+      "outcome_note": "catches that showed errors as 'no data' now show an ErrorState/message; the notification-bell and POS badge polls stay silent on purpose (background, retry every round) — that part is no_change_needed"
+    },
+    {
+      "id": "S9",
+      "check": 11,
+      "agent": "states",
+      "severity": "medium",
+      "title": "Toast-only load errors — the table is left blank or shows a misleading empty state",
+      "locations": [
+        "month-end-summary-report-console.tsx:166,278",
+        "month-end-reconciliation-console.tsx:213",
+        "admin-sales-console.tsx:72",
+        "pos-claims-console.tsx:45"
+      ],
+      "count": 5,
+      "fix": "Show ErrorState + ลองใหม่ in the area that failed",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S10",
+      "check": 11,
+      "agent": "states",
+      "severity": "low",
+      "title": "Dashboard/settings throw away the real error message; settings treats a 500 as an empty list",
+      "locations": [
+        "dashboard/page.tsx:42,64,74",
+        "settings/page.tsx:32"
+      ],
+      "fix": "Pass error.message to ErrorState; degrade only on 403",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S11",
+      "check": 9,
+      "agent": "states",
+      "severity": "medium",
+      "title": "Client fetches have no loading state — the empty state shows while data is still loading",
+      "locations": [
+        "inventory-console.tsx:316,335,554,807",
+        "month-end-reconciliation-console.tsx:209,413",
+        "pos-claims-console.tsx:43",
+        "pos-workspace.tsx:494",
+        "admin-sales-console.tsx:86"
+      ],
+      "count": 9,
+      "fix": "Gate the empty state on loaded && rows.length===0; show LoadingState while loading",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S12",
+      "check": 9,
+      "agent": "states",
+      "severity": "medium",
+      "title": "router.refresh()/filter changes have no pending indicator (36 places use bare startTransition)",
+      "locations": [
+        "19 files — product-catalog-console.tsx:147 ...",
+        "daily-sales/page.tsx:33",
+        "audit-console.tsx:51"
+      ],
+      "count": 36,
+      "fix": "Use useTransition and dim the list while isPending (loading.tsx in S1 covers searchParams navigation)",
+      "outcome": "fixed",
+      "outcome_note": "useRefresh() + RefreshIndicator: a progress bar at the top of the screen while router.refresh() / page navigation is running, in all 14 consoles"
+    },
+    {
+      "id": "S13",
+      "check": 10,
+      "agent": "states",
+      "severity": "medium",
+      "title": "Lists/tables/charts render blank when empty",
+      "locations": [
+        "common.tsx:122 MetricGrid",
+        "daily-sales/page.tsx:57",
+        "daily-breakdown.tsx:280,556",
+        "close-comparison.tsx:99",
+        "print/invoices/[invoiceID]/page.tsx:83",
+        "bar-chart.tsx:59,124",
+        "month-end-summary-report-console.tsx:278",
+        "claims-console.tsx:357",
+        "v2/workspace.tsx:157",
+        "v2/workflows.tsx:100"
+      ],
+      "count": 12,
+      "fix": "Fall back to EmptyState/TableEmptyState; for a select with no options, add a hint",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S14",
+      "check": 10,
+      "agent": "states",
+      "severity": "medium",
+      "title": "First-run empty states have no CTA and tell the user to 'adjust filters' on an empty dataset",
+      "locations": [
+        "empty-state.tsx:9",
+        "product-catalog-console.tsx:228",
+        "purchase-order-console.tsx:598",
+        "supplier-console.tsx:266",
+        "product-category-console.tsx:183",
+        "promotion-console.tsx:281",
+        "settings-console.tsx:482,579",
+        "stock-request-console.tsx:330",
+        "transfer-console.tsx:426",
+        "claims-console.tsx:296"
+      ],
+      "count": 12,
+      "fix": "Add an action prop to EmptyState/TableEmptyState/DataTable; distinguish truly empty from filtered",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S15",
+      "check": 10,
+      "agent": "states",
+      "severity": "low",
+      "title": "Ad-hoc empty text instead of EmptyState/TableEmptyState",
+      "locations": [
+        "low-stock-tables.tsx:66",
+        "sales-summary-invoices.tsx:83",
+        "transfer-history-table.tsx:138,190",
+        "stock-request-console.tsx:289",
+        "month-end-reconciliation-console.tsx:376,387,398,413",
+        "inventory-console.tsx:536,807",
+        "claims-console.tsx:480",
+        "pos-workspace.tsx:1362",
+        "sales-history-console.tsx:370"
+      ],
+      "count": 18,
+      "fix": "Replace with the shared component, keeping the current sentence as description",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S16",
+      "check": 12,
+      "agent": "states",
+      "severity": "medium",
+      "title": "Loading is shown 14 different ways instead of LoadingState",
+      "locations": [
+        "pos-workspace.tsx:1051,1341",
+        "claims-console.tsx:442",
+        "sales-history-console.tsx:366",
+        "product-image-gallery.tsx:245",
+        "purchase-order-console.tsx:937",
+        "reconciliation-round-picker.tsx:149",
+        "admin-sales-console.tsx:171",
+        "inventory-console.tsx:554,824",
+        "purchase-product-picker.tsx:143",
+        "month-end-summary-report-console.tsx:278"
+      ],
+      "count": 14,
+      "fix": "Use LoadingState (add a compact prop) everywhere",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S17",
+      "check": 12,
+      "agent": "states+design",
+      "merged_from": [
+        "states#12 feedback",
+        "design#3 inline feedback"
+      ],
+      "severity": "medium",
+      "title": "Success/error messages styled 3-4 ways with the wrong tone (success shown in error tone, errors in text-primary)",
+      "locations": [
+        "product-category-console.tsx:134,221",
+        "supplier-console.tsx:421",
+        "purchase-order-console.tsx:907",
+        "claims-console.tsx:214",
+        "product-catalog-console.tsx:178",
+        "settings-console.tsx:380",
+        "transfer-console.tsx:211",
+        "stock-request-console.tsx:239,291",
+        "sales-history-console.tsx:198,400",
+        "marketplace-console.tsx:109",
+        "pos-workspace.tsx:1234"
+      ],
+      "count": 15,
+      "fix": "Store {tone,text} and always render <Notice tone>",
+      "outcome": "fixed"
+    },
+    {
+      "id": "S18",
+      "check": 12,
+      "agent": "states",
+      "severity": "low",
+      "title": "EmptyState wrappers use different classes per page + 7 unused console files",
+      "locations": [
+        "transfer-console.tsx:308,426",
+        "pos-workspace.tsx:1048",
+        "purchase-product-picker.tsx:139",
+        "unused: month-end-console, sales-documents-console, document-composer, quotation-actions, fda-report-console, sales-today-chart, branch-sales-grid"
+      ],
+      "count": 9,
+      "fix": "Add a variant prop to EmptyState; delete the dead files (needs confirmation — they might be revived)",
+      "outcome": "fixed",
+      "outcome_note": "deleted the 7 dead files (recommendation item 3) + added variant='card' to EmptyState"
+    },
+    {
+      "id": "D1",
+      "check": 1,
+      "agent": "design",
+      "severity": "high",
+      "title": "Primary button hover uses fixed hex — in dark mode it becomes dark text on dark blue",
+      "locations": [
+        "ui/button.tsx:18"
+      ],
+      "fix": "hover:bg-primary/90 active:bg-primary/80",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D2",
+      "check": 1,
+      "agent": "design",
+      "severity": "high",
+      "title": "Secondary/ghost button hover is nearly white in dark mode (every button in the app)",
+      "locations": [
+        "ui/button.tsx:19,20"
+      ],
+      "fix": "hover:bg-muted active:bg-muted/80",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D3",
+      "check": 1,
+      "agent": "design",
+      "severity": "high",
+      "title": "bg-foreground + text-white panels are white on cream in dark mode (PO total panel)",
+      "locations": [
+        "purchase-order-console.tsx:848-886",
+        "admin-sales-console.tsx:193",
+        "sidebar.tsx:356",
+        "login/page.tsx:56,62"
+      ],
+      "count": 10,
+      "fix": "text-background / labelClassName=text-background",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D4",
+      "check": 1,
+      "agent": "design",
+      "severity": "high",
+      "title": "text-white on bg-primary has ~2:1 contrast in dark mode (POS category pills, selected inventory row, POS nav)",
+      "locations": [
+        "pos-workspace.tsx:954,969,978,1036",
+        "inventory-console.tsx:630,652",
+        "sidebar.tsx:203,371",
+        "not-found.tsx:12"
+      ],
+      "count": 11,
+      "fix": "text-primary-foreground",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D5",
+      "check": 1,
+      "agent": "design",
+      "severity": "high",
+      "title": "bg-white/95 and hover:bg-white slip past the dark patch — the POS bottom nav stays white in dark mode",
+      "locations": [
+        "sidebar.tsx:342",
+        "admin-sales-console.tsx:192",
+        "product-image-gallery.tsx:175,183",
+        "pos-workspace.tsx:977,1182",
+        "checkbox-field.tsx:47"
+      ],
+      "count": 7,
+      "fix": "bg-background/95, hover:bg-muted",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D6",
+      "check": 1,
+      "agent": "design",
+      "severity": "medium",
+      "title": "Desktop sidebar active item is cream on amber (dark); mobile/desktop use different active colors",
+      "locations": [
+        "sidebar.tsx:157,235,257,287,304,348"
+      ],
+      "fix": "Use bg-primary/10 text-primary for both",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D7",
+      "check": 1,
+      "agent": "design",
+      "severity": "medium",
+      "title": "Checkbox/Switch use hardcoded black/white/neutral",
+      "locations": [
+        "ui/checkbox.tsx:66",
+        "ui/switch.tsx:35,46"
+      ],
+      "fix": "border-input bg-card, checked bg-primary; switch off bg-input",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D8",
+      "check": 1,
+      "agent": "design",
+      "severity": "medium",
+      "title": "Dialog/dropdown/toast use bg-white text-black; toasts are forced to the light theme",
+      "locations": [
+        "ui/dialog.tsx:64,92",
+        "ui/sheet.tsx:54",
+        "ui/dropdown-menu.tsx:33",
+        "ui/sonner.tsx:11,13"
+      ],
+      "fix": "bg-card text-card-foreground border; Toaster follows the current theme",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D9",
+      "check": 1,
+      "agent": "design",
+      "severity": "medium",
+      "title": "Status badges use two color systems (raw amber/emerald/sky/violet vs success/warning tokens)",
+      "locations": [
+        "sales-history-console.tsx:21-23",
+        "low-stock-tables.tsx:26,93,96,122",
+        "month-end-summary-report-console.tsx:268,315,333,368,369",
+        "close-comparison.tsx:108,111",
+        "notification-bell.tsx:115,119",
+        "inventory-console.tsx:805",
+        "product-category-console.tsx:163",
+        "pos-workspace.tsx:1377-1378"
+      ],
+      "count": 24,
+      "fix": "Give Badge tone variants (success/warning/error/info/neutral) and replace every per-file map",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D10",
+      "check": 1,
+      "agent": "design",
+      "severity": "medium",
+      "title": "Count badges bg-red-600 come in 4 sizes; the Pro tag is a raw amber gradient",
+      "locations": [
+        "notification-bell.tsx:89",
+        "sidebar.tsx:79,155,349,379"
+      ],
+      "count": 5,
+      "fix": "Add a count variant to Badge (bg-destructive)",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D11",
+      "check": 1,
+      "agent": "design",
+      "severity": "medium",
+      "title": "Image placeholder from-orange-50 to-amber-100 stays bright orange in dark mode",
+      "locations": [
+        "pos-workspace.tsx:998",
+        "product-thumbnail.tsx:23",
+        "product-image-gallery.tsx:140"
+      ],
+      "fix": "bg-surface-warm or bg-muted",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D12",
+      "check": 1,
+      "agent": "design",
+      "severity": "low",
+      "title": "bg-white/text-black/border-black/text-slate-500 (~58 places) only work thanks to the .dark patch in globals.css",
+      "locations": [
+        "globals.css:59-92",
+        "sidebar.tsx:200",
+        "logout-button.tsx:44",
+        "pos-workspace.tsx:917,991",
+        "pos-cart.tsx:22",
+        "...58 places"
+      ],
+      "count": 58,
+      "fix": "Replace with bg-card/text-foreground/border-border/text-muted-foreground, then delete the patch block",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D13",
+      "check": 1,
+      "agent": "design",
+      "severity": "low",
+      "title": "Raw color literals in chart/print button/default category color #D71920 x6",
+      "locations": [
+        "bar-chart.tsx:97,98",
+        "print-button.tsx:6",
+        "product-category-console.tsx:27,73,156,158,207,212"
+      ],
+      "count": 9,
+      "fix": "Chart uses bg-secondary; PrintButton uses buttonVariants; hoist DEFAULT_CATEGORY_COLOR into a constant",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D14",
+      "check": 1,
+      "agent": "design",
+      "severity": "low",
+      "title": "month-end-console.tsx (unused) has its own palette of 87 places",
+      "locations": [
+        "sections/month-end-console.tsx"
+      ],
+      "count": 87,
+      "fix": "Delete the dead file (together with S18)",
+      "outcome": "fixed",
+      "outcome_note": "deleted month-end-console.tsx"
+    },
+    {
+      "id": "D15",
+      "check": 2,
+      "agent": "design",
+      "severity": "medium",
+      "title": "text-[10px]/text-[11px] are below the type scale",
+      "locations": [
+        "bar-chart.tsx:71,85,132,157,163",
+        "month-end-summary-report-console.tsx:276,324",
+        "pos-workspace.tsx:977,1114",
+        "product-thumbnail.tsx:40",
+        "notification-bell.tsx:89",
+        "sidebar.tsx:79,208,349,379"
+      ],
+      "count": 18,
+      "fix": "text-xs, or add text-2xs (11px) to tailwind.config",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D16",
+      "check": 2,
+      "agent": "design",
+      "severity": "medium",
+      "title": "Stat values use different sizes/weights for the same role",
+      "locations": [
+        "common.tsx:126",
+        "close-comparison.tsx:53,61,69",
+        "month-end-summary-report-console.tsx:244,261",
+        "month-end-reconciliation-console.tsx:326,370",
+        "common.tsx:256",
+        "pos-workspace.tsx:1380,1403"
+      ],
+      "count": 11,
+      "fix": "One style: text-lg sm:text-2xl font-semibold tabular-nums",
+      "outcome": "fixed",
+      "outcome_note": "partial: MetricGrid / reconciliation / close-comparison now share text-lg sm:text-2xl font-semibold; POS totals stay text-3xl font-bold as the hero size"
+    },
+    {
+      "id": "D17",
+      "check": 2,
+      "agent": "design",
+      "severity": "medium",
+      "title": "Page/card title styles vary (AppHeader has two conflicting sm:text-xl and sm:text-2xl)",
+      "locations": [
+        "app-header.tsx:48",
+        "page-header.tsx:50",
+        "pos-workspace.tsx:921",
+        "card.tsx:32",
+        "inventory-console.tsx:704",
+        "transfer-console.tsx:342,408",
+        "stock-request-console.tsx:261",
+        "purchase-order-console.tsx:721,1067",
+        "pro-gate.tsx:54"
+      ],
+      "count": 12,
+      "fix": "Page: text-xl sm:text-2xl font-semibold; card: CardHeader",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D18",
+      "check": 2,
+      "agent": "design",
+      "severity": "low",
+      "title": "font-black is used but only weights 400-700 are loaded",
+      "locations": [
+        "layout.tsx:12",
+        "inventory-console.tsx:704",
+        "purchase-order-console.tsx:1380,1388,1501",
+        "transfer-console.tsx:260,408"
+      ],
+      "count": 7,
+      "fix": "font-bold",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D19",
+      "check": 2,
+      "agent": "design",
+      "severity": "low",
+      "title": "Arbitrary tracking-[0.2em]/[0.18em]",
+      "locations": [
+        "print/invoices/[invoiceID]/page.tsx:30,38"
+      ],
+      "count": 3,
+      "fix": "tracking-widest",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D20",
+      "check": 3,
+      "agent": "design",
+      "severity": "medium",
+      "title": "--radius: 1rem breaks the order — rounded-lg (16) > rounded-xl (12); checkboxes look almost circular",
+      "locations": [
+        "globals.css:25",
+        "tailwind.config.ts:150"
+      ],
+      "fix": "Define the borderRadius scale to be ordered (radius change affects the whole app — needs confirmation)",
+      "outcome": "fixed",
+      "outcome_note": "--radius 1rem→0.75rem; sm6<md10<lg12<2xl16; Card switched to rounded-2xl, so cards look the same as before"
+    },
+    {
+      "id": "D21",
+      "check": 3,
+      "agent": "design",
+      "severity": "medium",
+      "title": "Card-like panels use rounded-lg/xl/2xl/3xl/[2rem]/[2.5rem] + 3 shadow styles",
+      "locations": [
+        "card.tsx:7",
+        "purchase-order-console.tsx:516",
+        "supplier-console.tsx:159",
+        "inventory-console.tsx:572",
+        "pos-workspace.tsx:917,991,1048",
+        "transfer-console.tsx:308,405",
+        "dashboard-filters.tsx:81",
+        "pro-gate.tsx:49",
+        "not-found.tsx:6",
+        "login/page.tsx:56"
+      ],
+      "count": 40,
+      "fix": "Use Card everywhere; one radius + one shadow",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D22",
+      "check": 3,
+      "agent": "design",
+      "severity": "low",
+      "title": "Button shape overridden per call site (rounded-full, h-12) + hand-built button Links",
+      "locations": [
+        "pos-workspace.tsx:934,1302,1388,1395,1491",
+        "logout-button.tsx:44",
+        "not-found.tsx:12"
+      ],
+      "count": 7,
+      "fix": "Add size/shape variants to buttonVariants",
+      "outcome": "fixed",
+      "outcome_note": "partial: added size/shape to buttonVariants and used them on the POS and print buttons; a few call sites still set rounded-xl sm:rounded-full themselves"
+    },
+    {
+      "id": "D23",
+      "check": 3,
+      "agent": "design",
+      "severity": "low",
+      "title": "Magic px widths duplicated across files (sidebar 72/232px, ml-[19px])",
+      "locations": [
+        "sidebar.tsx:200,297",
+        "app-shell.tsx:35",
+        "pagination.tsx:65,78",
+        "month-end-summary-report-console.tsx:361"
+      ],
+      "count": 6,
+      "fix": "Use --sidebar-w variables; ml-5/left-3.5",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D24",
+      "check": 4,
+      "agent": "design",
+      "severity": "medium",
+      "title": "primary/success/error/warning/info scales are fixed hex with no CSS vars → dark mode needs per-class patches; brand blue defined in 3 places, red in 2",
+      "locations": [
+        "tailwind.config.ts:31,84,98,112,126",
+        "globals.css:16,76,133"
+      ],
+      "count": 13,
+      "fix": "Put semantic colors behind CSS vars in :root/.dark; destructive = error",
+      "outcome": "fixed",
+      "outcome_note": "partial: tint/text stops 50/100/200/700/800 + error are CSS vars with dark values, body gradient uses the --primary token; destructive not yet merged with error (dark-mode text contrast still differs)"
+    },
+    {
+      "id": "D25",
+      "check": 4,
+      "agent": "design",
+      "severity": "medium",
+      "title": "surface-warm/pos-canvas/shadow-card are plain CSS outside the theme (no opacity/hover)",
+      "locations": [
+        "globals.css:94,145-158",
+        "tailwind.config.ts:155"
+      ],
+      "count": 6,
+      "fix": "Move into theme vars",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D26",
+      "check": 4,
+      "agent": "design",
+      "severity": "low",
+      "title": "Unused tokens/classes (surface scale, neutral.light/dark, --accent, .pos-pill/.btn-*)",
+      "locations": [
+        "tailwind.config.ts:11,67-69,142",
+        "globals.css:20,131,162,210,214"
+      ],
+      "count": 10,
+      "fix": "Delete",
+      "outcome": "fixed"
+    },
+    {
+      "id": "D27",
+      "check": 4,
+      "agent": "design",
+      "severity": "low",
+      "title": "Native select/input styled by hand instead of the primitives + per-file tone maps",
+      "locations": [
+        "month-end-summary-report-console.tsx:231-236",
+        "sales-history-console.tsx:19",
+        "claims-console.tsx:39",
+        "bar-chart.tsx:97"
+      ],
+      "count": 9,
+      "fix": "Use Field/Input/Select; tone maps → Badge",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M1",
+      "check": 7,
+      "agent": "mobile",
+      "severity": "high",
+      "title": "Textareas are 14px on phones → iOS zooms in on focus (16 places)",
+      "locations": [
+        "ui/textarea.tsx:11,28",
+        "globals.css:253 (textarea selector specificity too low)"
+      ],
+      "count": 16,
+      "evidence": "computed fontSize 14px in the PO/product/supplier/return dialogs @320",
+      "fix": "Raise the textarea selector specificity in the mobile block, or text-base sm:text-sm",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M2",
+      "check": 7,
+      "agent": "mobile",
+      "severity": "medium",
+      "title": "Save button of long dialogs sits at the very bottom of a long scroll (PO save at y=1993 on a 568 screen)",
+      "locations": [
+        "purchase-order-console.tsx:918",
+        "supplier-console.tsx:423",
+        "product-catalog-console.tsx:304-306",
+        "transfer-console.tsx:396"
+      ],
+      "count": 4,
+      "fix": "Add a shared DialogFooter that is sticky at the bottom on phones",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M3",
+      "check": 6,
+      "agent": "mobile",
+      "severity": "medium",
+      "title": "Notification bell is 40px wide on every page",
+      "locations": [
+        "notification-bell.tsx:86"
+      ],
+      "count": 60,
+      "fix": "h-11 w-11",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M4",
+      "check": 6,
+      "agent": "mobile",
+      "severity": "medium",
+      "title": "Gallery arrows are 32px, dots are 6px",
+      "locations": [
+        "product-image-gallery.tsx:175,183,197"
+      ],
+      "count": 6,
+      "fix": "Arrows h-11 w-11; dots wrapped in a 44px hit area",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M5",
+      "check": 6,
+      "agent": "mobile",
+      "severity": "medium",
+      "title": "Delete-line button in the requisition dialog is 28px, right next to the quantity input",
+      "locations": [
+        "stock-request-console.tsx:200"
+      ],
+      "count": 2,
+      "fix": "h-11 w-11",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M6",
+      "check": 6,
+      "agent": "mobile",
+      "severity": "medium",
+      "title": "Bare 16px checkboxes with no hit area",
+      "locations": [
+        "settings-console.tsx:648-653",
+        "inventory-console.tsx:972-973",
+        "fda-report-console.tsx:160",
+        "month-end-console.tsx:525",
+        "ui/checkbox.tsx:66"
+      ],
+      "count": 4,
+      "fix": "Use CheckboxField / extend the hit area with ::before",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M7",
+      "check": 6,
+      "agent": "mobile",
+      "severity": "low",
+      "title": "Theme toggle + logout in the drawer are 40px",
+      "locations": [
+        "theme-toggle.tsx:45",
+        "logout-button.tsx:45"
+      ],
+      "count": 2,
+      "fix": "h-11 w-11",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M8",
+      "check": 6,
+      "agent": "mobile",
+      "severity": "low",
+      "title": "Dashboard previous/next day buttons are 42px",
+      "locations": [
+        "dashboard-filters.tsx:164,174"
+      ],
+      "count": 2,
+      "fix": "min-w-11",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M9",
+      "check": 6,
+      "agent": "mobile",
+      "severity": "low",
+      "title": "Export links on daily-sales are 40px (an <a> misses the 44px rule)",
+      "locations": [
+        "daily-sales/page.tsx:43-54"
+      ],
+      "count": 2,
+      "fix": "h-11 sm:h-10",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M10",
+      "check": 6,
+      "agent": "mobile",
+      "severity": "low",
+      "title": "Color input 42x40 + multi-select search 36px",
+      "locations": [
+        "product-category-console.tsx:206",
+        "ui/multi-select.tsx:~166"
+      ],
+      "count": 2,
+      "fix": "h-11; add ui-input",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M11",
+      "check": 6,
+      "agent": "mobile",
+      "severity": "low",
+      "title": "POS cart is outside the 44px rule (h-9 buttons would be 36px)",
+      "locations": [
+        "pos-cart.tsx:26",
+        "pos-workspace.tsx:1134,1150",
+        "globals.css:247-249"
+      ],
+      "count": 2,
+      "fix": "Add .pos-cart to the selector",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M12",
+      "check": 7,
+      "agent": "mobile",
+      "severity": "low",
+      "title": "No viewport-fit=cover → safe-area padding has no effect",
+      "locations": [
+        "app/layout.tsx",
+        "sidebar.tsx:128,333",
+        "pos-workspace.tsx:1282"
+      ],
+      "count": 4,
+      "fix": "export const viewport = { viewportFit: 'cover', ... }",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M13",
+      "check": 7,
+      "agent": "mobile",
+      "severity": "low",
+      "title": "Product list (288px) scrolls inside the PO dialog that also scrolls — easy to scroll the wrong one",
+      "locations": [
+        "purchase-product-picker.tsx:99",
+        "purchase-order-console.tsx:714,1132"
+      ],
+      "count": 2,
+      "fix": "Show results only while searching / cap at 40vh",
+      "outcome": "fixed"
+    },
+    {
+      "id": "M14",
+      "check": 5,
+      "agent": "mobile",
+      "severity": "low",
+      "title": "No page-level horizontal scroll (28 routes x 3 widths pass) — only truncated text in 2 places @320",
+      "locations": [
+        "purchase-order-console.tsx:849-856",
+        "pos-workspace.tsx:~1140-1150"
+      ],
+      "count": 2,
+      "fix": "grid-cols-1 min-[360px]:grid-cols-2; shorter placeholder",
+      "outcome": "fixed"
+    },
+    {
+      "id": "U3",
+      "check": 15,
+      "agent": "user",
+      "severity": "medium",
+      "title": "Delete promotion deletes on the first click with no confirmation",
+      "locations": [
+        "promotion-console.tsx:134-141,317-320"
+      ],
+      "fix": "Confirm dialog, same pattern as supplier",
+      "outcome": "fixed"
+    },
+    {
+      "id": "U4",
+      "check": 16,
+      "agent": "user",
+      "severity": "medium",
+      "title": "Promotion product picker shows only 200/695 items; the POS view shows raw UUIDs",
+      "locations": [
+        "promotions/page.tsx:11",
+        "backend products/module.go:192-193 (cap 200)",
+        "promotion-console.tsx:79-82,225-233,302"
+      ],
+      "count": 2,
+      "fix": "Use ProductSearchPicker (server-side search) + render item.product_name from the API",
+      "outcome": "fixed",
+      "outcome_note": "frontend switched to ProductSearchPicker (search across all 695 items) + names come from the API; the backend page_size cap of 200 is unchanged"
+    },
+    {
+      "id": "U5",
+      "check": 13,
+      "agent": "user",
+      "severity": "low",
+      "title": "<Select required> doesn't really validate (role in เพิ่มผู้ใช้ can be submitted empty)",
+      "locations": [
+        "ui/select.tsx:121,165",
+        "settings-console.tsx:840"
+      ],
+      "fix": "Forward required to an sr-only input that takes part in constraint validation",
+      "outcome": "fixed"
+    },
+    {
+      "id": "U6",
+      "check": 14,
+      "agent": "user",
+      "severity": "low",
+      "title": "Over-limit bill discount still shows the old total + pay button not disabled; tapping a sold-out item on a phone gives no feedback",
+      "locations": [
+        "pos-workspace.tsx:484,502-504,1234",
+        "pos-cart.tsx"
+      ],
+      "count": 2,
+      "fix": "Preview error → clear totals + disable pay; sold-out → toast.error",
+      "outcome": "fixed"
+    },
+    {
+      "id": "U7",
+      "check": 14,
+      "agent": "user",
+      "severity": "low",
+      "title": "Parked bill list shows the pre-VAT amount but the till shows incl. VAT",
+      "locations": [
+        "backend parkedbills/module.go:84-90",
+        "parked-bills-console.tsx:140"
+      ],
+      "fix": "Label it 'ยอดก่อนภาษี' (or compute incl. VAT on the backend)",
+      "outcome": "fixed"
+    },
+    {
+      "id": "U8",
+      "check": 15,
+      "agent": "user",
+      "severity": "low",
+      "title": "Reject requisition fires immediately; delete category uses window.confirm",
+      "locations": [
+        "stock-request-console.tsx:284",
+        "product-category-console.tsx:86"
+      ],
+      "count": 2,
+      "fix": "Shared confirm dialog",
+      "outcome": "fixed"
+    },
+    {
+      "id": "U9",
+      "check": 15,
+      "agent": "user",
+      "severity": "low",
+      "title": "Product images that fail to load (503) show a broken icon instead of the placeholder",
+      "locations": [
+        "product-thumbnail.tsx:27-33",
+        "pos-workspace.tsx:999-1007"
+      ],
+      "fix": "onError → Package placeholder",
+      "outcome": "fixed"
+    },
+    {
+      "id": "L1",
+      "check": 17,
+      "agent": "launch",
+      "severity": "high",
+      "title": "/login on phones and tablets (<1024px) doesn't show the product name or what it does — the POS tills are tablets",
+      "locations": [
+        "login/page.tsx:56,68-71"
+      ],
+      "evidence": "innerText @390 has no PharmaPOS / ร้านขายยา",
+      "fix": "Brand block lg:hidden inside the Card",
+      "outcome": "fixed"
+    },
+    {
+      "id": "L2",
+      "check": 17,
+      "agent": "launch",
+      "severity": "medium",
+      "title": "Headline is a slogan, not a one-sentence description of what it does",
+      "locations": [
+        "login/page.tsx:60-62"
+      ],
+      "fix": "H1 'ระบบขายหน้าร้านและบริหารสต๊อกสำหรับเครือร้านขายยาหลายสาขา' + sub-line listing features (no mention of ghost stock)",
+      "outcome": "fixed"
+    },
+    {
+      "id": "L3",
+      "check": 17,
+      "agent": "launch",
+      "severity": "medium",
+      "title": "Subtitle says 'เลือกใช้งานในฐานะ...' but the form has no role selector",
+      "locations": [
+        "login/page.tsx:70"
+      ],
+      "fix": "'ใช้อีเมลและรหัสผ่านที่ได้รับจากผู้ดูแลระบบ ระบบจะพาไปยังหน้าจอตามสิทธิ์ของคุณ'",
+      "outcome": "fixed"
+    },
+    {
+      "id": "L4",
+      "check": 13,
+      "agent": "launch+user",
+      "merged_from": [
+        "launch#20 inputs",
+        "user#13 login validation",
+        "launch#19 'Failed to fetch'"
+      ],
+      "severity": "medium",
+      "title": "Login form: no type=email/name/autocomplete/required — empty submit hits the API; offline shows English 'Failed to fetch'",
+      "locations": [
+        "login/page.tsx:49,76-84"
+      ],
+      "fix": "type=email name autoComplete required; show only ProxyError.message, otherwise a Thai message",
+      "outcome": "fixed"
+    },
+    {
+      "id": "L5",
+      "check": 18,
+      "agent": "launch",
+      "severity": "medium",
+      "title": "Every page has the same <title> (35 routes)",
+      "locations": [
+        "app/layout.tsx:17-20"
+      ],
+      "count": 35,
+      "fix": "title template '%s | PharmaPOS' + per-page titles (+ invoice number on the print page)",
+      "outcome": "fixed"
+    },
+    {
+      "id": "L6",
+      "check": 18,
+      "agent": "launch",
+      "severity": "medium",
+      "title": "No favicon/apple-touch-icon/manifest/theme-color",
+      "locations": [
+        "public/",
+        "app/layout.tsx"
+      ],
+      "count": 4,
+      "fix": "app/icon, apple-icon, manifest.ts, viewport.themeColor + let the middleware pass these paths",
+      "outcome": "fixed",
+      "outcome_note": "icon.svg, apple-touch-icon.png, icon-512.png, manifest.webmanifest in public/ (not app/ metadata routes, so the prerender manifest stays at 2 routes) + middleware lets them through"
+    },
+    {
+      "id": "L7",
+      "check": 18,
+      "agent": "launch",
+      "severity": "low",
+      "title": "No OG tags; description not yet accurate",
+      "locations": [
+        "app/layout.tsx:17-20"
+      ],
+      "fix": "Minimal openGraph for LINE sharing",
+      "outcome": "fixed"
+    },
+    {
+      "id": "L8",
+      "check": 19,
+      "agent": "launch",
+      "severity": "high",
+      "title": "Month-end reconciliation screen shows English/dev terms (issued + paid, fetch, Projection, Branch Real returned, created_at, Audit)",
+      "locations": [
+        "month-end-reconciliation-console.tsx:326,332,363,366-369,374,385,396,442"
+      ],
+      "count": 14,
+      "fix": "Translate per the glossary in L9",
+      "outcome": "fixed"
+    },
+    {
+      "id": "L9",
+      "check": 19,
+      "agent": "launch",
+      "severity": "medium",
+      "title": "Same thing named 3 ways: Ghost/Real/WH vs สต๊อกผี/สต๊อกจริง/โกดัง (+ Bucket, movement, None)",
+      "locations": [
+        "backend auth/module.go:254",
+        "month-end-report/page.tsx:22",
+        "month-end-summary-report-console.tsx:102-112,255-257",
+        "close-comparison.tsx:70",
+        "purchase-order-console.tsx:250,980",
+        "inventory-console.tsx:799"
+      ],
+      "count": 12,
+      "fix": "One glossary: สต๊อกจริง / สต๊อกผี / โกดังกลาง / ประเภทสต๊อก / การเคลื่อนไหว",
+      "outcome": "fixed"
+    },
+    {
+      "id": "L10",
+      "check": 19,
+      "agent": "launch",
+      "severity": "medium",
+      "title": "Nav and page header say 'Dashboard' in English",
+      "locations": [
+        "backend auth/module.go:253",
+        "dashboard/page.tsx:55"
+      ],
+      "count": 2,
+      "fix": "'แดชบอร์ด' or 'ภาพรวมยอดขาย'",
+      "outcome": "fixed"
+    },
+    {
+      "id": "L11",
+      "check": 19,
+      "agent": "launch",
+      "severity": "medium",
+      "title": "Pro gate shows a made-up price ฿990 / 14-day free trial + toast 'ทีมงานจะติดต่อกลับ' but billing isn't wired up",
+      "locations": [
+        "pro-gate.tsx:53-68",
+        "pro-subscribe-button.tsx:14-18",
+        "sidebar.tsx:77-83",
+        "backend auth/module.go:279-283"
+      ],
+      "count": 4,
+      "fix": "Honest message 'ยังไม่เปิดใช้งาน ติดต่อผู้ดูแลระบบ' — drop the price and fake toast (business decision — needs confirmation)",
+      "outcome": "fixed",
+      "outcome_note": "Pro gate now says 'ยังไม่เปิดใช้งาน ติดต่อผู้ดูแลระบบ'; removed the price/trial and fake toast, deleted pro-subscribe-button.tsx, menu tag 'Pro'→'ยังไม่เปิด'"
+    },
+    {
+      "id": "L12",
+      "check": 19,
+      "agent": "launch",
+      "severity": "low",
+      "title": "One page with 2 names (ประวัติ vs ประวัติการขาย); issued status labeled 2 ways",
+      "locations": [
+        "backend auth/module.go:240,313",
+        "common.tsx:31,288"
+      ],
+      "count": 2,
+      "fix": "Use 'ประวัติการขาย' / 'ออกบิลแล้ว'",
+      "outcome": "fixed"
+    },
+    {
+      "id": "L13",
+      "check": 19,
+      "agent": "launch",
+      "severity": "low",
+      "title": "V2 workspace shows raw keys + English 'Retry' (WIP, super_admin only)",
+      "locations": [
+        "v2/workflows.tsx:104",
+        "v2/workspace.tsx:136,142"
+      ],
+      "count": 5,
+      "fix": "Skip — this is uncommitted WIP that belongs to its owner",
+      "outcome": "skipped",
+      "outcome_note": "uncommitted V2 WIP that belongs to its owner (recommendation item 4)"
+    },
+    {
+      "id": "L14",
+      "check": 19,
+      "agent": "launch",
+      "severity": "low",
+      "title": "PO print/forms still show Subtotal / Purchase Order / Email",
+      "locations": [
+        "purchase-order-console.tsx:1040,1389",
+        "supplier-console.tsx:390"
+      ],
+      "count": 3,
+      "fix": "รวมก่อนภาษี / ใบสั่งซื้อ / Purchase Order / อีเมล",
+      "outcome": "fixed"
+    },
+    {
+      "id": "L15",
+      "check": 20,
+      "agent": "launch",
+      "severity": "medium",
+      "title": "No robots.txt/noindex; robots.txt redirects to /login",
+      "locations": [
+        "middleware.ts:7,18",
+        "app/layout.tsx:17-20"
+      ],
+      "fix": "robots: noindex + app/robots.ts disallow / + middleware lets the path through",
+      "outcome": "fixed",
+      "outcome_note": "public/robots.txt Disallow: / + metadata robots noindex"
+    },
+    {
+      "id": "L16",
+      "check": 20,
+      "agent": "launch",
+      "severity": "medium",
+      "title": "/login has no security headers (no frame protection = clickjacking risk) and sends X-Powered-By",
+      "locations": [
+        "next.config.mjs:2-11"
+      ],
+      "fix": "poweredByHeader:false + headers(): X-Frame-Options DENY, nosniff, Referrer-Policy, HSTS, Permissions-Policy (no CSP yet — high risk)",
+      "outcome": "fixed",
+      "outcome_note": "added poweredByHeader:false + X-Frame-Options, nosniff, Referrer-Policy, HSTS, Permissions-Policy; CSP not added yet (recommendation item 5)"
+    },
+    {
+      "id": "L17",
+      "check": 20,
+      "agent": "launch",
+      "severity": "low",
+      "title": "404 page uses bg-white (dark mode)",
+      "locations": [
+        "not-found.tsx:6"
+      ],
+      "fix": "bg-card",
+      "outcome": "fixed"
+    }
+  ],
+  "fix_round": {
+    "date": "2026-10-08",
+    "approved_by_user": "ยืนยัน แก้ตามที่แนะนำทุกข้อ",
+    "decisions": {
+      "1_L11": "honest 'not enabled' message",
+      "2_D20": "ordered radius scale",
+      "3_dead_files": "deleted",
+      "4_wip": "commit only my own changes; WIP stays uncommitted",
+      "5_L16": "basic headers, no CSP"
+    }
+  }
+}

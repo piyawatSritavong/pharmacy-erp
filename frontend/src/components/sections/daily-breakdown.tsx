@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowRight, Receipt } from "lucide-react";
 
 import { SectionCard } from "@/components/sections/common";
+import { EmptyState } from "@/components/ui/empty-state";
 import { currency } from "@/lib/utils";
 import type { BreakdownGroup, DailyBreakdown, TenderSplit } from "@/services/erp";
 
@@ -373,6 +374,14 @@ function Breakdown({
   // is hidden while a filter is narrowing the page, because then it would be a
   // total for rows that are not on screen.
   const unfiltered = !filters.closeStatus && !filters.paymentType && !filters.paymentStatus;
+  // Every group can be filtered away (e.g. "ค้างชำระ" with no unpaid bills);
+  // say so instead of leaving the card blank.
+  const nothingVisible =
+    [...REAL_GROUPS, ...CLOSE_GROUPS].every((spec) => !keep(spec, filters)) &&
+    !(unpaid.invoice_count > 0 && keep(UNPAID_GROUP, filters));
+  if (nothingVisible) {
+    return <EmptyState className="p-6" description="ไม่มียอดขายที่ตรงกับตัวกรองที่เลือก" />;
+  }
   return (
     <div className="space-y-3">
       {unfiltered && day.invoice_count > 0 ? (
@@ -552,6 +561,7 @@ export function DailyBreakdownBoards({
       </SectionCard>
 
       <SectionCard description="แยกตามสาขา เรียงจากยอดมากไปน้อย" title="ยอดขายแต่ละสาขา">
+        {data.branches.length === 0 ? <EmptyState description="ยังไม่มีสาขาขายในช่วงนี้" /> : null}
         <div className="space-y-4">
           {data.branches.map((branch) => (
             // On a phone a branch is a section divided by a rule, not one more

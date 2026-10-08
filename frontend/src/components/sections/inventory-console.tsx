@@ -14,18 +14,25 @@ import {
   Checkbox,
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   EmptyState,
+  ErrorState,
   InfiniteScrollTrigger,
   Input,
+  LoadingState,
+  FeedbackNotice,
   Notice,
   Pagination as ListPagination,
   Select,
+  TableEmptyState,
   useInfiniteList,
 } from "@/components/ui/primitives";
+import type { Feedback } from "@/components/ui/primitives";
 import { cn, currency } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
 import type { Pagination } from "@/services/erp";
+import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Option = Record<string, unknown>;
 
@@ -74,6 +81,7 @@ export function InventoryConsole({
   filters?: { search: string; branchId: string; page: number; pageSize?: number };
 }) {
   const router = useRouter();
+  const refresh = useRefresh();
   // Only the superadmin has a Ghost bucket to tell this one apart from, so for
   // everyone else "สต๊อกจริง" is just "สต๊อก".
   const realLabel = canManageGhost ? "สต๊อกจริง" : "สต๊อก";
@@ -89,6 +97,11 @@ export function InventoryConsole({
   const [lots, setLots] = useState<Option[]>([]);
   const [lotsLoading, setLotsLoading] = useState(false);
   const [movements, setMovements] = useState<Option[]>([]);
+  // Loading and failure are kept apart from "empty": a failed fetch used to
+  // fall back to [] and read as "no history".
+  const [movementsLoading, setMovementsLoading] = useState(false);
+  const [movementsError, setMovementsError] = useState("");
+  const [lotsError, setLotsError] = useState("");
   const [branchSettingsOpen, setBranchSettingsOpen] = useState(false);
   // Lot-targeted stock adjustment, run from the ตั้งค่าเฉพาะสาขา dialog.
   const [adjustLotId, setAdjustLotId] = useState("");
@@ -114,7 +127,12 @@ export function InventoryConsole({
   });
   // Only used when an expiry-tracked product has no existing lot to inherit
   // an expiry date from — otherwise the date comes from stock on hand.
-  const [message, setMessage] = useState("");
+  // Outcomes carry a tone, so a failure no longer reads like a success.
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const setMessage = (text: string, tone: "success" | "error" = "success") => setFeedback(text ? { tone, text } : null);
+  // Errors while a dialog is open show inside it, not behind the overlay.
+  const [dialogError, setDialogError] = useState("");
+  const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState(filters?.search || "");
   const [selectedInventoryId, setSelectedInventoryId] = useState(
     String(inventory[0]?.id || ""),
@@ -261,7 +279,7 @@ export function InventoryConsole({
       setAdjustReason("");
       setAdjustConfirmed(false);
       setBranchSettingsOpen(false);
-      startTransition(() => router.refresh());
+      refresh();
     } catch (caught) {
       setAdjustError(caught instanceof Error ? caught.message : "ปรับยอดสต๊อกไม่สำเร็จ");
     } finally {
@@ -277,14 +295,17 @@ export function InventoryConsole({
       );
       setDeleteImpact(impact);
       setDeleteText("");
+      setDialogError("");
       setDeleteOpen(true);
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "ตรวจสอบผลกระทบไม่สำเร็จ");
+      setMessage(caught instanceof Error ? caught.message : "ตรวจสอบผลกระทบไม่สำเร็จ", "error");
     }
   }
 
   async function confirmDeleteProduct() {
     if (!selectedInventory) return;
+    setBusy(true);
+    setDialogError("");
     try {
       const response = await proxyClient<{ message: string }>(
         `/products/${String(selectedInventory.product_id)}`,
@@ -293,9 +314,11 @@ export function InventoryConsole({
       setDeleteOpen(false);
       setSelectedInventoryId("");
       setMessage(response.message);
-      startTransition(() => router.refresh());
+      refresh();
     } catch (caught) {
-      setMessage(caught instanceof Error ? caught.message : "ลบสินค้าไม่สำเร็จ");
+      setDialogError(caught instanceof Error ? caught.message : "ลบสินค้าไม่สำเร็จ");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -313,9 +336,16 @@ export function InventoryConsole({
       product_id: String(selectedInventory.product_id),
       stock_bucket: activeBucket,
     });
+    setLotsLoading(true);
+    setLotsError("");
     proxyClient<{ items: Option[] }>(`/inventory/lots?${params.toString()}`)
       .then((response) => { if (!cancelled) setLots(response.items); })
-      .catch(() => { if (!cancelled) setLots([]); });
+      .catch((error) => {
+        if (cancelled) return;
+        setLots([]);
+        setLotsError(error instanceof Error ? error.message : "โหลด Lot ไม่สำเร็จ");
+      })
+      .finally(() => { if (!cancelled) setLotsLoading(false); });
     return () => { cancelled = true; };
   }, [activeBucket, mode, selectedInventory]);
 
@@ -332,9 +362,16 @@ export function InventoryConsole({
       page: "1",
       page_size: "20",
     });
+    setMovementsLoading(true);
+    setMovementsError("");
     proxyClient<{ items: Option[] }>(`/inventory/movements?${params.toString()}`)
       .then((response) => { if (!cancelled) setMovements(response.items); })
-      .catch(() => { if (!cancelled) setMovements([]); });
+      .catch((error) => {
+        if (cancelled) return;
+        setMovements([]);
+        setMovementsError(error instanceof Error ? error.message : "โหลดประวัติไม่สำเร็จ");
+      })
+      .finally(() => { if (!cancelled) setMovementsLoading(false); });
     return () => { cancelled = true; };
   }, [activeBucket, mode, selectedInventory]);
 
@@ -374,6 +411,7 @@ export function InventoryConsole({
     } catch (caught) {
       setMessage(
         caught instanceof Error ? caught.message : "โหลดข้อมูล Lot ไม่สำเร็จ",
+        "error",
       );
       setLots([]);
     } finally {
@@ -427,7 +465,7 @@ export function InventoryConsole({
       );
       setMessage("บันทึกราคาขายเฉพาะสาขาแล้ว");
       await loadBranchPrice();
-      startTransition(() => router.refresh());
+      refresh();
     } catch (caught) {
       setBranchPrice((current) => ({
         ...current,
@@ -466,10 +504,12 @@ export function InventoryConsole({
             ? ""
             : String(settings.low_stock_ghost_threshold),
       });
+      setDialogError("");
       setBranchSettingsOpen(true);
     } catch (caught) {
       setMessage(
         caught instanceof Error ? caught.message : "โหลดค่าเฉพาะสาขาไม่สำเร็จ",
+        "error",
       );
     }
   }
@@ -478,6 +518,8 @@ export function InventoryConsole({
     if (!selectedInventory) return;
     const optionalNumber = (value: string) =>
       value.trim() === "" ? null : Number(value);
+    setBusy(true);
+    setDialogError("");
     try {
       await proxyClient(
         `/products/${String(selectedInventory.product_id)}/branch-settings/${String(selectedInventory.branch_id)}`,
@@ -499,13 +541,11 @@ export function InventoryConsole({
       );
       setBranchSettingsOpen(false);
       setMessage("บันทึกค่าเฉพาะสาขาแล้ว");
-      startTransition(() => router.refresh());
+      refresh();
     } catch (caught) {
-      setMessage(
-        caught instanceof Error
-          ? caught.message
-          : "บันทึกค่าเฉพาะสาขาไม่สำเร็จ",
-      );
+      setDialogError(caught instanceof Error ? caught.message : "บันทึกค่าเฉพาะสาขาไม่สำเร็จ");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -551,8 +591,8 @@ export function InventoryConsole({
             { key: "threshold_label", label: "จุดแจ้งเตือน", className: "whitespace-nowrap" },
             { key: "price", label: "ราคา", type: "currency", className: "whitespace-nowrap" },
           ]}
-          emptyDescription={alertsLoading ? "กำลังโหลด..." : "ไม่มีสินค้าที่ถึงจุดแจ้งเตือนสต๊อก"}
-          rows={rows}
+          emptyDescription="ไม่มีสินค้าที่ถึงจุดแจ้งเตือนสต๊อก"
+          rows={alertsLoading ? [] : rows}
         />
         <ListPagination
           className="mt-4"
@@ -569,7 +609,7 @@ export function InventoryConsole({
 
   return (
     <div className="space-y-6">
-      <section className="overflow-hidden rounded-3xl border bg-white shadow-card lg:grid lg:min-h-[690px] lg:grid-cols-[440px_minmax(0,1fr)]">
+      <section className="overflow-hidden rounded-2xl border bg-card shadow-card lg:grid lg:min-h-[690px] lg:grid-cols-[440px_minmax(0,1fr)]">
       <aside className="flex max-h-[36rem] flex-col lg:max-h-none lg:min-h-[560px] border-b lg:border-b-0 lg:border-r">
         <h2 className="sr-only">
           จัดการ
@@ -627,7 +667,7 @@ export function InventoryConsole({
                 aria-selected={selected}
                 className={cn(
                   "w-full px-4 py-3 text-left transition",
-                  selected ? "bg-primary text-white" : "hover:bg-muted",
+                  selected ? "bg-primary text-primary-foreground" : "hover:bg-muted",
                 )}
                 key={String(item.id)}
                 onClick={() => selectInventory(item)}
@@ -649,7 +689,7 @@ export function InventoryConsole({
                     <span
                       className={cn(
                         "block truncate text-xs",
-                        selected ? "text-white/75" : "text-muted-foreground",
+                        selected ? "text-primary-foreground/75" : "text-muted-foreground",
                       )}
                     >
                       {manageBucket === "ghost"
@@ -701,7 +741,7 @@ export function InventoryConsole({
       <section className="min-w-0 p-3 sm:p-5 lg:p-7">
         <div className="mb-6 border-b pb-5">
           <div className="min-w-0">
-            <h2 className="text-lg font-bold sm:text-2xl sm:font-black">{String(selectedInventory?.product_name || "เลือกรายการสินค้า")}</h2>
+            <h2 className="text-lg font-semibold tracking-tight sm:text-2xl">{String(selectedInventory?.product_name || "เลือกรายการสินค้า")}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {String(selectedInventory?.sku || "")}
               {selectedInventory && manageBucket !== "ghost"
@@ -715,7 +755,7 @@ export function InventoryConsole({
                 available={Boolean(selectedInventory.image_available)}
                 branchId={manageBucket === "ghost" ? undefined : String(selectedInventory.branch_id)}
                 imageCount={Number(selectedInventory.image_count || 0)}
-                onImageAdded={manageBucket === "ghost" ? undefined : () => startTransition(() => router.refresh())}
+                onImageAdded={manageBucket === "ghost" ? undefined : () => refresh()}
                 productId={String(selectedInventory.product_id)}
                 productName={String(selectedInventory.product_name)}
               />
@@ -789,22 +829,24 @@ export function InventoryConsole({
             </>
           ) : null}
         </div>
-        {message ? (
-          <p className="mt-4 rounded-2xl bg-muted px-4 py-3 text-sm">
-            {message}
-          </p>
-        ) : null}
+        <FeedbackNotice className="mt-4" feedback={feedback} />
         {selectedInventory ? (
           <div className="mt-6 rounded-2xl border">
-            <div className="border-b px-4 py-3"><p className="font-bold">ประวัติ movement ล่าสุด</p><p className="text-xs text-muted-foreground">บิลที่ถูกซ่อน, internal reversal และ Ghost จะไม่แสดงแก่บัญชีที่ไม่ใช่ Superadmin</p></div>
+            <div className="border-b px-4 py-3"><p className="font-semibold">ประวัติการเคลื่อนไหวล่าสุด</p><p className="text-xs text-muted-foreground">บิลที่ถูกซ่อน รายการย้อนภายใน และสต๊อกผี แสดงเฉพาะผู้ดูแลระบบสูงสุด</p></div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] text-sm">
                 <thead className="bg-muted/60 text-left"><tr><th className="p-3">วันที่</th><th className="p-3">รายการ</th><th className="p-3">ประเภท</th><th className="p-3 text-right">จำนวน</th><th className="p-3">หมายเหตุ</th></tr></thead>
                 <tbody>
                   {movements.map((movement) => (
-                    <tr className="border-t" key={String(movement.id)}><td className="whitespace-nowrap p-3">{showFullTimestamp ? new Date(String(movement.created_at)).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" }) : new Date(String(movement.created_at)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}</td><td className="p-3">{String(movement.movement_type)}</td><td className="p-3">{String(movement.stock_bucket) === "ghost" ? "Ghost Stock (สต๊อกผี)" : canManageGhost ? "Real Stock (สต๊อกจริง)" : "สต๊อก"}</td><td className={`p-3 text-right font-semibold ${Number(movement.quantity_delta) < 0 ? "text-red-700" : "text-emerald-700"}`}>{Number(movement.quantity_delta) > 0 ? "+" : ""}{Number(movement.quantity_delta).toLocaleString("th-TH")}</td><td className="p-3 text-muted-foreground">{String(movement.note || "-")}</td></tr>
+                    <tr className="border-t" key={String(movement.id)}><td className="whitespace-nowrap p-3">{showFullTimestamp ? new Date(String(movement.created_at)).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" }) : new Date(String(movement.created_at)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}</td><td className="p-3">{String(movement.movement_type)}</td><td className="p-3">{String(movement.stock_bucket) === "ghost" ? "สต๊อกผี" : canManageGhost ? "สต๊อกจริง" : "สต๊อก"}</td><td className={`p-3 text-right font-semibold ${Number(movement.quantity_delta) < 0 ? "text-error-700" : "text-success-700"}`}>{Number(movement.quantity_delta) > 0 ? "+" : ""}{Number(movement.quantity_delta).toLocaleString("th-TH")}</td><td className="p-3 text-muted-foreground">{String(movement.note || "-")}</td></tr>
                   ))}
-                  {movements.length === 0 ? <tr><td className="p-8 text-center text-muted-foreground" colSpan={5}>ยังไม่มีประวัติ movement ที่มองเห็นได้</td></tr> : null}
+                  {movementsLoading ? (
+                    <tr><td colSpan={5}><LoadingState compact label="กำลังโหลดประวัติ..." /></td></tr>
+                  ) : movementsError ? (
+                    <tr><td colSpan={5}><ErrorState className="p-6" description={movementsError} title="โหลดประวัติการเคลื่อนไหวไม่สำเร็จ" /></td></tr>
+                  ) : movements.length === 0 ? (
+                    <TableEmptyState colSpan={5} description="ยังไม่มีประวัติการเคลื่อนไหวที่มองเห็นได้" />
+                  ) : null}
                 </tbody>
               </table>
             </div>
@@ -820,9 +862,9 @@ export function InventoryConsole({
             title={`Lot ของ ${String(selectedInventory?.product_name || "สินค้า")}`}
           />
           {lotsLoading ? (
-            <p className="p-10 text-center text-sm text-muted-foreground">
-              กำลังโหลด Lot...
-            </p>
+            <LoadingState compact label="กำลังโหลด Lot..." />
+          ) : lotsError ? (
+            <ErrorState description={lotsError} title="โหลด Lot ไม่สำเร็จ" />
           ) : (
             <div className="overflow-x-auto rounded-2xl border">
               <table className="w-full min-w-[850px] text-sm">
@@ -871,7 +913,7 @@ export function InventoryConsole({
                   ))}
                 </tbody>
               </table>
-              {lots.length === 0 ? <EmptyState className="p-10" description="ยังไม่มี Lot ใน bucket นี้" /> : null}
+              {lots.length === 0 ? <EmptyState className="p-10" description="ยังไม่มี Lot ในสต๊อกประเภทนี้" /> : null}
             </div>
           )}
         </DialogContent>
@@ -969,7 +1011,7 @@ export function InventoryConsole({
                   value={adjustReason}
                 />
               </Field>
-              <label className="flex items-start gap-2 text-sm">
+              <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm sm:min-h-0 sm:gap-2">
                 <Checkbox
                   aria-label="ยืนยันการปรับยอดสต๊อก"
                   checked={adjustConfirmed}
@@ -1032,18 +1074,20 @@ export function InventoryConsole({
                 />
               </Field>
             ) : null}
-            <div className="flex justify-end gap-2">
+            {dialogError ? <Notice tone="error">{dialogError}</Notice> : null}
+            <DialogFooter>
               <Button
+                disabled={busy}
                 onClick={() => setBranchSettingsOpen(false)}
                 type="button"
                 variant="secondary"
               >
                 ยกเลิก
               </Button>
-              <Button onClick={saveBranchSettings} type="button">
+              <Button loading={busy} loadingText="กำลังบันทึก..." onClick={saveBranchSettings} type="button">
                 บันทึก
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>
@@ -1068,19 +1112,22 @@ export function InventoryConsole({
               พิมพ์ <strong>{deleteImpact?.confirmation}</strong> เพื่อยืนยัน
             </p>
             <Input aria-label="ข้อความยืนยันการลบ" onChange={(event) => setDeleteText(event.target.value)} value={deleteText} />
-            <div className="flex justify-end gap-2">
-              <Button onClick={() => setDeleteOpen(false)} type="button" variant="secondary">
+            {dialogError ? <Notice tone="error">{dialogError}</Notice> : null}
+            <DialogFooter>
+              <Button disabled={busy} onClick={() => setDeleteOpen(false)} type="button" variant="secondary">
                 ยกเลิก
               </Button>
               <Button
                 disabled={deleteText !== deleteImpact?.confirmation}
+                loading={busy}
+                loadingText="กำลังลบ..."
                 onClick={() => void confirmDeleteProduct()}
                 type="button"
                 variant="destructive"
               >
                 ลบถาวร
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>
