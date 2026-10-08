@@ -361,13 +361,13 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
           </SectionCard>
 
           <SectionCard title="Projection การเคลื่อนไหวสต๊อก" description="เฉพาะบิลที่ซ่อน: แหล่งตัดเป็น Ghost หนึ่งค่า ส่วนการย้อนและส่งคืน Real เป็น adjustment แยก บิลที่บันทึกที่ต้นทุน + % ไม่แตะสต๊อก">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
               {[
                 ["Branch Real returned", preview.stock_projection.branch_real_returned],
                 ["WH Real received", preview.stock_projection.warehouse_real_received],
                 ["WH Ghost deducted", preview.stock_projection.warehouse_ghost_deducted],
                 ["Ghost deficit", preview.stock_projection.ghost_deficit_created]
-              ].map(([label, value]) => <div className="rounded-lg border p-4" key={String(label)}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-xl font-semibold">{count(Number(value))} ชิ้น</p></div>)}
+              ].map(([label, value]) => <div className="rounded-lg border p-3 sm:p-4" key={String(label)}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-lg font-semibold sm:text-xl">{count(Number(value))} ชิ้น</p></div>)}
             </div>
             <TableContainer className="mt-4">
               <Table>

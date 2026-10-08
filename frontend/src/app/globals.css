@@ -263,6 +263,17 @@ textarea:disabled {
   .responsive-table th { white-space: nowrap; }
   .responsive-table td { max-width: 22rem; overflow-wrap: anywhere; }
   .responsive-table:has(tbody > tr:only-child > td:only-child[colspan]) { min-width: 100%; }
+  /* An empty table is only its message: nowrap headers would otherwise widen
+     it past the screen and push the centred message out of view. */
+  .responsive-table:has(tbody > tr:only-child > td:only-child[colspan]) thead { display: none; }
+
+  /* Filter/form rows lay fields out at fixed tablet widths (w-40, w-72…),
+     which leaves ragged half-empty rows on a phone. Let them share each row
+     instead: two to a row where they fit, one where they don't, always
+     reaching the right edge — the same grid tablet shows, just narrower. */
+  .flex-wrap > .ui-field { flex: 1 1 9rem; }
+  .flex-wrap > .ui-field:is(.w-56, .w-60, .w-64, .w-72, .w-80, .w-96, .sm\:w-56, .sm\:w-60, .sm\:w-64, .sm\:w-72, .sm\:w-80),
+  .flex-wrap > .ui-field.w-full:not([class*="sm:w-"]) { flex-basis: 100%; }
 
   /* Opt-in cards retain a single set of cells/actions and every data value. */
   .mobile-card-table { min-width: 0; width: 100%; }
@@ -271,7 +282,9 @@ textarea:disabled {
   .mobile-card-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem 0.75rem; border: 1px solid hsl(var(--border)); border-radius: 0.75rem; padding: 0.75rem; }
   .mobile-card-table tbody td { display: block; padding: 0; min-width: 0; max-width: none; border: 0; text-align: left; }
   .mobile-card-table td::before { content: attr(data-label); display: block; margin-bottom: 0.125rem; font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
-  .mobile-card-table td[data-primary="true"] { grid-column: 1 / -1; font-weight: 600; }
+  /* The record's name heads its card, as it would lead a table row. */
+  .mobile-card-table td[data-primary="true"] { grid-column: 1 / -1; order: -1; font-size: 0.9375rem; font-weight: 600; }
+  .mobile-card-table td[data-primary="true"]::before { display: none; }
   .mobile-card-table td[data-actions="true"], .mobile-card-table td[colspan] { grid-column: 1 / -1; }
   .mobile-card-table td[data-actions="true"] { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; border-top: 1px solid hsl(var(--border)); padding-top: 0.5rem; }
   .mobile-card-table td[data-actions="true"]::before, .mobile-card-table td[colspan]::before { display: none; }

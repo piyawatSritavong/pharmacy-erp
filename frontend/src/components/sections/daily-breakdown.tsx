@@ -218,7 +218,7 @@ function GroupTile({
       {compact ? null : <p className="mt-0.5 text-xs text-muted-foreground">{spec.note}</p>}
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className={`font-semibold tabular-nums ${compact ? "text-base sm:text-lg" : "text-xl sm:text-2xl"}`}>{currency(lead)}</span>
+        <span className={`min-w-0 font-semibold tabular-nums [overflow-wrap:anywhere] ${compact ? "text-base sm:text-lg" : "text-lg sm:text-2xl"}`}>{currency(lead)}</span>
         <span className="text-xs text-muted-foreground">{bills(leadCount)}</span>
       </div>
 
@@ -331,7 +331,8 @@ function Panel({
           ) : null}
         </div>
       </div>
-      <div className={`grid gap-3 ${compact ? "sm:grid-cols-2 lg:grid-cols-3" : "md:grid-cols-3"}`}>
+      {/* Two across on a phone too, as on tablet; one tile per row tripled the page's length. */}
+      <div className={`grid grid-cols-2 gap-2 sm:gap-3 ${compact ? "lg:grid-cols-3" : "md:grid-cols-3"}`}>
         {visible.map((spec) => (
           <GroupTile
             closed={closed}
@@ -463,7 +464,7 @@ function TenderBoard({ tender, compact }: { tender: TenderSplit; compact?: boole
     { label: "ยอดเงินสด", amount: tender.cash_amount }
   ];
   return (
-    <div className="rounded-2xl border bg-muted/20 p-4">
+    <div className="rounded-xl border bg-muted/20 p-2 sm:rounded-2xl sm:p-4">
       {/* Sized to match the Superadmin day total, so the two screens can sit
           side by side and the eye lands on the same figure in both. */}
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
@@ -473,11 +474,11 @@ function TenderBoard({ tender, compact }: { tender: TenderSplit; compact?: boole
           <span className="ml-2 text-xs font-normal text-muted-foreground">{bills(tender.invoice_count)}</span>
         </p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3">
         {rows.map((row) => (
           <div className={`rounded-xl border bg-card px-3 sm:px-4 ${compact ? "py-2 sm:py-3" : "py-2.5 sm:py-4"}`} key={row.label}>
             <p className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>{row.label}</p>
-            <p className={`mt-2 font-semibold tabular-nums ${compact ? "text-base sm:text-lg" : "text-xl sm:text-2xl"}`}>{currency(row.amount)}</p>
+            <p className={`mt-2 font-semibold tabular-nums [overflow-wrap:anywhere] ${compact ? "text-base sm:text-lg" : "text-lg sm:text-2xl"}`}>{currency(row.amount)}</p>
           </div>
         ))}
       </div>
@@ -553,7 +554,9 @@ export function DailyBreakdownBoards({
       <SectionCard description="แยกตามสาขา เรียงจากยอดมากไปน้อย" title="ยอดขายแต่ละสาขา">
         <div className="space-y-4">
           {data.branches.map((branch) => (
-            <div className="rounded-xl border bg-card p-2 sm:rounded-2xl sm:p-4" key={String(branch.branch_id)}>
+            // On a phone a branch is a section divided by a rule, not one more
+            // bordered box — the panels and tiles inside are boxed already.
+            <div className="border-t pt-4 first:border-t-0 first:pt-0 sm:rounded-2xl sm:border sm:bg-card sm:p-4 sm:first:border-t sm:first:pt-4" key={String(branch.branch_id)}>
               <p className="mb-3 font-semibold">
                 {String(branch.branch_name)}
                 <span className="ml-2 text-xs font-normal text-muted-foreground">{String(branch.branch_code)}</span>

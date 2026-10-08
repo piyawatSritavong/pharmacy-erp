@@ -118,12 +118,12 @@ export function MetricGrid({
   items: Array<{ key: string; label: string; value: string | number }>;
 }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
       {items.map((item) => (
         <Card key={item.key}>
           <CardBody className="space-y-1.5 p-3 sm:p-5">
             <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
-            <p className="text-xl font-semibold tracking-tight tabular-nums sm:text-2xl">
+            <p className="text-lg font-semibold tracking-tight tabular-nums [overflow-wrap:anywhere] sm:text-2xl">
               {typeof item.value === "number" ? item.value.toLocaleString("th-TH") : item.value}
             </p>
           </CardBody>
