@@ -19,7 +19,11 @@ export default async function AdminSalesPage() {
         title="ขายหน้าร้าน"
         description="สำนักงานใหญ่เปิดการขายในนามสาขา — เลือกสาขา เลือกวิธีขาย แล้วขายเหมือนหน้าร้าน"
       />
-      <AdminSalesConsole branches={sellingBranches} operatorName={String(session.user.name || "")} />
+      <AdminSalesConsole
+        branches={sellingBranches}
+        operatorId={String(session.user.id || "")}
+        operatorName={String(session.user.name || "")}
+      />
     </div>
   );
 }

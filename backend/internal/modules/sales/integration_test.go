@@ -18,7 +18,7 @@ func TestSalesFEFOExpiryAndInvoiceRestoreAgainstConfiguredDatabase(t *testing.T)
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
-	db, err := database.Open(databaseURL)
+	db, err := database.OpenTest(databaseURL)
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
@@ -30,6 +30,9 @@ func TestSalesFEFOExpiryAndInvoiceRestoreAgainstConfiguredDatabase(t *testing.T)
 	}
 	if err := db.QueryRowContext(ctx, `SELECT id::text FROM branches WHERE active=TRUE AND sales_enabled=TRUE ORDER BY created_at,id LIMIT 1`).Scan(&branchID); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE remote_sale_sessions SET status='cancelled',updated_at=NOW() WHERE branch_id=$1 AND status='open'`, branchID); err != nil {
+		t.Fatalf("clear stale remote integration fixture: %v", err)
 	}
 	user := platform.AuthUser{ID: userID, RoleKey: "super_admin", Portal: "backoffice", Scope: "global", Permissions: []string{"price.override.global", "quotation.manage"}}
 	meta := audit.LogEntry{ActorID: &userID}
@@ -183,6 +186,225 @@ func TestSalesFEFOExpiryAndInvoiceRestoreAgainstConfiguredDatabase(t *testing.T)
 	}
 	if earlyRemaining != 2 || lateRemaining != 3 {
 		t.Fatalf("expected original lots restored to 2/3, got %d/%d", earlyRemaining, lateRemaining)
+	}
+
+	remoteUnitID := platform.MustUUID()
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO product_units (id,product_id,unit_name,conversion_qty,is_base,selling_price,sort_order,active)
+		VALUES ($1,$2,'แพ็ก 2',2,FALSE,180,1,TRUE)
+	`, remoteUnitID, productID); err != nil {
+		t.Fatalf("create remote multi-unit fixture: %v", err)
+	}
+	remote, err := salesService.SaveRemoteSession(ctx, user, RemoteSessionRequest{
+		BranchID: branchID,
+		Cart: RemoteCart{
+			CustomerName: "Remote idempotency test",
+			Lines: []RemoteCartLine{{
+				ProductID: productID, InventoryLotID: earlyLotID,
+				Quantity: 1, UnitID: remoteUnitID, UnitName: "แพ็ก 2", ConversionQty: 2,
+				SoldQuantity: 1, StockBucket: "real", UnitPrice: 180,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("save remote session: %v", err)
+	}
+	remoteSessionID := remote["id"].(string)
+	remoteVersion := int64(remote["cart_version"].(int64))
+	remote, err = salesService.SaveRemoteSession(ctx, user, RemoteSessionRequest{
+		BranchID: branchID, SessionID: remoteSessionID, CartVersion: remoteVersion,
+		Cart: RemoteCart{CustomerName: "Remote version two", Lines: []RemoteCartLine{{
+			ProductID: productID, InventoryLotID: earlyLotID,
+			Quantity: 1, UnitID: remoteUnitID, UnitName: "แพ็ก 2", ConversionQty: 2,
+			SoldQuantity: 1, StockBucket: "real", UnitPrice: 180,
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("update remote session with current version: %v", err)
+	}
+	if _, err := salesService.SaveRemoteSession(ctx, user, RemoteSessionRequest{
+		BranchID: branchID, SessionID: remoteSessionID, CartVersion: remoteVersion,
+		Cart: RemoteCart{CustomerName: "stale overwrite", Lines: []RemoteCartLine{{
+			ProductID: productID, InventoryLotID: lateLotID,
+			Quantity: 1, SoldQuantity: 1, StockBucket: "real", UnitPrice: 100,
+		}}},
+	}); err == nil {
+		t.Fatal("expected stale cart version to be rejected")
+	}
+	if _, err := salesService.SaveRemoteSession(ctx, user, RemoteSessionRequest{
+		BranchID: branchID, Cart: RemoteCart{Lines: []RemoteCartLine{{
+			ProductID: productID, InventoryLotID: lateLotID, Quantity: 1, StockBucket: "real",
+		}}},
+	}); err == nil {
+		t.Fatal("expected a second open remote session to conflict")
+	}
+	var otherUserID string
+	if err := db.QueryRowContext(ctx, `SELECT id::text FROM users WHERE id<>$1 AND active=TRUE ORDER BY id LIMIT 1`, userID).Scan(&otherUserID); err != nil {
+		t.Fatalf("find second user for remote ownership test: %v", err)
+	}
+	foreignAdmin := user
+	foreignAdmin.ID = otherUserID
+	foreignAdmin.Permissions = append(foreignAdmin.Permissions, "invoice.create.remote")
+	if _, err := salesService.CheckoutRemoteSession(ctx, foreignAdmin, meta, RemoteSessionPayment{
+		SessionID: remoteSessionID, BranchID: branchID, PaymentType: "cash", TenderedAmount: 1000,
+	}); err == nil {
+		t.Fatal("expected another administrator to be unable to settle the remote session")
+	}
+	type remoteCheckoutResult struct {
+		result map[string]any
+		err    error
+	}
+	startRemoteCheckout := make(chan struct{})
+	remoteResults := make(chan remoteCheckoutResult, 2)
+	payment := RemoteSessionPayment{SessionID: remoteSessionID, PaymentType: "cash", TenderedAmount: 1000}
+	for range 2 {
+		go func() {
+			<-startRemoteCheckout
+			result, checkoutErr := salesService.CheckoutRemoteSession(ctx, posUser, meta, payment)
+			remoteResults <- remoteCheckoutResult{result: result, err: checkoutErr}
+		}()
+	}
+	close(startRemoteCheckout)
+	var remoteInvoiceID string
+	for range 2 {
+		checkoutResult := <-remoteResults
+		if checkoutResult.err != nil {
+			t.Fatalf("idempotent remote checkout: %v", checkoutResult.err)
+		}
+		invoiceID := checkoutResult.result["invoice_id"].(string)
+		if remoteInvoiceID == "" {
+			remoteInvoiceID = invoiceID
+		} else if invoiceID != remoteInvoiceID {
+			t.Fatalf("remote checkout retries returned different invoices: %s != %s", invoiceID, remoteInvoiceID)
+		}
+	}
+	var remoteInvoices, remotePayments, remoteMovements int
+	var remoteStatus string
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM invoices WHERE id=$1`, remoteInvoiceID).Scan(&remoteInvoices); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM invoice_payments WHERE invoice_id=$1`, remoteInvoiceID).Scan(&remotePayments); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM inventory_movements WHERE reference_type='invoice' AND reference_id=$1`, remoteInvoiceID).Scan(&remoteMovements); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT status FROM remote_sale_sessions WHERE id=$1`, remoteSessionID).Scan(&remoteStatus); err != nil {
+		t.Fatal(err)
+	}
+	if remoteInvoices != 1 || remotePayments != 1 || remoteMovements != 1 || remoteStatus != "completed" {
+		t.Fatalf("remote checkout was not atomic/idempotent: invoices=%d payments=%d movements=%d status=%s", remoteInvoices, remotePayments, remoteMovements, remoteStatus)
+	}
+	var remoteBaseQuantity, remoteConversion, remoteSoldQuantity int
+	if err := db.QueryRowContext(ctx, `
+		SELECT quantity,unit_conversion_qty,sold_quantity
+		FROM invoice_items WHERE invoice_id=$1 AND product_id=$2
+	`, remoteInvoiceID, productID).Scan(&remoteBaseQuantity, &remoteConversion, &remoteSoldQuantity); err != nil {
+		t.Fatal(err)
+	}
+	if remoteBaseQuantity != 2 || remoteConversion != 2 || remoteSoldQuantity != 1 {
+		t.Fatalf("remote multi-unit snapshot mismatch: base=%d conversion=%d sold=%d", remoteBaseQuantity, remoteConversion, remoteSoldQuantity)
+	}
+	adminRemote := user
+	adminRemote.Permissions = append(adminRemote.Permissions, "invoice.create.remote")
+	replayed, err := salesService.CheckoutRemoteSession(ctx, adminRemote, meta, RemoteSessionPayment{
+		SessionID: remoteSessionID, BranchID: branchID, PaymentType: "cash", TenderedAmount: 1000,
+	})
+	if err != nil || replayed["invoice_id"] != remoteInvoiceID {
+		t.Fatalf("admin replay of POS checkout did not return original invoice: result=%#v err=%v", replayed, err)
+	}
+	if _, err := salesService.CheckoutRemoteSession(ctx, posUser, meta, RemoteSessionPayment{
+		SessionID: remoteSessionID, PaymentType: "bank_transfer",
+	}); err == nil {
+		t.Fatal("expected reuse of a completed session with different payment data to fail")
+	}
+	if err := salesService.DeleteInvoice(ctx, user, meta, remoteInvoiceID, ""); err != nil {
+		t.Fatalf("delete remote idempotency invoice: %v", err)
+	}
+	cancelCandidate, err := salesService.SaveRemoteSession(ctx, user, RemoteSessionRequest{
+		BranchID: branchID,
+		Cart: RemoteCart{Lines: []RemoteCartLine{{
+			ProductID: productID, InventoryLotID: earlyLotID,
+			Quantity: 1, SoldQuantity: 1, StockBucket: "real", UnitPrice: 100,
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("create remote cancellation candidate: %v", err)
+	}
+	cancelSessionID := cancelCandidate["id"].(string)
+	cancelVersion := cancelCandidate["cart_version"].(int64)
+	cancelCandidate, err = salesService.SaveRemoteSession(ctx, user, RemoteSessionRequest{
+		BranchID: branchID, SessionID: cancelSessionID, CartVersion: cancelVersion,
+		Cart: RemoteCart{CustomerName: "version before cancel", Lines: []RemoteCartLine{{
+			ProductID: productID, InventoryLotID: earlyLotID,
+			Quantity: 1, SoldQuantity: 1, StockBucket: "real", UnitPrice: 100,
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("advance remote cancellation candidate: %v", err)
+	}
+	currentCancelVersion := cancelCandidate["cart_version"].(int64)
+	if err := salesService.CancelRemoteSession(ctx, user, branchID, cancelSessionID, cancelVersion); err == nil {
+		t.Fatal("expected stale remote cart version to be unable to cancel")
+	}
+	wrongOwner := user
+	wrongOwner.ID = platform.MustUUID()
+	if err := salesService.CancelRemoteSession(ctx, wrongOwner, branchID, cancelSessionID, currentCancelVersion); err == nil {
+		t.Fatal("expected another operator to be unable to cancel the remote session")
+	}
+	if err := salesService.CancelRemoteSession(ctx, user, branchID, cancelSessionID, currentCancelVersion); err != nil {
+		t.Fatalf("cancel remote session with current owner/version: %v", err)
+	}
+
+	parkedID, parkedClaimToken := platform.MustUUID(), platform.MustUUID()
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO parked_bills (
+			id, branch_id, created_by, customer_name, items, item_count,
+			estimated_total, expires_at, status, claim_token, claimed_by, claimed_at
+		) VALUES ($1,$2,$3,'Atomic consume test','[]'::jsonb,1,100,NOW()+INTERVAL '1 hour','claimed',$4,$3,NOW())
+	`, parkedID, branchID, userID, parkedClaimToken); err != nil {
+		t.Fatalf("insert claimed parked bill fixture: %v", err)
+	}
+	otherSameBranchUser := posUser
+	otherSameBranchUser.ID = otherUserID
+	if _, err := salesService.Checkout(ctx, otherSameBranchUser, meta, CheckoutRequest{
+		BranchID: branchID, Items: []LineInput{{
+			ProductID: productID, InventoryLotID: earlyLotID, Quantity: 1, StockBucket: "real",
+		}},
+		PaymentType: "cash", TenderedAmount: 1000,
+		ParkedBillID: parkedID, ParkedClaimToken: parkedClaimToken,
+	}); err == nil {
+		t.Fatal("expected a same-branch account to be unable to consume another account's claim token")
+	}
+	parkedCheckout, err := salesService.Checkout(ctx, posUser, meta, CheckoutRequest{
+		BranchID: branchID, Items: []LineInput{{
+			ProductID: productID, InventoryLotID: earlyLotID, Quantity: 1, StockBucket: "real",
+		}},
+		PaymentType: "cash", TenderedAmount: 1000,
+		ParkedBillID: parkedID, ParkedClaimToken: parkedClaimToken,
+	})
+	if err != nil {
+		t.Fatalf("checkout claimed parked bill: %v", err)
+	}
+	parkedInvoiceID := parkedCheckout["invoice_id"].(string)
+	var parkedStatus, consumedInvoiceID string
+	if err := db.QueryRowContext(ctx, `SELECT status,consumed_invoice_id::text FROM parked_bills WHERE id=$1`, parkedID).Scan(&parkedStatus, &consumedInvoiceID); err != nil {
+		t.Fatal(err)
+	}
+	if parkedStatus != "consumed" || consumedInvoiceID != parkedInvoiceID {
+		t.Fatalf("parked bill was not consumed by its invoice: status=%s invoice=%s", parkedStatus, consumedInvoiceID)
+	}
+	if _, err := salesService.Checkout(ctx, posUser, meta, CheckoutRequest{
+		BranchID: branchID, Items: []LineInput{{
+			ProductID: productID, InventoryLotID: earlyLotID, Quantity: 1, StockBucket: "real",
+		}},
+		PaymentType: "cash", TenderedAmount: 1000,
+		ParkedBillID: parkedID, ParkedClaimToken: parkedClaimToken,
+	}); err == nil {
+		t.Fatal("expected a consumed parked claim to reject a duplicate checkout")
+	}
+	if err := salesService.DeleteInvoice(ctx, user, meta, parkedInvoiceID, ""); err != nil {
+		t.Fatalf("delete parked claim invoice: %v", err)
 	}
 
 	quotationID, err := salesService.CreateQuotation(ctx, user, meta, QuoteRequest{BranchID: branchID, CustomerName: "Split lots quotation", Items: []LineInput{{ProductID: productID, Quantity: 3, StockBucket: "real"}}})

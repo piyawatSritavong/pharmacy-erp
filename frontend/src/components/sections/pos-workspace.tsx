@@ -10,7 +10,7 @@ import { Field } from "@/components/ui/field";
 import { PosCart } from "@/components/sections/pos-cart";
 import { Button, buttonVariants, CheckboxField, Dialog, DialogContent, DialogHeader, EmptyState, ErrorState, Input, LoadingState, Notice, Select } from "@/components/ui/primitives";
 import { cn, currency } from "@/lib/utils";
-import { RESUME_KEY } from "@/components/sections/parked-bills-console";
+import { PARKED_BILL_RESUME_KEY, type ParkedBillClaim } from "@/lib/parked-bill";
 import { proxyClient } from "@/services/api";
 import { useRefresh } from "@/components/layout/refresh-indicator";
 
@@ -93,6 +93,7 @@ export function PosWorkspace({
   branchName,
   products,
   inventory,
+  operatorId = "",
   // The POS portal sells its own branch through /pos/*; head office sells in a
   // branch's name through /admin/pos/*. Same cart, same bill, different door.
   endpointBase = "/pos",
@@ -103,6 +104,7 @@ export function PosWorkspace({
   branchName: string;
   products: Option[];
   inventory: Option[];
+  operatorId?: string;
   endpointBase?: string;
   /** รีโมตหน้าร้าน (head office): the cart is pushed to this branch's till and
    *  paid for there, rather than being settled here. */
@@ -116,6 +118,7 @@ export function PosWorkspace({
   const [billDiscount, setBillDiscount] = useState("");
   const [previewError, setPreviewError] = useState("");
   const [gridError, setGridError] = useState("");
+  const [cancellingRemote, setCancellingRemote] = useState(false);
   const [brokenImages, setBrokenImages] = useState<Set<string>>(() => new Set());
   const [lotProduct, setLotProduct] = useState<Option | null>(null);
   const [lotOptions, setLotOptions] = useState<Option[]>([]);
@@ -129,6 +132,7 @@ export function PosWorkspace({
   const [paymentType, setPaymentType] = useState<"cash" | "bank_transfer" | "mixed">("cash");
   const [tendered, setTendered] = useState("");
   const [transferAmount, setTransferAmount] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [paymentChecking, setPaymentChecking] = useState(false);
   const [paymentReady, setPaymentReady] = useState(false);
@@ -149,17 +153,29 @@ export function PosWorkspace({
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   // The branch till's side of a remote sale, as head office sees it.
   const [remoteSession, setRemoteSession] = useState<Option | null>(null);
+  const remoteSessionRef = useRef<Option | null>(null);
   const remoteStatus = String(remoteSession?.status || "");
+  const remoteForeignSession = Boolean(
+    remoteBranchId && remoteStatus === "open" && operatorId &&
+    String(remoteSession?.operator_id || "") !== operatorId
+  );
+  const remoteSessionReady = Boolean(
+    remoteBranchId && remoteStatus === "open" && remoteSession?.id && !remoteForeignSession
+  );
   // The till's side: when head office has a cart open here, it fills this very
   // cart (so the screen reads exactly as an ordinary sale) and locks editing —
   // the server settles the cart it holds, so the two screens cannot disagree.
   const [remoteLock, setRemoteLock] = useState<{ id: string; operator: string } | null>(null);
   const remoteLockRef = useRef("");
   const remoteCartSignature = useRef("");
+  const adminRemoteCartSignature = useRef("");
+  const remoteSaveInFlight = useRef(false);
+  const remotePendingCart = useRef<Option | null>(null);
   // พักบิล — suspend the cart without touching stock, resume it later.
   const [parking, setParking] = useState(false);
   const [parkNote, setParkNote] = useState("");
   const [parkOpen, setParkOpen] = useState(false);
+  const [parkedClaim, setParkedClaim] = useState<{ id: string; claimToken: string } | null>(null);
   const mixedCashFocusSnapshot = useRef<{
     transferCents: number;
     requiredCashCents: number;
@@ -175,6 +191,42 @@ export function PosWorkspace({
   // A stable key for the promo's product set, so the loader below is not
   // rebuilt on every render by a freshly-allocated Set.
   const promoIdsKey = [...promoProductIds].sort().join(",");
+
+  const saveRemoteCart = useCallback(async (cartSnapshot: Option) => {
+    remotePendingCart.current = cartSnapshot;
+    if (remoteSaveInFlight.current) return;
+    remoteSaveInFlight.current = true;
+    try {
+      // Coalesce rapid edits and serialize writes. Each request therefore uses
+      // the cart_version returned by the previous one instead of racing two
+      // writes with the same version and dropping the newer edit on conflict.
+      while (remotePendingCart.current) {
+        const nextCart = remotePendingCart.current;
+        remotePendingCart.current = null;
+        const activeSession = remoteSessionRef.current;
+        const activeStatus = String(activeSession?.status || "");
+        if (activeStatus === "completed" || activeStatus === "cancelled") continue;
+        if (activeStatus === "open" && operatorId && String(activeSession?.operator_id || "") !== operatorId) continue;
+        try {
+          const item = await proxyClient<Option>("/admin/pos/remote-session", {
+            method: "PUT",
+            body: JSON.stringify({
+              branch_id: remoteBranchId,
+              session_id: activeStatus === "open" ? String(activeSession?.id || "") : "",
+              cart_version: activeStatus === "open" ? Number(activeSession?.cart_version || 0) : 0,
+              cart: nextCart
+            })
+          });
+          remoteSessionRef.current = item;
+          setRemoteSession(item);
+        } catch (error) {
+          setMessage(error instanceof Error ? error.message : "บันทึกตะกร้ารีโมตไม่สำเร็จ");
+        }
+      }
+    } finally {
+      remoteSaveInFlight.current = false;
+    }
+  }, [operatorId, remoteBranchId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -235,45 +287,87 @@ export function PosWorkspace({
   // Head office pushes the cart itself — not its clicks — so the till shows the
   // same bill however the two screens differ, and it survives a refresh.
   useEffect(() => {
-    if (!remoteBranchId) return;
+    if (!remoteBranchId || !cart.length) return;
     const timer = window.setTimeout(() => {
-      void proxyClient<Option>("/admin/pos/remote-session", {
-        method: "PUT",
-        body: JSON.stringify({
-          branch_id: remoteBranchId,
-          cart: {
-            lines: cart.map((line) => ({
-              product_id: String(line.product.id),
-              product_name: String(line.product.name || ""),
-              sku: String(line.product.sku || ""),
-              inventory_lot_id: String(line.lot.id),
-              lot_number: String(line.lot.lot_number || ""),
-              stock_bucket: "real",
-              quantity: line.quantity,
-              unit_price: Number(line.product.effective_price || 0),
-              discount_amount: Number(line.discount || 0)
-            })),
+      void saveRemoteCart({
+            lines: cart.map((line) => {
+              const pricedLine = preview?.lines.find(
+                (item) =>
+                  String(item.product_id) === String(line.product.id) &&
+                  String(item.inventory_lot_id) === String(line.lot.id)
+              );
+              return {
+                product_id: String(line.product.id),
+                product_name: String(line.product.name || ""),
+                sku: String(line.product.sku || ""),
+                inventory_lot_id: String(line.lot.id),
+                lot_number: String(line.lot.lot_number || ""),
+                stock_bucket: "real",
+                quantity: line.quantity,
+                unit_id: line.unitId,
+                unit_name: String(pricedLine?.unit_name || ""),
+                conversion_qty: Number(pricedLine?.conversion_qty || 1),
+                sold_quantity: Number(pricedLine?.sold_quantity || line.quantity),
+                unit_price: Number(pricedLine?.sold_unit_price || line.product.effective_price || 0),
+                discount_amount: Number(line.discount || 0),
+                units: (line.product.units as Option[]) || []
+              };
+            }),
             bill_discount_amount: Number(billDiscount || 0),
             full_tax_invoice: fullTaxInvoice,
             customer_name: fullTaxInvoice ? customerName : "",
-            customer_tax_id: fullTaxInvoice ? customerTaxId : ""
-          }
-        })
-      })
-        .then(setRemoteSession)
-        .catch(() => {
-          /* the next edit pushes again */
-        });
+            customer_tax_id: fullTaxInvoice ? customerTaxId : "",
+            is_government_mode: false,
+            notes: parkNote
+      });
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [billDiscount, cart, customerName, customerTaxId, fullTaxInvoice, remoteBranchId]);
+  }, [billDiscount, cart, customerName, customerTaxId, fullTaxInvoice, parkNote, preview, remoteBranchId, saveRemoteCart]);
 
   // ...and watches for the till to take the money.
   useEffect(() => {
     if (!remoteBranchId) return;
     const load = () =>
       void proxyClient<{ item: Option | null }>(`/admin/pos/remote-session?branch_id=${encodeURIComponent(remoteBranchId)}`)
-        .then((response) => setRemoteSession(response.item))
+        .then((response) => {
+          const next = response.item;
+          const current = remoteSessionRef.current;
+          const nextStatus = String(next?.status || "");
+          // A closed row is only meaningful when it is the same open session
+          // this screen is already watching. Otherwise the backend's latest
+          // historical row must not erase a new cart or block a new session.
+          if (nextStatus !== "open") {
+            if (String(current?.status || "") !== "open" || String(current?.id || "") !== String(next?.id || "")) return;
+          }
+          remoteSessionRef.current = next;
+          setRemoteSession(next);
+          if (nextStatus === "open") {
+            const cartData = (next?.cart as Option) || {};
+            const signature = JSON.stringify(cartData);
+            if (signature !== adminRemoteCartSignature.current) {
+              adminRemoteCartSignature.current = signature;
+              const lines = (cartData.lines as Option[]) || [];
+              setCart(lines.map((line) => ({
+                product: {
+                  id: String(line.product_id),
+                  name: String(line.product_name || ""),
+                  sku: String(line.sku || ""),
+                  effective_price: Number(line.unit_price || 0),
+                  units: (line.units as Option[]) || []
+                },
+                lot: { id: String(line.inventory_lot_id), lot_number: String(line.lot_number || "") },
+                quantity: Number(line.quantity || 0),
+                unitId: String(line.unit_id || ""),
+                discount: Number(line.discount_amount || 0) ? String(line.discount_amount) : ""
+              })));
+              setBillDiscount(Number(cartData.bill_discount_amount || 0) ? String(cartData.bill_discount_amount) : "");
+              setFullTaxInvoice(Boolean(cartData.full_tax_invoice));
+              setCustomerName(String(cartData.customer_name || ""));
+              setCustomerTaxId(String(cartData.customer_tax_id || ""));
+              setParkNote(String(cartData.notes || ""));
+            }
+          }
+        })
         .catch(() => {});
     const timer = window.setInterval(load, 3000);
     return () => window.clearInterval(timer);
@@ -286,6 +380,8 @@ export function PosWorkspace({
     setCart([]);
     setBillDiscount("");
     setMessage(`สาขารับชำระแล้ว · ${String(remoteSession?.invoice_number || "")}`);
+    remoteSessionRef.current = null;
+    setRemoteSession(null);
   }, [remoteSession?.invoice_number, remoteStatus]);
 
   useEffect(() => {
@@ -316,7 +412,9 @@ export function PosWorkspace({
           }
           const cartData = (openSession.cart as Option) || {};
           const lines = (cartData.lines as Option[]) || [];
-          const signature = JSON.stringify(lines) + String(cartData.bill_discount_amount || "");
+          // Header fields are part of the cart contract too. A tax ID or note
+          // edit must reach the till even when no product line changed.
+          const signature = JSON.stringify(cartData);
           remoteLockRef.current = String(openSession.id);
           setRemoteLock({ id: String(openSession.id), operator: String(openSession.operator_name || "") });
           // Only rewrite the cart when it actually changed, so a three-second
@@ -329,16 +427,20 @@ export function PosWorkspace({
                 id: String(line.product_id),
                 name: String(line.product_name || ""),
                 sku: String(line.sku || ""),
-                effective_price: Number(line.unit_price || 0)
+                effective_price: Number(line.unit_price || 0),
+                units: (line.units as Option[]) || []
               },
               lot: { id: String(line.inventory_lot_id), lot_number: String(line.lot_number || "") },
               quantity: Number(line.quantity || 0),
-              unitId: "",
+              unitId: String(line.unit_id || ""),
               discount: Number(line.discount_amount || 0) ? String(line.discount_amount) : ""
             }))
           );
           setBillDiscount(Number(cartData.bill_discount_amount || 0) ? String(cartData.bill_discount_amount) : "");
           setFullTaxInvoice(Boolean(cartData.full_tax_invoice));
+          setCustomerName(String(cartData.customer_name || ""));
+          setCustomerTaxId(String(cartData.customer_tax_id || ""));
+          setParkNote(String(cartData.notes || ""));
         })
         .catch(() => {
           /* the next tick retries */
@@ -361,6 +463,10 @@ export function PosWorkspace({
       tendered_amount: extra?.tendered_amount ?? Number(tendered || 0),
       transfer_amount: extra?.transfer_amount ?? Number(transferAmount || 0),
       bill_discount_amount: Number(billDiscount || 0),
+      document_note: parkNote,
+      reference_code: paymentReference,
+      parked_bill_id: parkedClaim?.id || "",
+      parked_claim_token: parkedClaim?.claimToken || "",
       items: cart.map((line) => ({
         product_id: String(line.product.id),
         inventory_lot_id: String(line.lot.id),
@@ -544,22 +650,35 @@ export function PosWorkspace({
   // sessionStorage and navigates here. Rebuild the cart from the snapshot,
   // then clear the handoff so a refresh doesn't re-add it.
   useEffect(() => {
-    const raw = window.sessionStorage.getItem(RESUME_KEY);
+    const raw = window.sessionStorage.getItem(PARKED_BILL_RESUME_KEY);
     if (!raw) return;
-    window.sessionStorage.removeItem(RESUME_KEY);
     try {
-      const bill = JSON.parse(raw) as {
+      const claim = JSON.parse(raw) as Partial<ParkedBillClaim>;
+      if (!claim.id || !claim.claim_token) {
+        window.sessionStorage.removeItem(PARKED_BILL_RESUME_KEY);
+        return;
+      }
+      void proxyClient<Record<string, unknown>>(`/parked-bills/${encodeURIComponent(claim.id)}/claimed`, {
+        method: "POST",
+        body: JSON.stringify({ claim_token: claim.claim_token })
+      }).then((response) => {
+        const bill = response as {
+          id?: string;
+          claim_token?: string;
         customer_name?: string;
         customer_tax_id?: string;
         full_tax_invoice?: boolean;
+        note?: string;
+        bill_discount_amount?: number;
         items?: Array<Record<string, unknown>>;
-      };
+        };
       const restored: CartLine[] = (bill.items || []).map((item) => ({
         product: {
           id: String(item.product_id),
           name: String(item.product_name || ""),
           sku: String(item.sku || ""),
-          price: Number(item.unit_price || 0)
+          price: Number(item.unit_price || 0),
+          units: (item.units as Option[]) || []
         },
         lot: { id: String(item.inventory_lot_id), lot_number: String(item.lot_number || "") },
         quantity: Number(item.quantity || 1),
@@ -568,13 +687,20 @@ export function PosWorkspace({
       }));
       if (!restored.length) return;
       setCart(restored);
+      setParkedClaim({ id: claim.id as string, claimToken: claim.claim_token as string });
       setCustomerName(String(bill.customer_name || ""));
       setCustomerTaxId(String(bill.customer_tax_id || ""));
       setFullTaxInvoice(Boolean(bill.full_tax_invoice));
+      setBillDiscount(Number(bill.bill_discount_amount || 0) ? String(bill.bill_discount_amount) : "");
+      setParkNote(String(bill.note || ""));
       setCartOpen(true);
       setMessage("เรียกบิลที่พักไว้กลับมาแล้ว ตรวจสอบราคาและสต๊อกอีกครั้งก่อนชำระเงิน");
+      }).catch(() => {
+        window.sessionStorage.removeItem(PARKED_BILL_RESUME_KEY);
+        setMessage("บิลที่เรียกกลับมาไม่พร้อมใช้งานหรือเป็นของ session อื่น");
+      });
     } catch {
-      // A malformed handoff just means no resume; the cart stays empty.
+      window.sessionStorage.removeItem(PARKED_BILL_RESUME_KEY);
     }
   }, []);
 
@@ -582,7 +708,7 @@ export function PosWorkspace({
   // stock movement. It stores the cart as-is so the counter can serve the
   // next customer, and re-validates on checkout when it is resumed.
   async function parkBill() {
-    if (!cart.length) return;
+    if (!cart.length || parkedClaim) return;
     setParking(true);
     try {
       const priced = (line: CartLine) =>
@@ -598,15 +724,21 @@ export function PosWorkspace({
           customer_tax_id: customerTaxId,
           full_tax_invoice: fullTaxInvoice,
           note: parkNote,
+          bill_discount_amount: Number(billDiscount || 0),
           items: cart.map((line) => ({
             product_id: String(line.product.id),
             inventory_lot_id: String(line.lot.id),
             quantity: line.quantity,
-            unit_price: Number(priced(line)?.unit_price || line.product.price || 0),
-            discount_amount: 0,
+            unit_id: line.unitId,
+            unit_name: String(priced(line)?.unit_name || ""),
+            conversion_qty: Number(priced(line)?.conversion_qty || 1),
+            sold_quantity: Number(priced(line)?.sold_quantity || line.quantity),
+            unit_price: Number(priced(line)?.sold_unit_price || line.product.price || 0),
+            discount_amount: Number(line.discount || 0),
             product_name: String(line.product.name || ""),
             sku: String(line.product.sku || ""),
-            lot_number: String(line.lot.lot_number || "")
+            lot_number: String(line.lot.lot_number || ""),
+            units: (line.product.units as Option[]) || []
           }))
         })
       });
@@ -614,6 +746,7 @@ export function PosWorkspace({
       setCustomerName("");
       setCustomerTaxId("");
       setFullTaxInvoice(false);
+      setBillDiscount("");
       setParkNote("");
       setParkOpen(false);
       setMessage("พักบิลไว้แล้ว เปิดดูได้ที่เมนู พักบิล");
@@ -624,7 +757,37 @@ export function PosWorkspace({
     }
   }
 
+  async function clearCurrentCart() {
+    if (parkedClaim) {
+      try {
+        await proxyClient(`/parked-bills/${encodeURIComponent(parkedClaim.id)}`, {
+          method: "DELETE",
+          body: JSON.stringify({ claim_token: parkedClaim.claimToken })
+        });
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "ยกเลิกบิลที่เรียกกลับมาไม่สำเร็จ");
+        return;
+      }
+      window.sessionStorage.removeItem(PARKED_BILL_RESUME_KEY);
+      setParkedClaim(null);
+      setBillDiscount("");
+      setCustomerName("");
+      setCustomerTaxId("");
+      setFullTaxInvoice(false);
+      setParkNote("");
+    }
+    setCart([]);
+  }
+
   async function openPayment() {
+    if (remoteForeignSession) {
+      setMessage("รายการรีโมตนี้กำลังดำเนินการโดยผู้ใช้อื่น จึงไม่สามารถรับชำระหรือแก้ไขได้");
+      return;
+    }
+    if (remoteBranchId && !remoteSessionReady) {
+      setMessage("กำลังบันทึกรายการรีโมต กรุณารอให้สาขาได้รับรายการก่อนรับชำระ");
+      return;
+    }
     if (!cart.length) {
       setMessage("กรุณาเพิ่มสินค้าอย่างน้อย 1 รายการ");
       return;
@@ -709,17 +872,29 @@ export function PosWorkspace({
   ]);
 
   async function checkout() {
+    if (remoteForeignSession) {
+      setPaymentError("รายการรีโมตนี้กำลังดำเนินการโดยผู้ใช้อื่น");
+      return;
+    }
+    if (remoteBranchId && !remoteSessionReady) {
+      setPaymentError("รายการรีโมตยังบันทึกไม่เสร็จ กรุณาปิดหน้าชำระแล้วลองใหม่");
+      return;
+    }
     setSubmitting(true);
     setMessage("");
     try {
-      const result = remoteLock
+      const adminRemoteCheckout = remoteSessionReady;
+      const result = remoteLock || adminRemoteCheckout
         ? // The cart lives on the server; the till supplies only the payment.
-          await proxyClient<Option>("/pos/remote-session/checkout", {
+          await proxyClient<Option>(adminRemoteCheckout ? "/admin/pos/remote-session/checkout" : "/pos/remote-session/checkout", {
             method: "POST",
             body: JSON.stringify({
+              session_id: adminRemoteCheckout ? String(remoteSession?.id || "") : remoteLock?.id,
+              branch_id: adminRemoteCheckout ? remoteBranchId : "",
               payment_type: paymentType,
               tendered_amount: Number(tendered || 0),
-              transfer_amount: Number(transferAmount || 0)
+              transfer_amount: Number(transferAmount || 0),
+              reference_code: paymentReference
             })
           })
         : await proxyClient<Option>(`${endpointBase}/checkout`, {
@@ -727,6 +902,10 @@ export function PosWorkspace({
             body: JSON.stringify(payload())
           });
       setReceipt(result);
+      if (parkedClaim) {
+        window.sessionStorage.removeItem(PARKED_BILL_RESUME_KEY);
+        setParkedClaim(null);
+      }
       setCartOpen(false);
       setCart([]);
       // A bill discount or a parked bill's note belongs to this bill only;
@@ -755,6 +934,7 @@ export function PosWorkspace({
     setPaymentType("cash");
     setTendered("");
     setTransferAmount("");
+    setPaymentReference("");
     setPaymentReady(false);
     setPaymentError("");
     setMessage("");
@@ -1114,17 +1294,29 @@ export function PosWorkspace({
                     ? `สาขารับชำระแล้ว · ${String(remoteSession?.invoice_number || "")}`
                     : "หยิบสินค้าลงตะกร้า แล้วรายการจะไปโผล่ที่เครื่อง POS ของสาขาทันที"}
               </p>
-              {remoteStatus === "open" ? (
+              {remoteStatus === "open" && !remoteForeignSession ? (
                 <button
-                  className="shrink-0 font-semibold underline underline-offset-2"
-                  onClick={() =>
-                    void proxyClient(`/admin/pos/remote-session?branch_id=${encodeURIComponent(remoteBranchId)}`, { method: "DELETE" })
-                      .then(() => setRemoteSession(null))
-                      .catch(() => {})
-                  }
+                  className="shrink-0 font-semibold underline underline-offset-2 disabled:opacity-50"
+                  disabled={cancellingRemote}
+                  onClick={() => {
+                    setCancellingRemote(true);
+                    void proxyClient(
+                      `/admin/pos/remote-session?branch_id=${encodeURIComponent(remoteBranchId)}` +
+                      `&session_id=${encodeURIComponent(String(remoteSession?.id || ""))}` +
+                      `&cart_version=${encodeURIComponent(String(remoteSession?.cart_version || ""))}`,
+                      { method: "DELETE" }
+                    )
+                      .then(() => {
+                        setCart([]);
+                        remoteSessionRef.current = null;
+                        setRemoteSession(null);
+                      })
+                      .catch((error) => setMessage(error instanceof Error ? error.message : "ยกเลิกการรีโมตไม่สำเร็จ"))
+                      .finally(() => setCancellingRemote(false));
+                  }}
                   type="button"
                 >
-                  ยกเลิกการรีโมต
+                  {cancellingRemote ? "กำลังยกเลิก..." : "ยกเลิกการรีโมต"}
                 </button>
               ) : null}
             </div>
@@ -1132,8 +1324,8 @@ export function PosWorkspace({
           <div className="sticky -bottom-3 mt-3 grid shrink-0 grid-cols-[44px_auto_1fr] gap-2 border-t bg-card pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:-bottom-4 xl:static xl:mt-4 xl:grid-cols-[auto_auto_1fr] xl:border-0 xl:py-0">
             <Button
               aria-label="ล้างรายการขาย"
-              disabled={!cart.length || Boolean(remoteLock)}
-              onClick={() => setCart([])}
+              disabled={!cart.length || Boolean(remoteLock) || remoteForeignSession}
+              onClick={() => void clearCurrentCart()}
               type="button"
               variant="secondary"
             >
@@ -1141,7 +1333,7 @@ export function PosWorkspace({
             </Button>
             <Button
               aria-label="พักบิลนี้ไว้"
-              disabled={!cart.length || parking || Boolean(remoteLock)}
+              disabled={!cart.length || parking || Boolean(remoteLock) || Boolean(parkedClaim) || remoteForeignSession}
               onClick={() => setParkOpen(true)}
               type="button"
               variant="secondary"
@@ -1149,7 +1341,7 @@ export function PosWorkspace({
               <PauseCircle className="h-4 w-4" />
               พักบิล
             </Button>
-            <Button disabled={!cart.length || Boolean(previewError)} onClick={() => void openPayment()} type="button">
+            <Button disabled={!cart.length || Boolean(previewError) || remoteForeignSession || Boolean(remoteBranchId && !remoteSessionReady)} onClick={() => void openPayment()} type="button">
               รับชำระเงิน
             </Button>
           </div>
@@ -1268,6 +1460,17 @@ export function PosWorkspace({
                 <label className="space-y-2">
                   <span className="text-sm font-semibold">ยอดเงินโอน</span>
                   <Input aria-label="ยอดเงินโอน" readOnly value={(paymentTotalCents / 100).toFixed(2)} />
+                </label>
+              ) : null}
+              {paymentType === "bank_transfer" || paymentType === "mixed" ? (
+                <label className="space-y-2">
+                  <span className="text-sm font-semibold">เลขอ้างอิงเงินโอน (ถ้ามี)</span>
+                  <Input
+                    aria-label="เลขอ้างอิงเงินโอน"
+                    onChange={(event) => setPaymentReference(event.target.value)}
+                    placeholder="เช่น เลขรายการจากธนาคาร"
+                    value={paymentReference}
+                  />
                 </label>
               ) : null}
               {paymentType === "mixed" ? (

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { LockKeyhole } from "lucide-react";
 
 import { PageIntro } from "@/components/sections/common";
+import { PRO_GATE_ENABLED } from "@/lib/pro-access";
 
 /** A neutral skeleton to sit behind the blur, so a locked page still reads as a
  *  real screen without running its real (and now pointless) queries. */
@@ -9,18 +10,8 @@ export function LockedPreview({ title, description }: { title: string; descripti
   return (
     <div className="space-y-6">
       <PageIntro description={description} title={title} />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div className="h-24 rounded-2xl border bg-muted/40" key={index} />
-        ))}
-      </div>
       <div className="rounded-2xl border bg-card p-6">
-        <div className="h-6 w-48 rounded bg-muted" />
-        <div className="mt-4 space-y-3">
-          {Array.from({ length: 6 }).map((_, index) => (
-            <div className="h-10 rounded-lg bg-muted/50" key={index} />
-          ))}
-        </div>
+        <p className="text-sm text-muted-foreground">งานส่วนนี้อยู่ในแผนพัฒนาลำดับถัดไป ยังไม่พร้อมทำรายการ</p>
       </div>
     </div>
   );
@@ -36,6 +27,7 @@ export function LockedPreview({ title, description }: { title: string; descripti
  * billing was never wired up and nothing was sent anywhere.
  */
 export function ProGate({ feature, children }: { feature: string; children: ReactNode }) {
+  if (!PRO_GATE_ENABLED) return <>{children}</>;
   return (
     <div className="relative min-h-[70vh]">
       <div aria-hidden className="pointer-events-none select-none blur-[6px]">

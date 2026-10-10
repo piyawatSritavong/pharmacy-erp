@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"pharmacy-erp/backend/internal/database"
+
 	_ "github.com/lib/pq"
 )
 
@@ -15,6 +17,9 @@ func TestGhostSourcePolicyPreservesHistoryAndRejectsOperationalWrites(t *testing
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
+	}
+	if err := database.ValidateTestDatabaseURL(databaseURL, os.Getenv("APP_ENV")); err != nil {
+		t.Fatal(err)
 	}
 	ctx := context.Background()
 	adminDB, err := sql.Open("postgres", databaseURL)

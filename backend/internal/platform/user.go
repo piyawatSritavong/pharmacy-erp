@@ -31,6 +31,7 @@ type AuthUser struct {
 	BranchCode  *string  `json:"branch_code"`
 	BranchName  *string  `json:"branch_name"`
 	Permissions []string `json:"permissions"`
+	AuthVersion int      `json:"-"`
 
 	// ScopeAudit is the request's branch-decision recorder, attached by the
 	// access log and written by the branch rule. It is not part of the user and

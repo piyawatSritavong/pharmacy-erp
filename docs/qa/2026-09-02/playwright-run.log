@@ -1,0 +1,227 @@
+
+Running 21 tests using 1 worker
+
+  ✘   1 tests/generate-report.spec.ts:13:7 › Generate Report › สร้าง อัปเดตอัตโนมัติ เปิด dialog คอลัมน์ บันทึก และปักหมุด report ส่วนตัว (9.3s)
+  ✘   2 tests/generate-report.spec.ts:109:7 › Generate Report › All Fields และเมนูคอลัมน์ยังใช้งานได้บนมือถือ (7.7s)
+  ✓   3 tests/manual.spec.ts:29:7 › refactored operational workflows › สต๊อกจริงเลือกสาขาได้ แต่สต๊อกผีเป็นหน้าดูข้อมูลแบบไม่มีตัวเลือกและไม่มีปุ่มแก้ไข (4.9s)
+  ✘   4 tests/manual.spec.ts:60:7 › refactored operational workflows › เอกสารทั่วไปและ รพ.สต. แยกหน้าและใช้ dialog ตาม tab (7.9s)
+  -   5 tests/manual.spec.ts:83:7 › refactored operational workflows › POS ขอสินค้าได้เฉพาะสินค้าและจำนวน และไม่มีเช็คหรือผ่อนชำระ
+  -   6 tests/manual.spec.ts:99:7 › refactored operational workflows › รายงานภาษีและกำไรขาดทุนเรียงจากบนลงล่าง
+  ✘   7 tests/product-images.spec.ts:16:7 › รูปสินค้า Ocha › POS แสดงรูปหลักและหน้าสต๊อกเปิด gallery ได้ (1.0m)
+  ✓   8 tests/roles.spec.ts:34:7 › สิทธิ์และการนำทางสองบทบาท › หน้าเข้าสู่ระบบแสดงเฉพาะบัญชีผู้ดูแลและพนักงานขาย (2.1s)
+  ✘   9 tests/roles.spec.ts:47:7 › สิทธิ์และการนำทางสองบทบาท › ผู้ใช้สองบทบาทเข้าสู่ระบบพร้อมกันและเห็นเมนูของตนเอง (10.2s)
+  -  10 tests/roles.spec.ts:105:7 › สิทธิ์และการนำทางสองบทบาท › สร้าง แก้ไข archive และ reactivate หมวดสินค้า
+  -  11 tests/roles.spec.ts:156:7 › สิทธิ์และการนำทางสองบทบาท › POS ทั้ง 4 บัญชีเห็นเฉพาะสมาชิกสินค้าของสาขาตน
+  -  12 tests/roles.spec.ts:178:7 › สิทธิ์และการนำทางสองบทบาท › ผู้ดูแลเปิดทุกหน้าจาก sidebar ได้จริง
+  -  13 tests/roles.spec.ts:212:7 › สิทธิ์และการนำทางสองบทบาท › Superadmin ตรวจช่วงวันที่ รายละเอียดจริง และคำเตือนที่ไม่ปิดปุ่มยืนยัน
+  -  14 tests/roles.spec.ts:296:7 › สิทธิ์และการนำทางสองบทบาท › พนักงานขายเปิดทุกหน้าจาก top nav ได้จริง
+  -  15 tests/roles.spec.ts:319:7 › สิทธิ์และการนำทางสองบทบาท › POS ใช้หน้าขายแบบราคาเดียวและซ่อนข้อมูลภาษีจนกว่าจะร้องขอ
+  -  16 tests/roles.spec.ts:471:7 › สิทธิ์และการนำทางสองบทบาท › กันสิทธิ์ข้ามบทบาทและไม่มี route งานผู้ดูแลสาขาเดิม
+  -  17 tests/roles.spec.ts:491:7 › สิทธิ์และการนำทางสองบทบาท › Central Admin, Branch Admin และ POS เข้า Month-End/Ghost API ไม่ได้
+  -  18 tests/roles.spec.ts:519:7 › สิทธิ์และการนำทางสองบทบาท › Ghost write API ตอบ 400 สำหรับ Superadmin และ 403 สำหรับ role อื่น
+  -  19 tests/roles.spec.ts:551:7 › สิทธิ์และการนำทางสองบทบาท › ปุ่มออกจากระบบลบ session และกลับหน้าเข้าสู่ระบบ
+  -  20 tests/roles.spec.ts:562:7 › สิทธิ์และการนำทางสองบทบาท › layout ผู้ดูแลและ POS ใช้งานได้บนหน้าจอมือถือโดยไม่ล้นแนวนอน
+  ✘  21 tests/scm.spec.ts:8:7 › Supply Chain Management › สร้างคู่ค้า รับสินค้าเข้า Lot และค้นผ่าน Generate Report (1.0m)
+
+
+  1) tests/generate-report.spec.ts:13:7 › Generate Report › สร้าง อัปเดตอัตโนมัติ เปิด dialog คอลัมน์ บันทึก และปักหมุด report ส่วนตัว 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText(/Safe semantic query · Read-only/)
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByText(/Safe semantic query · Read-only/)
+
+
+      24 |     await expect(page.getByRole("heading", { name: "Generate Report", exact: true })).toBeVisible();
+      25 |     await expect(page.getByText("All Fields", { exact: true })).toBeVisible();
+    > 26 |     await expect(page.getByText(/Safe semantic query · Read-only/)).toBeVisible();
+         |                                                                     ^
+      27 |     await expect(page.getByText("Selected columns:", { exact: true })).toHaveCount(0);
+      28 |     await expect(page.getByRole("button", { name: "รันรายงาน", exact: true })).toHaveCount(0);
+      29 |     await expect(page.getByText(/read-only/).last()).toBeVisible();
+        at /Users/gustyle/Documents/networkmanGithub/pharmacy-erp-main/frontend/tests/generate-report.spec.ts:26:69
+
+    Error Context: test-results/generate-report-Generate-R-b2448-ก-และปักหมุด-report-ส่วนตัว/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/generate-report-Generate-R-b2448-ก-และปักหมุด-report-ส่วนตัว/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/generate-report-Generate-R-b2448-ก-และปักหมุด-report-ส่วนตัว/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) tests/generate-report.spec.ts:109:7 › Generate Report › All Fields และเมนูคอลัมน์ยังใช้งานได้บนมือถือ 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('#report-builder thead th')
+    Expected: 15
+    Received: 8
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 5000ms
+      - waiting for locator('#report-builder thead th')
+        14 × locator resolved to 8 elements
+           - unexpected value "8"
+
+
+      121 |     await fieldSidebar.locator("summary").filter({ hasText: "สาขา" }).first().click();
+      122 |     await fieldSidebar.getByRole("button").filter({ hasText: "รหัสอ้างอิงสาขา" }).click();
+    > 123 |     await expect(page.locator("#report-builder thead th")).toHaveCount(15);
+          |                                                            ^
+      124 |
+      125 |     const menuButton = page.getByRole("button", { name: /เมนูคอลัมน์/ }).first();
+      126 |     await menuButton.click();
+        at /Users/gustyle/Documents/networkmanGithub/pharmacy-erp-main/frontend/tests/generate-report.spec.ts:123:60
+
+    Error Context: test-results/generate-report-Generate-R-54d64-คอลัมน์ยังใช้งานได้บนมือถือ/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/generate-report-Generate-R-54d64-คอลัมน์ยังใช้งานได้บนมือถือ/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/generate-report-Generate-R-54d64-คอลัมน์ยังใช้งานได้บนมือถือ/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) tests/manual.spec.ts:60:7 › refactored operational workflows › เอกสารทั่วไปและ รพ.สต. แยกหน้าและใช้ dialog ตาม tab 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'การขายและเอกสาร', exact: true, level: 1 })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 5000ms
+      - waiting for getByRole('heading', { name: 'การขายและเอกสาร', exact: true, level: 1 })
+
+
+      66 |     ]) {
+      67 |       await page.goto(entry.route);
+    > 68 |       await expect(page.getByRole("heading", { level: 1, name: entry.heading, exact: true })).toBeVisible();
+         |                                                                                               ^
+      69 |       await expect(page.getByRole("tab", { name: "ใบเสนอราคา", exact: true })).toBeVisible();
+      70 |       await expect(page.getByRole("tab", { name: "ใบขาย", exact: true })).toBeVisible();
+      71 |
+        at /Users/gustyle/Documents/networkmanGithub/pharmacy-erp-main/frontend/tests/manual.spec.ts:68:95
+
+    Error Context: test-results/manual-refactored-operatio-f79bf-ยกหน้าและใช้-dialog-ตาม-tab/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/manual-refactored-operatio-f79bf-ยกหน้าและใช้-dialog-ตาม-tab/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/manual-refactored-operatio-f79bf-ยกหน้าและใช้-dialog-ตาม-tab/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) tests/product-images.spec.ts:16:7 › รูปสินค้า Ocha › POS แสดงรูปหลักและหน้าสต๊อกเปิด gallery ได้ 
+
+    Test timeout of 60000ms exceeded.
+
+    Error: locator.click: Test timeout of 60000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'ค้นหาและกรอง' })
+
+
+      24 |     await page.goto("/real-inventory");
+      25 |     await page.getByLabel("ค้นหาสต๊อกทุกสาขา").fill("ARM SLING Size 1");
+    > 26 |     await page.getByRole("button", { name: "ค้นหาและกรอง" }).click();
+         |                                                              ^
+      27 |     await page.getByRole("option").first().click();
+      28 |     await page.getByRole("button", { name: /ดูรูปทั้งหมด \(2\)/ }).click();
+      29 |     const gallery = page.getByRole("dialog");
+        at /Users/gustyle/Documents/networkmanGithub/pharmacy-erp-main/frontend/tests/product-images.spec.ts:26:62
+
+    Error Context: test-results/product-images-รูปสินค้า-O-cbf63-ละหน้าสต๊อกเปิด-gallery-ได้/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/product-images-รูปสินค้า-O-cbf63-ละหน้าสต๊อกเปิด-gallery-ได้/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/product-images-รูปสินค้า-O-cbf63-ละหน้าสต๊อกเปิด-gallery-ได้/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) tests/roles.spec.ts:47:7 › สิทธิ์และการนำทางสองบทบาท › ผู้ใช้สองบทบาทเข้าสู่ระบบพร้อมกันและเห็นเมนูของตนเอง 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByRole('navigation', { name: 'เมนูหลัก', exact: true }).getByRole('link')
+    Expected: 14
+    Received: 4
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 5000ms
+      - waiting for getByRole('navigation', { name: 'เมนูหลัก', exact: true }).getByRole('link')
+        14 × locator resolved to 4 elements
+           - unexpected value "4"
+
+
+      56 |     await expect(
+      57 |       admin.getByRole("navigation", { name: "เมนูหลัก", exact: true }).getByRole("link"),
+    > 58 |     ).toHaveCount(14);
+         |       ^
+      59 |     await expect(
+      60 |       pos.getByRole("navigation", { name: "เมนูจุดขาย", exact: true }).getByRole("link"),
+      61 |     ).toHaveCount(5);
+        at /Users/gustyle/Documents/networkmanGithub/pharmacy-erp-main/frontend/tests/roles.spec.ts:58:7
+
+    Error Context: test-results/roles-สิทธิ์และการนำทางสอง-18739-พร้อมกันและเห็นเมนูของตนเอง/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/roles-สิทธิ์และการนำทางสอง-18739-พร้อมกันและเห็นเมนูของตนเอง/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/roles-สิทธิ์และการนำทางสอง-18739-พร้อมกันและเห็นเมนูของตนเอง/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6) tests/scm.spec.ts:8:7 › Supply Chain Management › สร้างคู่ค้า รับสินค้าเข้า Lot และค้นผ่าน Generate Report 
+
+    Test timeout of 60000ms exceeded.
+
+    Error: locator.click: Test timeout of 60000ms exceeded.
+    Call log:
+      - waiting for getByRole('link', { name: 'บริษัทคู่ค้า', exact: true }).first()
+
+
+      26 |       .getByRole("link", { name: "บริษัทคู่ค้า", exact: true })
+      27 |       .first()
+    > 28 |       .click();
+         |        ^
+      29 |     await expect(
+      30 |       page.getByRole("heading", { name: "บริษัทคู่ค้า", exact: true }),
+      31 |     ).toBeVisible();
+        at /Users/gustyle/Documents/networkmanGithub/pharmacy-erp-main/frontend/tests/scm.spec.ts:28:8
+
+    Error Context: test-results/scm-Supply-Chain-Managemen-e044c--และค้นผ่าน-Generate-Report/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/scm-Supply-Chain-Managemen-e044c--และค้นผ่าน-Generate-Report/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/scm-Supply-Chain-Managemen-e044c--และค้นผ่าน-Generate-Report/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6 failed
+    tests/generate-report.spec.ts:13:7 › Generate Report › สร้าง อัปเดตอัตโนมัติ เปิด dialog คอลัมน์ บันทึก และปักหมุด report ส่วนตัว 
+    tests/generate-report.spec.ts:109:7 › Generate Report › All Fields และเมนูคอลัมน์ยังใช้งานได้บนมือถือ 
+    tests/manual.spec.ts:60:7 › refactored operational workflows › เอกสารทั่วไปและ รพ.สต. แยกหน้าและใช้ dialog ตาม tab 
+    tests/product-images.spec.ts:16:7 › รูปสินค้า Ocha › POS แสดงรูปหลักและหน้าสต๊อกเปิด gallery ได้ 
+    tests/roles.spec.ts:47:7 › สิทธิ์และการนำทางสองบทบาท › ผู้ใช้สองบทบาทเข้าสู่ระบบพร้อมกันและเห็นเมนูของตนเอง 
+    tests/scm.spec.ts:8:7 › Supply Chain Management › สร้างคู่ค้า รับสินค้าเข้า Lot และค้นผ่าน Generate Report 
+  13 did not run
+  2 passed (2.8m)

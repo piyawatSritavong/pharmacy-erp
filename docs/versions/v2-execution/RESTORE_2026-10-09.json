@@ -1,0 +1,25 @@
+{
+  "source": "pharmacy_v2_oct9_test",
+  "restored": "pharmacy_v2_restore_test",
+  "tables": {
+    "v2_documents": "33|1c9af5150b2519547d50c4b1a1c0e9b1",
+    "v2_document_lines": "39|821c9a2251f3157a0b4d67cc5a962f24",
+    "v2_stock_events": "93|546fe4ab7b35ef2b4aae17f7180bda22",
+    "v2_money_events": "85|e4d6f4ccc8ecc3c5eff279fa76814a5f",
+    "v2_payments": "12|9b64e81d78fd8bf4e6e74bfdf7a73eef",
+    "v2_cancellations": "4|ac57a53b7c8bbc4c9a303ee6276b1325",
+    "v2_refund_settlements": "9|4466cb8d21741c3892fbd78759c2622e",
+    "v2_refund_goods": "2|7da2224ace17a51c3ec73a62c6c8acf5",
+    "v2_drawers": "8|33856e6028b00e88f14dbcfea319f8af",
+    "v2_drawer_events": "6|084f7862a64da9c94e6a58940c11d479",
+    "v2_shift_issues": "2|da7719e5295e63b2906047cf4313dced",
+    "v2_shift_issue_resolutions": "2|d48cc5cfd8035d907bf9529cb269fe39",
+    "v2_shift_acknowledgements": "2|5693c83ce6acf7cdde4861201d876792",
+    "inventory": "2068|529ff0720ca0b8bdd20a488f38101a52",
+    "inventory_movements": "1624|9bc331e2b58dd790e7e9dcc70ad524d5",
+    "invoices": "0|d41d8cd98f00b204e9800998ecf8427e",
+    "invoice_items": "0|d41d8cd98f00b204e9800998ecf8427e",
+    "invoice_payments": "0|d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "matched": true
+}

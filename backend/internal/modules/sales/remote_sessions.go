@@ -2,9 +2,12 @@ package sales
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,15 +29,20 @@ import (
 // what head office rang up.
 
 type RemoteCartLine struct {
-	ProductID      string  `json:"product_id"`
-	ProductName    string  `json:"product_name"`
-	SKU            string  `json:"sku"`
-	InventoryLotID string  `json:"inventory_lot_id"`
-	LotNumber      string  `json:"lot_number"`
-	StockBucket    string  `json:"stock_bucket"`
-	Quantity       int     `json:"quantity"`
-	UnitPrice      float64 `json:"unit_price"`
-	DiscountAmount float64 `json:"discount_amount"`
+	ProductID      string           `json:"product_id"`
+	ProductName    string           `json:"product_name"`
+	SKU            string           `json:"sku"`
+	InventoryLotID string           `json:"inventory_lot_id"`
+	LotNumber      string           `json:"lot_number"`
+	StockBucket    string           `json:"stock_bucket"`
+	Quantity       int              `json:"quantity"`
+	UnitID         string           `json:"unit_id,omitempty"`
+	UnitName       string           `json:"unit_name,omitempty"`
+	ConversionQty  int              `json:"conversion_qty,omitempty"`
+	SoldQuantity   int              `json:"sold_quantity,omitempty"`
+	UnitPrice      float64          `json:"unit_price"`
+	DiscountAmount float64          `json:"discount_amount"`
+	Units          []map[string]any `json:"units,omitempty"`
 }
 
 type RemoteCart struct {
@@ -43,27 +51,35 @@ type RemoteCart struct {
 	FullTaxInvoice     bool             `json:"full_tax_invoice"`
 	CustomerName       string           `json:"customer_name"`
 	CustomerTaxID      string           `json:"customer_tax_id"`
+	IsGovernment       bool             `json:"is_government_mode"`
+	Notes              string           `json:"notes"`
 }
 
 type RemoteSessionRequest struct {
-	BranchID string     `json:"branch_id"`
-	Cart     RemoteCart `json:"cart"`
+	BranchID    string     `json:"branch_id"`
+	SessionID   string     `json:"session_id"`
+	CartVersion int64      `json:"cart_version"`
+	Cart        RemoteCart `json:"cart"`
 }
 
 // RemoteSessionPayment is all the branch till supplies: how the customer paid.
 type RemoteSessionPayment struct {
+	SessionID      string  `json:"session_id"`
+	BranchID       string  `json:"branch_id"`
 	PaymentType    string  `json:"payment_type"`
 	TenderedAmount float64 `json:"tendered_amount"`
 	TransferAmount float64 `json:"transfer_amount"`
 	ReferenceCode  string  `json:"reference_code"`
+	PaymentNote    string  `json:"payment_note"`
 }
 
 func remoteSessionRow(scanner interface{ Scan(...any) error }) (map[string]any, error) {
-	var id, branchID, branchName, operatorName, status string
+	var id, branchID, branchName, operatorID, operatorName, status string
 	var cartRaw []byte
 	var invoiceID, invoiceNumber sql.NullString
 	var updatedAt time.Time
-	if err := scanner.Scan(&id, &branchID, &branchName, &operatorName, &status, &cartRaw, &invoiceID, &invoiceNumber, &updatedAt); err != nil {
+	var cartVersion int64
+	if err := scanner.Scan(&id, &branchID, &branchName, &operatorID, &operatorName, &status, &cartRaw, &invoiceID, &invoiceNumber, &cartVersion, &updatedAt); err != nil {
 		return nil, err
 	}
 	cart := RemoteCart{}
@@ -77,10 +93,12 @@ func remoteSessionRow(scanner interface{ Scan(...any) error }) (map[string]any, 
 		"id":            id,
 		"branch_id":     branchID,
 		"branch_name":   branchName,
+		"operator_id":   operatorID,
 		"operator_name": operatorName,
 		"status":        status,
 		"cart":          cart,
 		"updated_at":    updatedAt,
+		"cart_version":  cartVersion,
 	}
 	if invoiceID.Valid {
 		item["invoice_id"] = invoiceID.String
@@ -92,8 +110,8 @@ func remoteSessionRow(scanner interface{ Scan(...any) error }) (map[string]any, 
 }
 
 const remoteSessionSelect = `
-	SELECT s.id::text, s.branch_id::text, b.name, u.full_name, s.status, s.cart,
-	       i.id::text, i.invoice_number, s.updated_at
+	SELECT s.id::text, s.branch_id::text, b.name, s.operator_id::text, u.full_name, s.status, s.cart,
+	       i.id::text, i.invoice_number, s.cart_version, s.updated_at
 	FROM remote_sale_sessions s
 	INNER JOIN branches b ON b.id = s.branch_id
 	INNER JOIN users u ON u.id = s.operator_id
@@ -102,9 +120,12 @@ const remoteSessionSelect = `
 
 // SaveRemoteSession opens or replaces the cart waiting at a branch's till.
 func (s *Service) SaveRemoteSession(ctx context.Context, user platform.AuthUser, input RemoteSessionRequest) (map[string]any, error) {
-	branchID := strings.TrimSpace(input.BranchID)
-	if branchID == "" {
-		return nil, platform.NewError(http.StatusBadRequest, "กรุณาเลือกสาขาที่จะเปิดขาย")
+	branchID, err := platform.MustBranchID(user, strings.TrimSpace(input.BranchID))
+	if err != nil {
+		return nil, err
+	}
+	if err := validateSalesBranch(ctx, s.db, branchID); err != nil {
+		return nil, err
 	}
 	if input.Cart.Lines == nil {
 		input.Cart.Lines = []RemoteCartLine{}
@@ -114,31 +135,56 @@ func (s *Service) SaveRemoteSession(ctx context.Context, user platform.AuthUser,
 		return nil, platform.NewError(http.StatusBadRequest, "ตะกร้าไม่ถูกต้อง")
 	}
 	var sessionID string
+	if strings.TrimSpace(input.SessionID) != "" {
+		if input.CartVersion <= 0 {
+			return nil, platform.NewError(http.StatusConflict, "ตะกร้ารีโมตไม่มี version กรุณาโหลดรายการใหม่")
+		}
+		err = s.db.QueryRowContext(ctx, `
+			UPDATE remote_sale_sessions
+			SET cart = $4, cart_version=cart_version+1, updated_at = NOW()
+			WHERE id = $1 AND branch_id = $2 AND operator_id=$3
+			  AND status = 'open' AND cart_version=$5
+			RETURNING id::text
+		`, input.SessionID, branchID, user.ID, cartRaw, input.CartVersion).Scan(&sessionID)
+		if err == sql.ErrNoRows {
+			return nil, platform.NewError(http.StatusConflict, "รายการรีโมตเปลี่ยนผู้ดำเนินการ เปลี่ยน version หรือปิดแล้ว กรุณาโหลดใหม่")
+		}
+		if err != nil {
+			return nil, platform.WrapError(http.StatusInternalServerError, "บันทึกตะกร้ารีโมตไม่สำเร็จ", err)
+		}
+		return s.RemoteSessionForBranch(ctx, branchID)
+	}
 	// One open cart per branch: keep editing it rather than stacking sessions
 	// the cashier would have to choose between.
 	err = s.db.QueryRowContext(ctx, `
 		INSERT INTO remote_sale_sessions (id, branch_id, operator_id, status, cart)
 		VALUES ($1, $2, $3, 'open', $4)
-		ON CONFLICT (branch_id) WHERE status = 'open'
-		DO UPDATE SET cart = EXCLUDED.cart, operator_id = EXCLUDED.operator_id, updated_at = NOW()
 		RETURNING id::text
 	`, platform.MustUUID(), branchID, user.ID, cartRaw).Scan(&sessionID)
 	if err != nil {
-		return nil, platform.WrapError(http.StatusInternalServerError, "บันทึกตะกร้ารีโมตไม่สำเร็จ", err)
+		return nil, platform.MapUniqueViolation(err, "สาขานี้มีรายการรีโมตที่กำลังใช้งาน กรุณาโหลดรายการเดิม")
 	}
 	return s.RemoteSessionForBranch(ctx, branchID)
 }
 
 // CancelRemoteSession withdraws the cart from the branch till.
-func (s *Service) CancelRemoteSession(ctx context.Context, branchID string) error {
+func (s *Service) CancelRemoteSession(ctx context.Context, user platform.AuthUser, branchID, sessionID string, cartVersion int64) error {
 	if strings.TrimSpace(branchID) == "" {
 		return platform.NewError(http.StatusBadRequest, "กรุณาเลือกสาขา")
 	}
-	if _, err := s.db.ExecContext(ctx, `
+	if strings.TrimSpace(sessionID) == "" || cartVersion <= 0 {
+		return platform.NewError(http.StatusBadRequest, "กรุณาระบุรายการรีโมตและ version")
+	}
+	result, err := s.db.ExecContext(ctx, `
 		UPDATE remote_sale_sessions SET status = 'cancelled', updated_at = NOW()
-		WHERE branch_id = $1 AND status = 'open'
-	`, branchID); err != nil {
+		WHERE id=$1 AND branch_id=$2 AND operator_id=$3
+		  AND cart_version=$4 AND status='open'
+	`, sessionID, branchID, user.ID, cartVersion)
+	if err != nil {
 		return platform.WrapError(http.StatusInternalServerError, "ยกเลิกการรีโมตไม่สำเร็จ", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return platform.NewError(http.StatusConflict, "รายการรีโมตเปลี่ยนผู้ดำเนินการ เปลี่ยน version หรือปิดแล้ว")
 	}
 	return nil
 }
@@ -169,69 +215,149 @@ func (s *Service) RemoteSessionForBranch(ctx context.Context, branchID string) (
 // server holds and collect payment for it. The cart itself is never read from
 // the request, so the till cannot alter what head office rang up.
 func (s *Service) CheckoutRemoteSession(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, payment RemoteSessionPayment) (map[string]any, error) {
-	if user.BranchID == nil || *user.BranchID == "" {
-		return nil, platform.NewError(http.StatusForbidden, "บัญชีนี้ไม่ได้ผูกกับสาขา")
+	branchID := ""
+	if user.Portal == "pos" {
+		if user.BranchID == nil || *user.BranchID == "" {
+			return nil, platform.NewError(http.StatusForbidden, "บัญชีนี้ไม่ได้ผูกกับสาขา")
+		}
+		branchID = *user.BranchID
+	} else if platform.HasPermission(user, "invoice.create.remote") {
+		var err error
+		branchID, err = platform.MustBranchID(user, payment.BranchID)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, platform.NewError(http.StatusForbidden, "เฉพาะพนักงานขายหน้าร้านหรือสำนักงานใหญ่เท่านั้น")
 	}
-	branchID := *user.BranchID
-
-	var sessionID string
-	var cartRaw []byte
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id::text, cart FROM remote_sale_sessions
-		WHERE branch_id = $1 AND status = 'open'
-	`, branchID).Scan(&sessionID, &cartRaw)
-	if err == sql.ErrNoRows {
-		return nil, platform.NewError(http.StatusNotFound, "ไม่มีรายการรีโมตที่รอรับชำระ")
-	}
-	if err != nil {
-		return nil, platform.WrapError(http.StatusInternalServerError, "โหลดตะกร้ารีโมตไม่สำเร็จ", err)
-	}
-
-	cart := RemoteCart{}
-	if err := json.Unmarshal(cartRaw, &cart); err != nil {
-		return nil, platform.NewError(http.StatusInternalServerError, "ตะกร้ารีโมตเสียหาย")
-	}
-	if len(cart.Lines) == 0 {
-		return nil, platform.NewError(http.StatusBadRequest, "ตะกร้ารีโมตยังไม่มีสินค้า")
-	}
-
-	items := make([]LineInput, 0, len(cart.Lines))
-	for _, line := range cart.Lines {
-		items = append(items, LineInput{
-			ProductID:      line.ProductID,
-			InventoryLotID: line.InventoryLotID,
-			Quantity:       line.Quantity,
-			StockBucket:    line.StockBucket,
-			DiscountAmount: line.DiscountAmount,
-		})
-	}
-	result, err := s.Checkout(ctx, user, meta, CheckoutRequest{
-		BranchID:           branchID,
-		CustomerName:       cart.CustomerName,
-		CustomerTaxID:      cart.CustomerTaxID,
-		FullTaxInvoice:     cart.FullTaxInvoice,
-		Items:              items,
-		BillDiscountAmount: cart.BillDiscountAmount,
-		PaymentType:        payment.PaymentType,
-		TenderedAmount:     payment.TenderedAmount,
-		TransferAmount:     payment.TransferAmount,
-		ReferenceCode:      payment.ReferenceCode,
-	})
-	if err != nil {
+	if err := validateSalesBranch(ctx, s.db, branchID); err != nil {
 		return nil, err
 	}
-
-	invoiceID, _ := result["invoice_id"].(string)
-	if _, err := s.db.ExecContext(ctx, `
-		UPDATE remote_sale_sessions
-		SET status = 'completed', invoice_id = NULLIF($2,'')::uuid, updated_at = NOW()
-		WHERE id = $1
-	`, sessionID, invoiceID); err != nil {
-		// The sale is already recorded; leaving the session open would only
-		// invite a second charge, so surface it.
-		return nil, platform.WrapError(http.StatusInternalServerError, "ปิดรายการรีโมตไม่สำเร็จ", err)
+	payment.SessionID = strings.TrimSpace(payment.SessionID)
+	payment.BranchID = branchID
+	payment.PaymentType = strings.TrimSpace(payment.PaymentType)
+	payment.ReferenceCode = strings.TrimSpace(payment.ReferenceCode)
+	payment.PaymentNote = strings.TrimSpace(payment.PaymentNote)
+	if payment.PaymentType == "cash" {
+		payment.ReferenceCode = ""
 	}
-	return result, nil
+	requestRaw, err := json.Marshal(payment)
+	if err != nil {
+		return nil, platform.NewError(http.StatusBadRequest, "ข้อมูลการชำระเงินไม่ถูกต้อง")
+	}
+	requestHash := fmt.Sprintf("%x", sha256.Sum256(requestRaw))
+
+	var result map[string]any
+	err = platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
+		var sessionID, operatorID, status string
+		var cartRaw []byte
+		var storedHash sql.NullString
+		var storedResult []byte
+		var row *sql.Row
+		if payment.SessionID != "" {
+			row = tx.QueryRowContext(ctx, `
+				SELECT id::text, operator_id::text, status, cart, checkout_request_hash, checkout_result
+				FROM remote_sale_sessions
+				WHERE id = $1 AND branch_id = $2
+				FOR UPDATE
+			`, payment.SessionID, branchID)
+		} else {
+			// Backward compatibility for older clients. New clients always send
+			// the session id, which is the idempotency key for retries.
+			row = tx.QueryRowContext(ctx, `
+				SELECT id::text, operator_id::text, status, cart, checkout_request_hash, checkout_result
+				FROM remote_sale_sessions
+				WHERE branch_id = $1 AND status = 'open'
+				ORDER BY updated_at DESC LIMIT 1
+				FOR UPDATE
+			`, branchID)
+		}
+		if err := row.Scan(&sessionID, &operatorID, &status, &cartRaw, &storedHash, &storedResult); err == sql.ErrNoRows {
+			return platform.NewError(http.StatusNotFound, "ไม่มีรายการรีโมตที่รอรับชำระ")
+		} else if err != nil {
+			return platform.WrapError(http.StatusInternalServerError, "โหลดตะกร้ารีโมตไม่สำเร็จ", err)
+		}
+		if user.Portal != "pos" && operatorID != user.ID {
+			return platform.NewError(http.StatusConflict, "รายการรีโมตนี้กำลังดำเนินการโดยผู้ใช้อื่น")
+		}
+
+		if status == "completed" {
+			if !storedHash.Valid || len(storedResult) == 0 {
+				return platform.NewError(http.StatusConflict, "รายการรีโมตนี้ชำระแล้ว")
+			}
+			if storedHash.String != requestHash {
+				return platform.NewError(http.StatusConflict, "รายการรีโมตนี้ชำระแล้วด้วยข้อมูลการชำระเงินชุดอื่น")
+			}
+			if err := json.Unmarshal(storedResult, &result); err != nil {
+				return platform.NewError(http.StatusInternalServerError, "ผลการชำระเงินเดิมเสียหาย")
+			}
+			return nil
+		}
+		if status != "open" {
+			return platform.NewError(http.StatusConflict, "รายการรีโมตนี้ถูกยกเลิกแล้ว")
+		}
+
+		cart := RemoteCart{}
+		if err := json.Unmarshal(cartRaw, &cart); err != nil {
+			return platform.NewError(http.StatusInternalServerError, "ตะกร้ารีโมตเสียหาย")
+		}
+		if len(cart.Lines) == 0 {
+			return platform.NewError(http.StatusBadRequest, "ตะกร้ารีโมตยังไม่มีสินค้า")
+		}
+		if cart.FullTaxInvoice && strings.TrimSpace(cart.CustomerTaxID) == "" {
+			return platform.NewError(http.StatusBadRequest, "ใบกำกับภาษีเต็มรูปต้องระบุเลขประจำตัวผู้เสียภาษี")
+		}
+
+		items := make([]LineInput, 0, len(cart.Lines))
+		for _, line := range cart.Lines {
+			items = append(items, LineInput{
+				ProductID:      line.ProductID,
+				InventoryLotID: line.InventoryLotID,
+				Quantity:       line.Quantity,
+				UnitID:         line.UnitID,
+				StockBucket:    line.StockBucket,
+				DiscountAmount: line.DiscountAmount,
+			})
+		}
+		result, err = s.checkoutInTx(ctx, tx, user, meta, CheckoutRequest{
+			BranchID:           branchID,
+			CustomerName:       cart.CustomerName,
+			CustomerTaxID:      cart.CustomerTaxID,
+			IsGovernment:       cart.IsGovernment,
+			FullTaxInvoice:     cart.FullTaxInvoice,
+			Items:              items,
+			BillDiscountAmount: cart.BillDiscountAmount,
+			PaymentType:        payment.PaymentType,
+			TenderedAmount:     payment.TenderedAmount,
+			TransferAmount:     payment.TransferAmount,
+			ReferenceCode:      payment.ReferenceCode,
+			DocumentNote:       cart.Notes,
+			PaymentNote:        payment.PaymentNote,
+		})
+		if err != nil {
+			return err
+		}
+		resultRaw, err := json.Marshal(result)
+		if err != nil {
+			return err
+		}
+		invoiceID, _ := result["invoice_id"].(string)
+		update, err := tx.ExecContext(ctx, `
+			UPDATE remote_sale_sessions
+			SET status = 'completed', invoice_id = NULLIF($2,'')::uuid,
+			    checkout_request_hash = $3, checkout_result = $4::jsonb,
+			    updated_at = NOW()
+			WHERE id = $1 AND status = 'open'
+		`, sessionID, invoiceID, requestHash, string(resultRaw))
+		if err != nil {
+			return platform.WrapError(http.StatusInternalServerError, "ปิดรายการรีโมตไม่สำเร็จ", err)
+		}
+		if affected, _ := update.RowsAffected(); affected != 1 {
+			return platform.NewError(http.StatusConflict, "รายการรีโมตถูกชำระหรือยกเลิกแล้ว")
+		}
+		return nil
+	})
+	return result, err
 }
 
 // posPresenceWindow is how stale a heartbeat may be before the till counts as
@@ -299,11 +425,16 @@ func (h *Handler) SaveRemoteSession(c echo.Context) error {
 }
 
 func (h *Handler) CancelRemoteSession(c echo.Context) error {
-	branchID, err := platform.MustBranchID(platform.CurrentUser(c), c.QueryParam("branch_id"))
+	user := platform.CurrentUser(c)
+	branchID, err := platform.MustBranchID(user, c.QueryParam("branch_id"))
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
 	}
-	if err := h.service.CancelRemoteSession(c.Request().Context(), branchID); err != nil {
+	cartVersion, err := strconv.ParseInt(c.QueryParam("cart_version"), 10, 64)
+	if err != nil {
+		return platform.HandleHTTPError(c, platform.NewError(http.StatusBadRequest, "cart_version ไม่ถูกต้อง"))
+	}
+	if err := h.service.CancelRemoteSession(c.Request().Context(), user, branchID, c.QueryParam("session_id"), cartVersion); err != nil {
 		return platform.HandleHTTPError(c, err)
 	}
 	return platform.JSON(c, http.StatusOK, map[string]any{"message": "ยกเลิกการรีโมตแล้ว"})
@@ -348,9 +479,9 @@ func (h *Handler) OnlineBranches(c echo.Context) error {
 	return platform.JSON(c, http.StatusOK, map[string]any{"items": items})
 }
 
-// AdminCheckout is head office settling the bill at its own counter. Whatever
-// cart it had left waiting at the branch till is withdrawn in the same request,
-// so the branch can never collect a second time for a bill already paid.
+// AdminCheckout is head office settling an ordinary HQ-pickup bill. Remote
+// carts use CheckoutRemoteSession so closing the session and creating the sale
+// remain atomic; this handler must not cancel an unrelated branch cart.
 func (h *Handler) AdminCheckout(c echo.Context) error {
 	var input CheckoutRequest
 	if err := c.Bind(&input); err != nil {
@@ -363,11 +494,6 @@ func (h *Handler) AdminCheckout(c echo.Context) error {
 	result, err := h.service.Checkout(c.Request().Context(), user, audit.MetaFromContext(c), input)
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
-	}
-	if input.BranchID != "" {
-		// Best effort: the sale is already recorded, and an orphaned open cart
-		// is the one thing that could cause a double charge.
-		_ = h.service.CancelRemoteSession(c.Request().Context(), input.BranchID)
 	}
 	result["message"] = "ชำระเงินและออกใบเสร็จแล้ว"
 	return platform.JSON(c, http.StatusCreated, result)

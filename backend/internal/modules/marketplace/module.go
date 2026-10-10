@@ -203,7 +203,11 @@ func (s *Service) UpsertConnection(ctx context.Context, user platform.AuthUser, 
 		meta.EntityType = "marketplace_connection"
 		meta.EntityID = &existingID
 		meta.Action = "marketplace.upsert_connection"
-		meta.After = input
+		meta.After = map[string]any{
+			"provider_id": input.ProviderID, "branch_id": input.BranchID,
+			"connection_name": strings.TrimSpace(input.ConnectionName),
+			"status":          input.Status, "credentials_changed": len(input.Credentials) > 0,
+		}
 		return s.audit.Log(ctx, tx, meta)
 	})
 }

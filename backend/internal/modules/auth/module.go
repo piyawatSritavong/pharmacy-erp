@@ -31,7 +31,7 @@ type LoginRequest struct {
 }
 
 type SessionResponse struct {
-	Token      string            `json:"token"`
+	Token      string            `json:"-"`
 	User       platform.AuthUser `json:"user"`
 	Navigation []map[string]any  `json:"navigation"`
 	HomePath   string            `json:"home_path"`
@@ -52,19 +52,20 @@ func (s *Service) Login(ctx context.Context, input LoginRequest) (SessionRespons
 		BranchCode   sql.NullString
 		BranchName   sql.NullString
 		Active       bool
+		AuthVersion  int
 	}
 
 	var row userRow
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT u.id, u.full_name, u.email, u.password_hash, r.role_key, r.name, r.active, r.portal, r.scope,
-		       u.branch_id::text, b.code, b.name, u.active
+		       u.branch_id::text, b.code, b.name, u.active, u.auth_version
 		FROM users u
 		INNER JOIN roles r ON r.id = u.role_id
 		LEFT JOIN branches b ON b.id = u.branch_id
 		WHERE LOWER(u.email) = LOWER($1)
 	`, strings.TrimSpace(input.Email)).Scan(
 		&row.ID, &row.Name, &row.Email, &row.PasswordHash, &row.RoleKey, &row.RoleName, &row.RoleActive, &row.Portal, &row.Scope,
-		&row.BranchID, &row.BranchCode, &row.BranchName, &row.Active,
+		&row.BranchID, &row.BranchCode, &row.BranchName, &row.Active, &row.AuthVersion,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return SessionResponse{}, platform.NewError(http.StatusUnauthorized, "invalid credentials")
@@ -99,6 +100,7 @@ func (s *Service) Login(ctx context.Context, input LoginRequest) (SessionRespons
 		BranchCode:  platform.StringPointer(row.BranchCode),
 		BranchName:  platform.StringPointer(row.BranchName),
 		Permissions: permissions,
+		AuthVersion: row.AuthVersion,
 	}
 
 	if _, err := s.db.ExecContext(ctx, `UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = $1`, row.ID); err != nil {
@@ -156,6 +158,7 @@ func (s *Service) signToken(user platform.AuthUser) (string, error) {
 		BranchCode:  user.BranchCode,
 		BranchName:  user.BranchName,
 		Permissions: user.Permissions,
+		AuthVersion: user.AuthVersion,
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().Add(12 * time.Hour).Unix(),
 			IssuedAt:  time.Now().Unix(),
@@ -361,6 +364,15 @@ func (h *Handler) Login(c echo.Context) error {
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
 	}
+	c.SetCookie(&http.Cookie{
+		Name:     "pharmacy_erp_auth",
+		Value:    result.Token,
+		Path:     "/",
+		MaxAge:   int((12 * time.Hour).Seconds()),
+		HttpOnly: true,
+		Secure:   h.service.config.AppEnv != "development" && h.service.config.AppEnv != "test",
+		SameSite: http.SameSiteLaxMode,
+	})
 	return platform.JSON(c, http.StatusOK, result)
 }
 

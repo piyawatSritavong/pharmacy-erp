@@ -69,7 +69,13 @@ type CheckoutRequest struct {
 	TenderedAmount     float64     `json:"tendered_amount"`
 	TransferAmount     float64     `json:"transfer_amount"`
 	ReferenceCode      string      `json:"reference_code"`
-	Notes              string      `json:"notes"`
+	// Notes is the V1 compatibility field. V2 clients separate the document
+	// annotation from payment evidence.
+	Notes            string `json:"notes"`
+	DocumentNote     string `json:"document_note"`
+	PaymentNote      string `json:"payment_note"`
+	ParkedBillID     string `json:"parked_bill_id"`
+	ParkedClaimToken string `json:"parked_claim_token"`
 }
 
 type checkoutSettlement struct {
@@ -531,50 +537,70 @@ func (s *Service) Checkout(ctx context.Context, user platform.AuthUser, meta aud
 	if input.FullTaxInvoice && strings.TrimSpace(input.CustomerTaxID) == "" {
 		return nil, platform.NewError(http.StatusBadRequest, "ใบกำกับภาษีเต็มรูปต้องระบุเลขประจำตัวผู้เสียภาษี")
 	}
-	result := map[string]any{}
+	var result map[string]any
 	err = platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
-		issuedAt := time.Now().UTC()
-		vatRate, err := platform.GetSettingFloat(ctx, tx, "vat_rate", 7)
-		if err != nil {
-			return err
-		}
-		cart, err := s.priceCart(ctx, tx, user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount, vatRate, true)
-		if err != nil {
-			return err
-		}
-		lines, subtotal, taxAmount, totalAmount := cart.Lines, cart.Subtotal, cart.TaxAmount, cart.TotalAmount
-		settlement, err := validateCheckoutPayment(input, totalAmount)
-		if err != nil {
-			return err
-		}
-		invoiceID := platform.MustUUID()
-		if err := s.lockAndApplyStock(ctx, tx, input.BranchID, invoiceID, user, lines, meta); err != nil {
-			return err
-		}
-		invoiceNumber, err := nextDocumentNumber(ctx, tx, input.BranchID, "invoice", issuedAt)
-		if err != nil {
-			return err
-		}
-		customerName := strings.TrimSpace(input.CustomerName)
-		if customerName == "" {
-			customerName = "ลูกค้าหน้าร้าน"
-		}
-		if _, err := tx.ExecContext(ctx, `
+		var checkoutErr error
+		result, checkoutErr = s.checkoutInTx(ctx, tx, user, meta, input)
+		return checkoutErr
+	})
+	return result, err
+}
+
+// checkoutInTx records the invoice, payments, stock movement, and audit event
+// in the transaction owned by the caller. Remote checkout uses the same
+// transaction to close its session, so a crash cannot leave a completed sale
+// behind an open cart that may be charged again.
+func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.AuthUser, meta audit.LogEntry, input CheckoutRequest) (map[string]any, error) {
+	documentNote := strings.TrimSpace(input.DocumentNote)
+	paymentNote := strings.TrimSpace(input.PaymentNote)
+	if documentNote == "" {
+		documentNote = strings.TrimSpace(input.Notes)
+	}
+	if paymentNote == "" && input.DocumentNote == "" {
+		paymentNote = strings.TrimSpace(input.Notes)
+	}
+	issuedAt := time.Now().UTC()
+	vatRate, err := platform.GetSettingFloat(ctx, tx, "vat_rate", 7)
+	if err != nil {
+		return nil, err
+	}
+	cart, err := s.priceCart(ctx, tx, user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount, vatRate, true)
+	if err != nil {
+		return nil, err
+	}
+	lines, subtotal, taxAmount, totalAmount := cart.Lines, cart.Subtotal, cart.TaxAmount, cart.TotalAmount
+	settlement, err := validateCheckoutPayment(input, totalAmount)
+	if err != nil {
+		return nil, err
+	}
+	invoiceID := platform.MustUUID()
+	if err := s.lockAndApplyStock(ctx, tx, input.BranchID, invoiceID, user, lines, meta); err != nil {
+		return nil, err
+	}
+	invoiceNumber, err := nextDocumentNumber(ctx, tx, input.BranchID, "invoice", issuedAt)
+	if err != nil {
+		return nil, err
+	}
+	customerName := strings.TrimSpace(input.CustomerName)
+	if customerName == "" {
+		customerName = "ลูกค้าหน้าร้าน"
+	}
+	if _, err := tx.ExecContext(ctx, `
 			INSERT INTO invoices (
 				id, branch_id, invoice_number, customer_name, customer_tax_id,
 				payment_status, invoice_status, is_government_mode, tax_invoice_type, subtotal,
 				tax_rate, tax_amount, total_amount, created_by, issued_at, created_at, updated_at,
-				request_full_tax_invoice, bill_discount_amount, line_discount_total,
+				request_full_tax_invoice, notes, bill_discount_amount, line_discount_total,
 				promotion_discount_total, giveaway_cost_total
-			) VALUES ($1, $2, $3, $4, $5, 'paid', 'issued', $6, $7, $8, $9, $10, $11, $12, $13, $13, $13, $14, $15, $16, $17, $18)
-		`, invoiceID, input.BranchID, invoiceNumber, customerName,
-			platform.NullString(input.CustomerTaxID), input.IsGovernment, taxInvoiceType(input.FullTaxInvoice), subtotal,
-			vatRate, taxAmount, totalAmount, user.ID, issuedAt, input.FullTaxInvoice,
-			cart.BillDiscount, cart.LineDiscount, cart.PromotionDiscount, cart.GiveawayCost); err != nil {
-			return err
-		}
-		for _, line := range lines {
-			if _, err := tx.ExecContext(ctx, `
+			) VALUES ($1, $2, $3, $4, $5, 'paid', 'issued', $6, $7, $8, $9, $10, $11, $12, $13, $13, $13, $14, $15, $16, $17, $18, $19)
+	`, invoiceID, input.BranchID, invoiceNumber, customerName,
+		platform.NullString(input.CustomerTaxID), input.IsGovernment, taxInvoiceType(input.FullTaxInvoice), subtotal,
+		vatRate, taxAmount, totalAmount, user.ID, issuedAt, input.FullTaxInvoice,
+		documentNote, cart.BillDiscount, cart.LineDiscount, cart.PromotionDiscount, cart.GiveawayCost); err != nil {
+		return nil, err
+	}
+	for _, line := range lines {
+		if _, err := tx.ExecContext(ctx, `
 				INSERT INTO invoice_items (
 					id, invoice_id, product_id, alias_id, actual_product_name,
 					display_name, quantity, stock_bucket, unit_price, line_subtotal,
@@ -585,54 +611,71 @@ func (s *Service) Checkout(ctx context.Context, user platform.AuthUser, meta aud
 					discount_amount, bill_discount_share, is_giveaway, promotion_id, promotion_name_snapshot, created_at
 				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
 					$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,NOW())
-			`, platform.MustUUID(), invoiceID, line.ProductID, platform.NullUUID(line.AliasID),
-				line.ProductName, line.DisplayName, line.Quantity, line.StockBucket,
-				line.UnitPrice, line.LineSubtotal, line.TaxRate, line.TaxAmount,
-				line.LineTotal, line.PriceSource, line.OverrideReason, line.CostSnapshot,
-				line.InventoryLotID, line.LotNumber, line.LotReceivedAt, line.LotExpiresOn,
-				platform.NullUUID(&line.UnitID), line.UnitName, lineConversion(line), line.SoldQuantity, line.SoldUnitPrice,
-				line.DiscountAmount, line.BillDiscountShare, line.IsGiveaway,
-				platform.NullUUID(&line.PromotionID), line.PromotionName); err != nil {
-				return err
-			}
+		`, platform.MustUUID(), invoiceID, line.ProductID, platform.NullUUID(line.AliasID),
+			line.ProductName, line.DisplayName, line.Quantity, line.StockBucket,
+			line.UnitPrice, line.LineSubtotal, line.TaxRate, line.TaxAmount,
+			line.LineTotal, line.PriceSource, line.OverrideReason, line.CostSnapshot,
+			line.InventoryLotID, line.LotNumber, line.LotReceivedAt, line.LotExpiresOn,
+			platform.NullUUID(&line.UnitID), line.UnitName, lineConversion(line), line.SoldQuantity, line.SoldUnitPrice,
+			line.DiscountAmount, line.BillDiscountShare, line.IsGiveaway,
+			platform.NullUUID(&line.PromotionID), line.PromotionName); err != nil {
+			return nil, err
 		}
-		for _, payment := range settlementPaymentRows(settlement) {
-			if _, err := tx.ExecContext(ctx, `
+	}
+	for _, payment := range settlementPaymentRows(settlement) {
+		if payment.PaymentType == "bank_transfer" {
+			payment.ReferenceCode = strings.TrimSpace(input.ReferenceCode)
+		}
+		if _, err := tx.ExecContext(ctx, `
 				INSERT INTO invoice_payments (
 					id, invoice_id, payment_type, amount, reference_code, notes, created_by, created_at
 				) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-			`, platform.MustUUID(), invoiceID, payment.PaymentType, payment.Amount,
-				payment.ReferenceCode, strings.TrimSpace(input.Notes), user.ID); err != nil {
-				return err
-			}
+		`, platform.MustUUID(), invoiceID, payment.PaymentType, payment.Amount,
+			payment.ReferenceCode, paymentNote, user.ID); err != nil {
+			return nil, err
 		}
-		meta.EntityType = "invoice"
-		meta.EntityID = &invoiceID
-		meta.Action = "pos.checkout"
-		meta.After = map[string]any{
-			"invoice_number":  invoiceNumber,
-			"total_amount":    totalAmount,
-			"payment_type":    input.PaymentType,
-			"cash_amount":     settlement.CashAmount,
-			"transfer_amount": settlement.TransferAmount,
-			"tendered_amount": settlement.TenderedAmount,
-			"change_amount":   settlement.ChangeAmount,
+	}
+	meta.EntityType = "invoice"
+	meta.EntityID = &invoiceID
+	meta.Action = "pos.checkout"
+	meta.After = map[string]any{
+		"invoice_number":  invoiceNumber,
+		"total_amount":    totalAmount,
+		"payment_type":    input.PaymentType,
+		"cash_amount":     settlement.CashAmount,
+		"transfer_amount": settlement.TransferAmount,
+		"tendered_amount": settlement.TenderedAmount,
+		"change_amount":   settlement.ChangeAmount,
+	}
+	if err := s.audit.Log(ctx, tx, meta); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(input.ParkedBillID) != "" || strings.TrimSpace(input.ParkedClaimToken) != "" {
+		if strings.TrimSpace(input.ParkedBillID) == "" || strings.TrimSpace(input.ParkedClaimToken) == "" {
+			return nil, platform.NewError(http.StatusBadRequest, "ข้อมูลบิลที่เรียกกลับมาไม่ครบถ้วน")
 		}
-		if err := s.audit.Log(ctx, tx, meta); err != nil {
-			return err
+		consumed, err := tx.ExecContext(ctx, `
+			UPDATE parked_bills
+			SET status='consumed', consumed_at=NOW(), consumed_invoice_id=$4, updated_at=NOW()
+			WHERE id=$1 AND branch_id=$2 AND status='claimed'
+			  AND claim_token=$3 AND claimed_by=$5 AND expires_at>NOW()
+		`, input.ParkedBillID, input.BranchID, input.ParkedClaimToken, invoiceID, user.ID)
+		if err != nil {
+			return nil, err
 		}
-		result = map[string]any{
-			"invoice_id":      invoiceID,
-			"invoice_number":  invoiceNumber,
-			"total_amount":    totalAmount,
-			"cash_amount":     settlement.CashAmount,
-			"transfer_amount": settlement.TransferAmount,
-			"tendered_amount": settlement.TenderedAmount,
-			"change_amount":   settlement.ChangeAmount,
+		if affected, _ := consumed.RowsAffected(); affected != 1 {
+			return nil, platform.NewError(http.StatusConflict, "บิลที่เรียกกลับมาถูกใช้ ยกเลิก หรือหมดอายุแล้ว")
 		}
-		return nil
-	})
-	return result, err
+	}
+	return map[string]any{
+		"invoice_id":      invoiceID,
+		"invoice_number":  invoiceNumber,
+		"total_amount":    totalAmount,
+		"cash_amount":     settlement.CashAmount,
+		"transfer_amount": settlement.TransferAmount,
+		"tendered_amount": settlement.TenderedAmount,
+		"change_amount":   settlement.ChangeAmount,
+	}, nil
 }
 
 func (s *Service) CollectPayment(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, invoiceID string, input PaymentRequest) error {
@@ -663,7 +706,13 @@ func (s *Service) CollectPayment(ctx context.Context, user platform.AuthUser, me
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO invoice_payments (id, invoice_id, payment_type, amount, reference_code, notes, created_by, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-		`, platform.MustUUID(), invoiceID, input.PaymentType, totalAmount, "", strings.TrimSpace(input.Notes), user.ID); err != nil {
+		`, platform.MustUUID(), invoiceID, input.PaymentType, totalAmount,
+			func() string {
+				if input.PaymentType == "bank_transfer" {
+					return strings.TrimSpace(input.ReferenceCode)
+				}
+				return ""
+			}(), strings.TrimSpace(input.Notes), user.ID); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `

@@ -38,7 +38,7 @@ const MODES: Array<{ id: SaleMode; title: string; detail: string; icon: typeof S
  * Pick the branch first, then how the customer pays; the till itself is the
  * same POS cart, and the bill it writes is an ordinary bill of that branch.
  */
-export function AdminSalesConsole({ branches, operatorName = "" }: { branches: Branch[]; operatorName?: string }) {
+export function AdminSalesConsole({ branches, operatorId = "", operatorName = "" }: { branches: Branch[]; operatorId?: string; operatorName?: string }) {
   const [branchId, setBranchId] = useState("");
   const [mode, setMode] = useState<SaleMode>("remote");
   const [products, setProducts] = useState<Option[]>([]);
@@ -194,6 +194,7 @@ export function AdminSalesConsole({ branches, operatorName = "" }: { branches: B
           endpointBase="/admin/pos"
           inventory={inventory}
           key={`${branchId}:${mode}`}
+          operatorId={operatorId}
           products={products}
           // รีโมตหน้าร้าน pushes the cart to the branch's own till, which takes
           // the money; ขายผ่านสำนักงานใหญ่ settles here as before.

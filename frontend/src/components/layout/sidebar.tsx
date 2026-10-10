@@ -1,5 +1,7 @@
 "use client";
 
+import { PRO_GATE_ENABLED } from "@/lib/pro-access";
+
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -150,7 +152,7 @@ function MobileNavItem({ item, pathname, onNavigate, badges }: {
   const content = <>
     <Icon className="h-5 w-5 shrink-0" />
     <span className="min-w-0 flex-1 break-words text-left">{item.title}</span>
-    {item.pro ? <ProTag /> : null}
+    {PRO_GATE_ENABLED && item.pro ? <ProTag /> : null}
     <CountBadge count={badge} />
   </>;
   const classes = cn("flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active ? "bg-primary/10 text-primary" : "text-foreground hover:bg-muted");
@@ -267,7 +269,7 @@ export function Sidebar({
                     <DropdownMenuItem asChild key={child.key}>
                       <Link className={cn("flex items-center gap-2", activePath(pathname, child.href) && "font-bold text-primary")} href={child.href}>
                         <span className="truncate">{child.title}</span>
-                        {child.pro ? <ProTag /> : null}
+                        {PRO_GATE_ENABLED && child.pro ? <ProTag /> : null}
                       </Link>
                     </DropdownMenuItem>
                   ))}
@@ -306,7 +308,7 @@ export function Sidebar({
                         key={child.key}
                       >
                         <span className="truncate">{child.title}</span>
-                        {child.pro ? <ProTag /> : null}
+                        {PRO_GATE_ENABLED && child.pro ? <ProTag /> : null}
                       </Link>
                     );
                   })}

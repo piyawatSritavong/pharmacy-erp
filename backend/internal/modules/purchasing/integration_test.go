@@ -16,7 +16,7 @@ func TestPurchaseOrderAtomicStockLifecycleAgainstConfiguredDatabase(t *testing.T
 	if databaseURL == "" {
 		t.Skip("TEST_DATABASE_URL is not configured")
 	}
-	db, err := database.Open(databaseURL)
+	db, err := database.OpenTest(databaseURL)
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}

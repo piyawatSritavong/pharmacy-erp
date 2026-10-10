@@ -205,6 +205,12 @@ func (s *Service) UpdateRolePermissions(ctx context.Context, roleID string, user
 				return err
 			}
 		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE users SET auth_version=auth_version+1, updated_at=NOW()
+			WHERE role_id=$1
+		`, roleID); err != nil {
+			return err
+		}
 
 		meta.EntityType = "role"
 		meta.EntityID = &roleID
@@ -290,7 +296,8 @@ func (s *Service) UpdateUser(ctx context.Context, userID string, user platform.A
 		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE users
-			SET role_id = $2, branch_id = $3, full_name = $4, email = $5, active = $6, updated_at = NOW()
+			SET role_id = $2, branch_id = $3, full_name = $4, email = $5,
+			    active = $6, auth_version=auth_version+1, updated_at = NOW()
 			WHERE id = $1
 		`, userID, input.RoleID, platform.NullUUID(input.BranchID), fullName, email, active); err != nil {
 			return platform.MapUniqueViolation(err, "อีเมลนี้มีผู้ใช้งานแล้ว")
@@ -372,7 +379,7 @@ func (s *Service) ResetPassword(ctx context.Context, userID string, user platfor
 		if !exists {
 			return platform.NewError(http.StatusNotFound, "user not found")
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1`, userID, string(hash)); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = $2, auth_version=auth_version+1, updated_at = NOW() WHERE id = $1`, userID, string(hash)); err != nil {
 			return err
 		}
 		meta.EntityType = "user"

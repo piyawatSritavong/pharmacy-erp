@@ -145,11 +145,11 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	// Exact admin report path retained for external integrations. The service,
 	// this group, and the versioned alias below all enforce the literal role.
 	adminAPI := engine.Group("/api/admin")
-	adminAPI.Use(appMiddleware.JWT(cfg.JWTSecret))
+	adminAPI.Use(appMiddleware.JWT(cfg.JWTSecret, db))
 	adminAPI.GET("/month-end-report", monthEndHandler.MonthEndReport, appMiddleware.RequireRole("super_admin"))
 
 	protected := api.Group("")
-	protected.Use(appMiddleware.JWT(cfg.JWTSecret))
+	protected.Use(appMiddleware.JWT(cfg.JWTSecret, db))
 	superadminOnly := appMiddleware.RequireRole("super_admin")
 	protected.GET("/me", authHandler.Me)
 	protected.GET("/dashboard", dashboardHandler.Summary, appMiddleware.RequireAnyPermission("dashboard.view.global", "dashboard.view.self"))
@@ -259,6 +259,8 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.GET("/parked-bills", parkedBillHandler.List)
 	protected.POST("/parked-bills", parkedBillHandler.Create)
 	protected.GET("/parked-bills/:parkedBillID", parkedBillHandler.Get)
+	protected.POST("/parked-bills/:parkedBillID/claimed", parkedBillHandler.GetClaimed)
+	protected.POST("/parked-bills/:parkedBillID/claim", parkedBillHandler.Claim)
 	protected.DELETE("/parked-bills/:parkedBillID", parkedBillHandler.Delete)
 	protected.POST("/pos/checkout", salesHandler.Checkout, appMiddleware.RequireAnyPermission("invoice.create.pos", "payment.collect"))
 	// ใบกำกับภาษีอย่างย่อ -> เต็มรูป: cancels the abbreviated bill and issues a
@@ -270,6 +272,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.PUT("/admin/pos/remote-session", salesHandler.SaveRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.remote"))
 	protected.DELETE("/admin/pos/remote-session", salesHandler.CancelRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.remote"))
 	protected.GET("/admin/pos/remote-session", salesHandler.AdminRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.remote"))
+	protected.POST("/admin/pos/remote-session/checkout", salesHandler.CheckoutRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.remote"))
 	protected.GET("/admin/pos/online-branches", salesHandler.OnlineBranches, appMiddleware.RequireAnyPermission("invoice.create.remote"))
 	protected.GET("/pos/remote-session", salesHandler.PosRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.pos"))
 	protected.POST("/pos/remote-session/checkout", salesHandler.CheckoutRemoteSession, appMiddleware.RequireAnyPermission("invoice.create.pos"))

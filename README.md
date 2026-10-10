@@ -201,6 +201,7 @@ Playwright regression ครอบคลุม login, navigation ใหม่, r
 
 ## เอกสาร
 
+- [ทะเบียน Version 1 และ Roadmap Version 2–6 แบ่ง Phase](docs/versions/README.md) — ฐานฟีเจอร์จากโค้ดปัจจุบัน ช่องว่าง และแผนพัฒนาต่อ
 - [สเปคระบบ](docs/SPEC.md)
 - [Manual Test Case](docs/MANUAL_TEST_CASES.md)
 - [สถาปัตยกรรมและคู่มือสรุปสิ้นเดือน](docs/MONTH_END_WORKFLOW.md)

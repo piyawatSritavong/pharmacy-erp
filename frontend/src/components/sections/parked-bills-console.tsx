@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/primitives";
 import { currency, dateTime } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
+import { PARKED_BILL_RESUME_KEY, type ParkedBillClaim } from "@/lib/parked-bill";
 
 type ParkedBill = {
   id: string;
@@ -28,10 +29,14 @@ type ParkedBill = {
   created_at: string;
   created_by_name: string;
   is_mine: boolean;
+  status: string;
+  claimed_at?: string | null;
 };
 
-/** Key the POS screen reads its resumed cart from. */
-export const RESUME_KEY = "pharmacy-erp:resume-parked-bill";
+function claimIsBusy(bill: ParkedBill) {
+  if (bill.status !== "claimed" || !bill.claimed_at) return false;
+  return Date.now() - new Date(bill.claimed_at).getTime() < 15 * 60_000;
+}
 
 function hoursLeft(expiresAt: string) {
   const ms = new Date(expiresAt).getTime() - Date.now();
@@ -72,11 +77,23 @@ export function ParkedBillsConsole() {
   async function resume(bill: ParkedBill) {
     setBusyId(bill.id);
     try {
-      const full = await proxyClient<Record<string, unknown>>(`/parked-bills/${bill.id}`);
-      // Hand the lines to the POS screen, then drop the parked copy so the
-      // same cart can't be resumed twice onto two terminals.
-      window.sessionStorage.setItem(RESUME_KEY, JSON.stringify(full));
-      await proxyClient(`/parked-bills/${bill.id}`, { method: "DELETE" });
+      const existing = window.sessionStorage.getItem(PARKED_BILL_RESUME_KEY);
+      if (existing) {
+        const claimed = JSON.parse(existing) as Partial<ParkedBillClaim>;
+        if (claimed.id === bill.id) {
+          router.push("/sales");
+          return;
+        }
+        if (claimed.id && claimed.claim_token) {
+          setMessage("มีบิลที่เรียกกลับมาอยู่ในหน้าขายแล้ว กรุณาขายหรือทิ้งบิลนั้นก่อนเรียกบิลอื่น");
+          setBusyId("");
+          return;
+        }
+      }
+      const full = await proxyClient<Record<string, unknown>>(`/parked-bills/${bill.id}/claim`, { method: "POST" });
+      window.sessionStorage.setItem(PARKED_BILL_RESUME_KEY, JSON.stringify({
+        id: String(full.id || ""), claim_token: String(full.claim_token || "")
+      } satisfies ParkedBillClaim));
       router.push("/sales");
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : "เรียกบิลกลับมาไม่สำเร็จ");
@@ -135,9 +152,9 @@ export function ParkedBillsConsole() {
                 <div className="flex gap-2">
                   <Button disabled={Boolean(busyId)} onClick={() => void resume(bill)} type="button">
                     <PlayCircle className="h-4 w-4" />
-                    {busyId === bill.id ? "กำลังเรียกกลับ..." : "เรียกบิลกลับมาขาย"}
+                    {busyId === bill.id ? "กำลังเรียกกลับ..." : claimIsBusy(bill) ? "กำลังใช้งานอีกเครื่อง" : "เรียกบิลกลับมาขาย"}
                   </Button>
-                  <Button disabled={Boolean(busyId)} onClick={() => setAbandon(bill)} type="button" variant="destructive">
+                  <Button disabled={Boolean(busyId) || claimIsBusy(bill)} onClick={() => setAbandon(bill)} type="button" variant="destructive">
                     <Trash2 className="h-4 w-4" />
                     ทิ้งบิล
                   </Button>

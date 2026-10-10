@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { ProxyError, proxyClient } from "@/services/api";
+import { PARKED_BILL_RESUME_KEY } from "@/lib/parked-bill";
 
 export function LogoutButton({ compact = false }: { compact?: boolean }) {
   const [loading, setLoading] = useState(false);
@@ -27,6 +28,8 @@ export function LogoutButton({ compact = false }: { compact?: boolean }) {
       setLoading(false);
       return;
     }
+
+    window.sessionStorage.removeItem(PARKED_BILL_RESUME_KEY);
 
     // Only now, and as a document load. The client Router Cache still holds
     // the authenticated payload of every page visited this session; a client

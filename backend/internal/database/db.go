@@ -3,7 +3,10 @@ package database
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/url"
+	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -44,6 +47,32 @@ func Open(databaseURL string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+// OpenTest refuses to connect unless both the process environment and database
+// name make the destructive integration-test intent explicit. Test fixtures
+// truncate and rewrite tables, so accepting an arbitrary TEST_DATABASE_URL is
+// not a safe enough boundary by itself.
+func OpenTest(databaseURL string) (*sql.DB, error) {
+	if err := ValidateTestDatabaseURL(databaseURL, os.Getenv("APP_ENV")); err != nil {
+		return nil, err
+	}
+	return Open(databaseURL)
+}
+
+func ValidateTestDatabaseURL(databaseURL, appEnv string) error {
+	if appEnv != "test" {
+		return fmt.Errorf("integration database requires APP_ENV=test")
+	}
+	parsed, err := url.Parse(strings.TrimSpace(databaseURL))
+	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") {
+		return fmt.Errorf("TEST_DATABASE_URL must use postgres:// or postgresql:// URL form")
+	}
+	databaseName := strings.TrimPrefix(path.Clean(parsed.Path), "/")
+	if databaseName == "" || databaseName == "." || !strings.HasSuffix(strings.ToLower(databaseName), "_test") {
+		return fmt.Errorf("TEST_DATABASE_URL database name must end with _test")
+	}
+	return nil
 }
 
 // EnsureSSLMode defaults a DSN that does not say to sslmode=require.

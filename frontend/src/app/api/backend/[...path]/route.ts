@@ -122,9 +122,9 @@ async function proxy(request: NextRequest, path: string[]) {
     throw error;
   }
 
-	const payload = await response.arrayBuffer();
-	const responseType = response.headers.get("content-type") || "application/octet-stream";
-	const proxied = new NextResponse(payload, {
+		const payload = await response.arrayBuffer();
+		const responseType = response.headers.get("content-type") || "application/octet-stream";
+		const proxied = new NextResponse(payload, {
 		status: response.status,
 		headers: {
 			"Content-Type": responseType,
@@ -137,16 +137,10 @@ async function proxy(request: NextRequest, path: string[]) {
 		}
 	});
 
-	if (route === "auth/login" && response.ok) {
-		const login = JSON.parse(new TextDecoder().decode(payload)) as { token: string };
-		const secure = requestIsHTTPS(request);
-		proxied.cookies.set(AUTH_COOKIE, login.token, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure,
-      path: "/"
-    });
-  }
+		if (route === "auth/login" && response.ok) {
+			const upstreamCookie = response.headers.get("set-cookie");
+			if (upstreamCookie) proxied.headers.append("Set-Cookie", upstreamCookie);
+		}
 
   if (isLogout) {
     // Answer 200 whatever the upstream said, having cleared the cookie.

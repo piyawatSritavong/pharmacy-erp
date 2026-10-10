@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  backend-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Unit and compile checks
+        working-directory: backend
+        run: env -u TEST_DATABASE_URL go test -count=1 ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+      - name: Typecheck
+        working-directory: frontend
+        run: npx tsc --noEmit
+      - name: Production build
+        working-directory: frontend
+        run: npm run build:check
+
+  backend-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pharmacy
+          POSTGRES_PASSWORD: pharmacy
+          POSTGRES_DB: pharmacy_v2_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pharmacy -d pharmacy_v2_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENV: test
+      DATABASE_URL: postgres://pharmacy:pharmacy@127.0.0.1:5432/pharmacy_v2_test?sslmode=disable
+      TEST_DATABASE_URL: postgres://pharmacy:pharmacy@127.0.0.1:5432/pharmacy_v2_test?sslmode=disable
+      JWT_SECRET: ci-only-jwt-secret-not-for-production
+      SEED_ADMIN_PASSWORD: CI-Admin-Password-2026!
+      SEED_POS_PASSWORD: CI-Till-Password-2026!
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Migrate and seed isolated integration database
+        working-directory: backend
+        run: go run ./cmd/api migrate-and-seed
+      - name: Database integration suites
+        working-directory: backend
+        run: go test -count=1 -p 1 $(go list ./... | grep -v '/tests$')
+      - name: Create pristine harness database
+        env:
+          PGPASSWORD: pharmacy
+        run: createdb -h 127.0.0.1 -U pharmacy pharmacy_harness_test
+      - name: Fresh migration and seed harness
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://pharmacy:pharmacy@127.0.0.1:5432/pharmacy_harness_test?sslmode=disable
+          TEST_DATABASE_URL: postgres://pharmacy:pharmacy@127.0.0.1:5432/pharmacy_harness_test?sslmode=disable
+        run: go test -count=1 ./tests

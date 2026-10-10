@@ -1,8 +1,10 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -34,6 +36,68 @@ func NewService(db *sql.DB) *Service {
 	return &Service{db: db}
 }
 
+var sensitiveAuditKeyFragments = []string{"authorization", "credential", "password", "token", "secret", "apikey", "signature"}
+
+func isSensitiveAuditKey(key string) bool {
+	normalized := strings.NewReplacer("_", "", "-", "", " ", "").Replace(strings.ToLower(strings.TrimSpace(key)))
+	for _, fragment := range sensitiveAuditKeyFragments {
+		if strings.Contains(normalized, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+// redactAuditValue is a final safety boundary for audit payloads. Callers
+// should still log only fields that explain the event, but a nested credential
+// must never become readable merely because a whole request struct was passed.
+func redactAuditValue(value any) any {
+	if value == nil {
+		return nil
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return map[string]any{"redaction_error": true}
+	}
+	var decoded any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		return map[string]any{"redaction_error": true}
+	}
+	return redactAuditNode(decoded)
+}
+
+func redactAuditNode(value any) any {
+	switch node := value.(type) {
+	case map[string]any:
+		for key, child := range node {
+			if isSensitiveAuditKey(key) {
+				node[key] = "[REDACTED]"
+				continue
+			}
+			node[key] = redactAuditNode(child)
+		}
+	case []any:
+		for index := range node {
+			node[index] = redactAuditNode(node[index])
+		}
+	case string:
+		trimmed := strings.TrimSpace(node)
+		if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+			var embedded any
+			decoder := json.NewDecoder(strings.NewReader(trimmed))
+			decoder.UseNumber()
+			if decoder.Decode(&embedded) == nil {
+				if encoded, err := json.Marshal(redactAuditNode(embedded)); err == nil {
+					return string(encoded)
+				}
+			}
+		}
+	}
+	return value
+}
+
 func (s *Service) Log(ctx context.Context, db platform.DBTX, entry LogEntry) error {
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO audit_logs (id, actor_id, branch_id, entity_type, entity_id, action, before_data, after_data, request_id, source_ip, user_agent, created_at)
@@ -45,8 +109,8 @@ func (s *Service) Log(ctx context.Context, db platform.DBTX, entry LogEntry) err
 		entry.EntityType,
 		platform.NullUUID(entry.EntityID),
 		entry.Action,
-		platform.MustJSON(entry.Before),
-		platform.MustJSON(entry.After),
+		platform.MustJSON(redactAuditValue(entry.Before)),
+		platform.MustJSON(redactAuditValue(entry.After)),
 		entry.RequestID,
 		entry.SourceIP,
 		entry.UserAgent,
