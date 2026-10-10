@@ -171,6 +171,13 @@ func (s *Service) UpsertConnection(ctx context.Context, user platform.AuthUser, 
 	if !onlineSalesEnabled {
 		return platform.NewError(http.StatusBadRequest, "สาขานี้ไม่สามารถขายออนไลน์ได้")
 	}
+	switch strings.TrimSpace(input.Status) {
+	case "":
+		input.Status = "configured"
+	case "configured", "disabled":
+	default:
+		return platform.NewError(http.StatusBadRequest, "สถานะการเชื่อมต่อต้องเป็น configured หรือ disabled")
+	}
 	credentials, _ := json.Marshal(input.Credentials)
 	settings, _ := json.Marshal(input.Settings)
 	return platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {

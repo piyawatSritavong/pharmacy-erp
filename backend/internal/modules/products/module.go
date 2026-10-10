@@ -138,7 +138,7 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 	if keyword := strings.TrimSpace(filter.Search); keyword != "" {
 		args = append(args, "%"+strings.ToLower(keyword)+"%")
 		placeholder := "$" + strconv.Itoa(len(args))
-		conditions = append(conditions, fmt.Sprintf("(LOWER(p.name) LIKE %[1]s OR LOWER(p.sku) LIKE %[1]s OR LOWER(COALESCE(p.barcode, '')) LIKE %[1]s OR EXISTS (SELECT 1 FROM product_source_aliases psa WHERE psa.product_id=p.id AND LOWER(psa.alias_name) LIKE %[1]s))", placeholder))
+		conditions = append(conditions, fmt.Sprintf("(LOWER(p.name) LIKE %[1]s OR LOWER(p.sku) LIKE %[1]s OR LOWER(COALESCE(p.barcode, '')) LIKE %[1]s OR EXISTS (SELECT 1 FROM product_source_aliases psa WHERE psa.product_id=p.id AND LOWER(psa.alias_name) LIKE %[1]s) OR EXISTS (SELECT 1 FROM product_units pu WHERE pu.product_id=p.id AND pu.active AND LOWER(COALESCE(pu.barcode, '')) LIKE %[1]s))", placeholder))
 	}
 	if strings.TrimSpace(filter.CategoryID) != "" {
 		args = append(args, strings.TrimSpace(filter.CategoryID))

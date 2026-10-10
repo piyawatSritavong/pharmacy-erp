@@ -30,7 +30,10 @@ type salesSummaryResult struct {
 	InvoiceCount int
 	CashReceived float64
 	BankReceived float64
-	Invoices     []map[string]any
+	// CreditSales is what the range's bills still owe: sold on credit and not
+	// yet collected, so it is in sales but not in either money column.
+	CreditSales float64
+	Invoices    []map[string]any
 }
 
 type Service struct {
@@ -86,14 +89,25 @@ func (s *Service) SalesSummary(ctx context.Context, user platform.AuthUser, star
 
 func (s *Service) loadSalesSummary(ctx context.Context, user platform.AuthUser, start, end time.Time, startLabel, endLabel string) (salesSummaryResult, error) {
 	result := salesSummaryResult{Start: start, End: end, StartLabel: startLabel, EndLabel: endLabel}
-	// A cashier's summary is their own till; a global-scope back-office user has
-	// no sales of their own and wants the whole company's instead.
+	// "สาขาของฉัน → สรุปยอดขาย" is the branch's figure: every bill of the
+	// branch, including one head office rang up in its name and money taken
+	// later on a credit bill. A global-scope back-office user wants the whole
+	// company's instead.
 	everyone := platform.IsGlobalScope(user)
+	branchID := ""
+	if user.BranchID != nil {
+		branchID = *user.BranchID
+	}
+	if !everyone && branchID == "" {
+		return salesSummaryResult{}, platform.NewError(http.StatusForbidden, "บัญชีนี้ยังไม่ได้ผูกกับสาขา")
+	}
 	if err := s.db.QueryRowContext(ctx, `
-			SELECT COUNT(*), COALESCE(SUM(total_amount), 0)
-		FROM invoices
-		WHERE ($4 OR created_by = $1) AND invoice_status = 'issued' AND deleted_at IS NULL AND issued_at >= $2 AND issued_at < $3
-		`, user.ID, start, end, everyone).Scan(&result.InvoiceCount, &result.TotalSales); err != nil {
+		SELECT COUNT(*), COALESCE(SUM(i.total_amount), 0),
+		       COALESCE(SUM(i.total_amount - COALESCE(paid.amount, 0)) FILTER (WHERE i.payment_status <> 'paid'), 0)
+		FROM invoices i
+		LEFT JOIN LATERAL (SELECT SUM(amount) AS amount FROM invoice_payments WHERE invoice_id = i.id) paid ON TRUE
+		WHERE ($4 OR i.branch_id::text = $1) AND i.invoice_status = 'issued' AND i.deleted_at IS NULL AND i.issued_at >= $2 AND i.issued_at < $3
+		`, branchID, start, end, everyone).Scan(&result.InvoiceCount, &result.TotalSales, &result.CreditSales); err != nil {
 		return salesSummaryResult{}, err
 	}
 
@@ -103,12 +117,12 @@ func (s *Service) loadSalesSummary(ctx context.Context, user platform.AuthUser, 
 			COALESCE(SUM(CASE WHEN payment_type = 'bank_transfer' THEN amount ELSE 0 END), 0)
 		FROM invoice_payments ip
 		INNER JOIN invoices i ON i.id=ip.invoice_id AND i.deleted_at IS NULL
-		WHERE ($4 OR ip.created_by = $1) AND ip.created_at >= $2 AND ip.created_at < $3
-		`, user.ID, start, end, everyone).Scan(&result.CashReceived, &result.BankReceived); err != nil {
+		WHERE ($4 OR i.branch_id::text = $1) AND ip.created_at >= $2 AND ip.created_at < $3
+		`, branchID, start, end, everyone).Scan(&result.CashReceived, &result.BankReceived); err != nil {
 		return salesSummaryResult{}, err
 	}
 
-	invoices, err := s.listSalesInvoices(ctx, user.ID, everyone, start, end)
+	invoices, err := s.listSalesInvoices(ctx, branchID, everyone, start, end)
 	if err != nil {
 		return salesSummaryResult{}, err
 	}
@@ -138,6 +152,7 @@ func (result salesSummaryResult) payload(daily bool) map[string]any {
 			{"key": "invoice_count", "label": invoiceLabel, "value": result.InvoiceCount},
 			{"key": "cash_received", "label": cashLabel, "value": result.CashReceived},
 			{"key": "bank_received", "label": bankLabel, "value": result.BankReceived},
+			{"key": "credit_outstanding", "label": "ขายเชื่อ (ยังไม่รับเงิน)", "value": result.CreditSales},
 		},
 		"recent_invoices": result.Invoices,
 		"recent_items": map[string]any{
@@ -188,7 +203,7 @@ func bangkokDateRange(startInput, endInput string) (time.Time, time.Time, string
 	return startDay.UTC(), endDay.AddDate(0, 0, 1).UTC(), startDay.Format("2006-01-02"), endDay.Format("2006-01-02"), nil
 }
 
-func (s *Service) listSalesInvoices(ctx context.Context, userID string, everyone bool, start, end time.Time) ([]map[string]any, error) {
+func (s *Service) listSalesInvoices(ctx context.Context, branchID string, everyone bool, start, end time.Time) ([]map[string]any, error) {
 	// The month-end round a bill belongs to, so the summary can group bills by
 	// round instead of listing years of them flat. A branch cannot have two
 	// rounds over the same dates, so a bill belongs to at most one.
@@ -200,9 +215,9 @@ func (s *Service) listSalesInvoices(ctx context.Context, userID string, everyone
 		INNER JOIN branches b ON b.id = i.branch_id
 		LEFT JOIN reconciliation_invoice_snapshots ris ON ris.invoice_id = i.id
 		LEFT JOIN month_end_reconciliations mer ON mer.id = ris.reconciliation_id
-		WHERE i.invoice_status = 'issued' AND i.deleted_at IS NULL AND ($4 OR i.created_by = $1) AND i.issued_at >= $2 AND i.issued_at < $3
+		WHERE i.invoice_status = 'issued' AND i.deleted_at IS NULL AND ($4 OR i.branch_id::text = $1) AND i.issued_at >= $2 AND i.issued_at < $3
 		ORDER BY i.issued_at DESC
-	`, userID, start, end, everyone)
+	`, branchID, start, end, everyone)
 	if err != nil {
 		return nil, err
 	}
@@ -267,9 +282,10 @@ func buildSalesPDF(result salesSummaryResult, user platform.AuthUser) ([]byte, e
 		fmt.Sprintf("จำนวนบิล %d", result.InvoiceCount),
 		fmt.Sprintf("รับเงินสด %.2f บาท", result.CashReceived),
 		fmt.Sprintf("รับเงินโอน %.2f บาท", result.BankReceived),
+		fmt.Sprintf("ขายเชื่อค้างรับ %.2f บาท", result.CreditSales),
 	}
 	for _, metric := range metrics {
-		pdf.CellFormat(68, 10, metric, "1", 0, "C", true, 0, "")
+		pdf.CellFormat(54.6, 10, metric, "1", 0, "C", true, 0, "")
 	}
 	pdf.Ln(14)
 	headers := []string{"เลขที่ใบขาย", "ลูกค้า", "สาขา", "สถานะ", "วันที่ขาย", "ยอดรวม (บาท)"}
@@ -309,7 +325,7 @@ func buildSalesXLSX(result salesSummaryResult, user platform.AuthUser) ([]byte, 
 		{"สรุปยอดขาย", nil, nil, nil, nil, nil},
 		{"ช่วงวันที่", result.StartLabel, "ถึง", result.EndLabel, "ผู้ขาย", user.Name},
 		{"ยอดขายรวม", result.TotalSales, "จำนวนบิล", result.InvoiceCount, "รับเงินสด", result.CashReceived},
-		{"รับเงินโอน", result.BankReceived},
+		{"รับเงินโอน", result.BankReceived, "ขายเชื่อค้างรับ", result.CreditSales},
 		{},
 		{"เลขที่ใบขาย", "ลูกค้า", "สาขา", "สถานะ", "วันที่ขาย", "ยอดรวม (บาท)"},
 	}
@@ -360,6 +376,8 @@ func thaiPaymentStatus(status string) string {
 		return "ชำระแล้ว"
 	case "unpaid":
 		return "ค้างชำระ"
+	case "partial":
+		return "ชำระบางส่วน"
 	default:
 		return status
 	}

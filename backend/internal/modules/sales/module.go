@@ -28,6 +28,11 @@ type LineInput struct {
 	DiscountAmount    float64  `json:"discount_amount"`
 	OverrideUnitPrice *float64 `json:"override_unit_price"`
 	OverrideReason    string   `json:"override_reason"`
+
+	// quoted marks a line rebuilt from an accepted quotation: its price and the
+	// cashier's discount were authorised when the quotation was issued, so the
+	// person converting it needs no override or discount permission of their own.
+	quoted bool
 }
 
 type QuoteRequest struct {
@@ -140,13 +145,16 @@ type pricedLine struct {
 	OverrideReason string
 
 	// Selling unit and money adjustments. Quantity above is always base units.
-	UnitID            string
-	UnitName          string
-	ConversionQty     int
-	SoldQuantity      int
-	SoldUnitPrice     float64
-	GrossSubtotal     float64
-	DiscountAmount    float64
+	UnitID         string
+	UnitName       string
+	ConversionQty  int
+	SoldQuantity   int
+	SoldUnitPrice  float64
+	GrossSubtotal  float64
+	DiscountAmount float64
+	// ManualDiscount is the cashier's own line discount; DiscountAmount grows
+	// to include any promotion once the cart is priced.
+	ManualDiscount    float64
 	BillDiscountShare float64
 	IsGiveaway        bool
 	PromotionID       string
@@ -332,17 +340,24 @@ func (s *Service) CreateQuotation(ctx context.Context, user platform.AuthUser, m
 			expiry = sql.NullTime{Time: input.ExpiresAt.UTC(), Valid: true}
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO quotations (id, branch_id, quote_number, customer_name, customer_tax_id, status, is_government_mode, subtotal, tax_rate, tax_amount, total_amount, created_by, expires_at, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8, $9, $10, $11, $12, $13, $13)
-		`, quoteID, input.BranchID, quoteNumber, strings.TrimSpace(input.CustomerName), platform.NullString(input.CustomerTaxID), input.IsGovernment, subtotal, vatRate, taxAmount, totalAmount, user.ID, expiry, createdAt); err != nil {
+			INSERT INTO quotations (id, branch_id, quote_number, customer_name, customer_tax_id, status, is_government_mode, subtotal, tax_rate, tax_amount, total_amount, created_by, expires_at, created_at, updated_at, bill_discount_amount)
+			VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, $8, $9, $10, $11, $12, $13, $13, $14)
+		`, quoteID, input.BranchID, quoteNumber, strings.TrimSpace(input.CustomerName), platform.NullString(input.CustomerTaxID), input.IsGovernment, subtotal, vatRate, taxAmount, totalAmount, user.ID, expiry, createdAt, cart.BillDiscount); err != nil {
 			return err
 		}
 
 		for _, line := range lines {
 			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO quotation_items (id, quotation_id, product_id, alias_id, display_name, quantity, stock_bucket, unit_price, line_subtotal, price_source, override_reason, created_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
-			`, platform.MustUUID(), quoteID, line.ProductID, platform.NullUUID(line.AliasID), line.DisplayName, line.Quantity, line.StockBucket, line.UnitPrice, line.LineSubtotal, line.PriceSource, line.OverrideReason); err != nil {
+				INSERT INTO quotation_items (
+					id, quotation_id, product_id, alias_id, display_name, quantity, stock_bucket, unit_price,
+					line_subtotal, price_source, override_reason, created_at,
+					unit_id, unit_name_snapshot, unit_conversion_qty, sold_quantity, sold_unit_price,
+					discount_amount, manual_discount_amount, is_giveaway, promotion_id, promotion_name_snapshot
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+			`, platform.MustUUID(), quoteID, line.ProductID, platform.NullUUID(line.AliasID), line.DisplayName, line.Quantity, line.StockBucket, line.UnitPrice,
+				line.LineSubtotal, line.PriceSource, line.OverrideReason,
+				platform.NullUUID(&line.UnitID), line.UnitName, lineConversion(line), line.SoldQuantity, line.SoldUnitPrice,
+				line.DiscountAmount, line.ManualDiscount, line.IsGiveaway, platform.NullUUID(&line.PromotionID), line.PromotionName); err != nil {
 				return err
 			}
 		}
@@ -1314,11 +1329,12 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 func (s *Service) ConvertQuotation(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, quotationID string, input ConvertQuotationRequest) (string, error) {
 	var branchID, customerName, customerTaxID string
 	var isGovernment bool
+	var billDiscount float64
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT branch_id::text, customer_name, COALESCE(customer_tax_id, ''), is_government_mode
+		SELECT branch_id::text, customer_name, COALESCE(customer_tax_id, ''), is_government_mode, bill_discount_amount
 		FROM quotations
 		WHERE id = $1 AND status = 'draft'
-	`, quotationID).Scan(&branchID, &customerName, &customerTaxID, &isGovernment); err != nil {
+	`, quotationID).Scan(&branchID, &customerName, &customerTaxID, &isGovernment, &billDiscount); err != nil {
 		if err == sql.ErrNoRows {
 			return "", platform.NewError(http.StatusNotFound, "draft quotation not found")
 		}
@@ -1328,10 +1344,14 @@ func (s *Service) ConvertQuotation(ctx context.Context, user platform.AuthUser, 
 		return "", err
 	}
 
+	// Giveaway lines are left out: promotions are evaluated again on the
+	// invoice, exactly as they were when the quotation was priced.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id::text,product_id::text,COALESCE(alias_id::text,''),quantity,stock_bucket,unit_price,override_reason
+		SELECT id::text, product_id::text, COALESCE(alias_id::text,''), quantity, stock_bucket, unit_price,
+		       override_reason, COALESCE(unit_id::text,''), unit_conversion_qty, sold_quantity, sold_unit_price,
+		       manual_discount_amount
 		FROM quotation_items
-		WHERE quotation_id = $1
+		WHERE quotation_id = $1 AND NOT is_giveaway
 		ORDER BY created_at ASC
 	`, quotationID)
 	if err != nil {
@@ -1339,16 +1359,23 @@ func (s *Service) ConvertQuotation(ctx context.Context, user platform.AuthUser, 
 	}
 	defer rows.Close()
 	type quoteLine struct {
-		ID, ProductID, AliasID, StockBucket, OverrideReason string
-		Quantity                                            int
-		UnitPrice                                           float64
+		ID, ProductID, AliasID, StockBucket, OverrideReason, UnitID string
+		Quantity, Conversion, SoldQuantity                          int
+		UnitPrice, SoldUnitPrice, ManualDiscount                    float64
 	}
 	quoteLines := map[string]quoteLine{}
 	quoteOrder := []string{}
 	for rows.Next() {
 		var line quoteLine
-		if err := rows.Scan(&line.ID, &line.ProductID, &line.AliasID, &line.Quantity, &line.StockBucket, &line.UnitPrice, &line.OverrideReason); err != nil {
+		if err := rows.Scan(&line.ID, &line.ProductID, &line.AliasID, &line.Quantity, &line.StockBucket, &line.UnitPrice,
+			&line.OverrideReason, &line.UnitID, &line.Conversion, &line.SoldQuantity, &line.SoldUnitPrice,
+			&line.ManualDiscount); err != nil {
 			return "", err
+		}
+		// Quotations written before units were kept on the line priced the
+		// base unit only.
+		if line.Conversion <= 0 || line.SoldQuantity <= 0 {
+			line.UnitID, line.Conversion, line.SoldQuantity, line.SoldUnitPrice = "", 1, line.Quantity, line.UnitPrice
 		}
 		quoteLines[line.ID] = line
 		quoteOrder = append(quoteOrder, line.ID)
@@ -1360,6 +1387,7 @@ func (s *Service) ConvertQuotation(ctx context.Context, user platform.AuthUser, 
 		return "", platform.NewError(http.StatusBadRequest, "กรุณาเลือก lot สำหรับสินค้าทุกรายการก่อนออกใบขาย")
 	}
 	allocated := map[string]int{}
+	discountGiven := map[string]float64{}
 	items := []LineInput{}
 	for _, allocation := range input.Allocations {
 		line, ok := quoteLines[strings.TrimSpace(allocation.QuotationItemID)]
@@ -1367,14 +1395,35 @@ func (s *Service) ConvertQuotation(ctx context.Context, user platform.AuthUser, 
 			return "", platform.NewError(http.StatusBadRequest, "ข้อมูลการจัดสรร lot ไม่ถูกต้อง")
 		}
 		allocated[line.ID] += allocation.Quantity
-		override := line.UnitPrice
+		// Lots are allocated in base units. A slice that is a whole number of
+		// the quoted unit keeps that unit and its price; otherwise it is sold in
+		// base units at the quoted price spread per base unit.
+		unitID, quantity, price := line.UnitID, allocation.Quantity, line.SoldUnitPrice
+		if line.Conversion > 1 {
+			if allocation.Quantity%line.Conversion == 0 {
+				quantity = allocation.Quantity / line.Conversion
+			} else {
+				unitID, price = "", platform.Round2(line.SoldUnitPrice/float64(line.Conversion))
+			}
+		}
+		// The cashier's discount follows the quantity; the last slice of a line
+		// takes the rounding remainder so the line total matches the quotation.
+		discount := platform.Round2(line.ManualDiscount * float64(allocation.Quantity) / float64(line.Quantity))
+		if allocated[line.ID] == line.Quantity {
+			discount = platform.Round2(line.ManualDiscount - discountGiven[line.ID])
+		}
+		discountGiven[line.ID] = platform.Round2(discountGiven[line.ID] + discount)
+		quotedPrice := price
 		item := LineInput{
 			ProductID:         line.ProductID,
 			InventoryLotID:    strings.TrimSpace(allocation.InventoryLotID),
-			Quantity:          allocation.Quantity,
+			Quantity:          quantity,
+			UnitID:            unitID,
 			StockBucket:       line.StockBucket,
-			OverrideUnitPrice: &override,
+			DiscountAmount:    discount,
+			OverrideUnitPrice: &quotedPrice,
 			OverrideReason:    line.OverrideReason,
+			quoted:            true,
 		}
 		if line.AliasID != "" {
 			aliasID := line.AliasID
@@ -1389,13 +1438,14 @@ func (s *Service) ConvertQuotation(ctx context.Context, user platform.AuthUser, 
 	}
 
 	return s.CreateInvoice(ctx, user, meta, InvoiceRequest{
-		BranchID:          branchID,
-		CustomerName:      customerName,
-		CustomerTaxID:     customerTaxID,
-		IsGovernment:      isGovernment,
-		FullTaxInvoice:    strings.TrimSpace(customerTaxID) != "",
-		Items:             items,
-		SourceQuotationID: &quotationID,
+		BranchID:           branchID,
+		CustomerName:       customerName,
+		CustomerTaxID:      customerTaxID,
+		IsGovernment:       isGovernment,
+		FullTaxInvoice:     strings.TrimSpace(customerTaxID) != "",
+		Items:              items,
+		BillDiscountAmount: billDiscount,
+		SourceQuotationID:  &quotationID,
 	})
 }
 
@@ -1825,9 +1875,12 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 			}
 		}
 
-		displayName, soldUnitPrice, priceSource, err := resolveLineDisplayAndPrice(productName, unit.Price, aliasID, aliasName, aliasDefaultPrice, isGovernment, item.OverrideUnitPrice, canOverride(user))
+		displayName, soldUnitPrice, priceSource, err := resolveLineDisplayAndPrice(productName, unit.Price, aliasID, aliasName, aliasDefaultPrice, isGovernment, item.OverrideUnitPrice, canOverride(user) || item.quoted)
 		if err != nil {
 			return nil, 0, 0, 0, err
+		}
+		if item.quoted {
+			priceSource = "quotation"
 		}
 		// The discount ceiling is stored per base unit, so scale it to the unit
 		// actually being sold before comparing.
@@ -1835,7 +1888,7 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 		if unitFloor < 0 {
 			unitFloor = 0
 		}
-		hasGlobalOverride := platform.HasPermission(user, "price.override.global") && strings.TrimSpace(item.OverrideReason) != ""
+		hasGlobalOverride := (platform.HasPermission(user, "price.override.global") && strings.TrimSpace(item.OverrideReason) != "") || item.quoted
 		if item.OverrideUnitPrice != nil {
 			if soldUnitPrice < unitFloor && !hasGlobalOverride {
 				return nil, 0, 0, 0, platform.NewError(http.StatusForbidden, fmt.Sprintf("ราคาของ %s ต่ำกว่าราคาต่ำสุด %.2f บาท", productName, unitFloor))
@@ -1848,7 +1901,7 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 			return nil, 0, 0, 0, platform.NewError(http.StatusBadRequest, "ส่วนลดต้องไม่ติดลบ")
 		}
 		if lineDiscount > 0 {
-			if !platform.HasPermission(user, "sales.discount.line") {
+			if !platform.HasPermission(user, "sales.discount.line") && !item.quoted {
 				return nil, 0, 0, 0, platform.NewError(http.StatusForbidden, "ไม่มีสิทธิ์ให้ส่วนลด")
 			}
 			if lineDiscount > grossSubtotal {
@@ -1903,6 +1956,7 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 			SoldUnitPrice:            platform.Round2(soldUnitPrice),
 			GrossSubtotal:            grossSubtotal,
 			DiscountAmount:           lineDiscount,
+			ManualDiscount:           lineDiscount,
 			DiscountCeilingRemaining: math.Max(0, platform.Round2(maxDiscountAmount*float64(baseQuantity)-lineDiscount)),
 		})
 	}

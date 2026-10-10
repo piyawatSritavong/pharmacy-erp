@@ -1041,6 +1041,7 @@ func (s *Service) CancelPurchaseOrder(ctx context.Context, user platform.AuthUse
 			qty, remaining       int
 		}
 		lines := []line{}
+		recompute := []string{}
 		for rows.Next() {
 			var l line
 			if err := rows.Scan(&l.product, &l.bucket, &l.qty, &l.lot, &l.remaining); err != nil {
@@ -1074,13 +1075,18 @@ func (s *Service) CancelPurchaseOrder(ctx context.Context, user platform.AuthUse
 			if err := stocklot.AttachMovement(ctx, tx, movementID, []stocklot.Allocation{{Lot: stocklot.Lot{ID: l.lot}, Quantity: l.qty}}, -1); err != nil {
 				return err
 			}
-			if err := recomputeLatestProductCost(ctx, tx, l.product); err != nil {
-				return err
-			}
+			recompute = append(recompute, l.product)
 		}
 		nextRevision := revision + 1
 		if _, err := tx.ExecContext(ctx, `UPDATE purchase_orders SET status='cancelled',revision=$2,correction_reason=$3,cancelled_by=$4,cancelled_at=NOW(),updated_by=$4,updated_at=NOW() WHERE id=$1`, id, nextRevision, reason, user.ID); err != nil {
 			return err
+		}
+		// Only now is this PO out of the "latest posted" set, so the cost falls
+		// back to the PO before it rather than to the price being cancelled.
+		for _, productID := range recompute {
+			if err := recomputeLatestProductCost(ctx, tx, productID); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO purchase_order_events(id,purchase_order_id,event_type,revision,note,actor_id,event_at) VALUES($1,$2,'cancelled',$3,$4,$5,NOW())`, platform.MustUUID(), id, nextRevision, reason, user.ID); err != nil {
 			return err

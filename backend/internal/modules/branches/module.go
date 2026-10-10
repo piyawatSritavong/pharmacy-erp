@@ -3,6 +3,7 @@ package branches
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"pharmacy-erp/backend/internal/platform"
 
 	"github.com/labstack/echo/v4"
+	"github.com/lib/pq"
 )
 
 type Branch struct {
@@ -125,7 +127,7 @@ func (s *Service) Create(ctx context.Context, user platform.AuthUser, meta audit
 			INSERT INTO branches (id, code, name, address, branch_type, parent_branch_id, active, sales_enabled, online_sales_enabled, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
 		`, branchID, code, name, strings.TrimSpace(input.Address), branchType, platform.NullUUID(parentBranchID), active, salesEnabled, onlineSalesEnabled); err != nil {
-			return platform.MapUniqueViolation(err, "รหัสสาขานี้มีอยู่แล้ว")
+			return mapBranchUniqueViolation(err)
 		}
 
 		for _, docType := range []string{"invoice", "quotation", "purchase_order"} {
@@ -208,7 +210,7 @@ func (s *Service) Update(ctx context.Context, branchID string, user platform.Aut
 			SET code = $2, name = $3, address = $4, branch_type = $5, parent_branch_id = $6, active = $7, sales_enabled = $8, online_sales_enabled = $9, updated_at = NOW()
 			WHERE id = $1
 		`, branchID, code, name, strings.TrimSpace(input.Address), branchType, platform.NullUUID(parentBranchID), active, salesEnabled, onlineSalesEnabled); err != nil {
-			return platform.MapUniqueViolation(err, "รหัสสาขานี้มีอยู่แล้ว")
+			return mapBranchUniqueViolation(err)
 		}
 
 		meta.EntityType = "branch"
@@ -540,4 +542,15 @@ func (h *Handler) UpdateSequence(c echo.Context) error {
 		return platform.HandleHTTPError(c, err)
 	}
 	return platform.JSONMessage(c, http.StatusOK, "บันทึกเลขที่เอกสารแล้ว")
+}
+
+// mapBranchUniqueViolation names the rule a branch write broke. Two unique
+// indexes guard branches: the code, and the single active main warehouse; a
+// second warehouse used to be reported as a duplicate code it did not have.
+func mapBranchUniqueViolation(err error) error {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) && pqErr.Code == "23505" && pqErr.Constraint == "idx_branches_single_active_main_warehouse" {
+		return platform.NewError(http.StatusConflict, "มีคลังสินค้าหลักที่เปิดใช้งานได้เพียงแห่งเดียว")
+	}
+	return platform.MapUniqueViolation(err, "รหัสสาขานี้มีอยู่แล้ว")
 }

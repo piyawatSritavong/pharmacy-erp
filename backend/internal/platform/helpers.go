@@ -32,6 +32,8 @@ func (e *AppError) Error() string {
 	return fmt.Sprintf("%s: %v", e.Message, e.WrappedErr)
 }
 
+func (e *AppError) Unwrap() error { return e.WrappedErr }
+
 func NewError(code int, message string) *AppError {
 	return &AppError{Code: code, Message: message}
 }
@@ -92,6 +94,11 @@ func JSONMessage(c echo.Context, code int, message string) error {
 }
 
 func HandleHTTPError(c echo.Context, err error) error {
+	// A malformed or unknown id in the path is the caller's mistake, not a
+	// server fault, however deep the handler wrapped it.
+	if IsNotFound(err) {
+		return c.JSON(http.StatusNotFound, ErrorResponse{Message: "ไม่พบข้อมูลที่ต้องการ"})
+	}
 	var appErr *AppError
 	if errors.As(err, &appErr) {
 		if appErr.Code >= http.StatusInternalServerError {

@@ -543,8 +543,14 @@ func (s *Service) priceCart(ctx context.Context, db platform.DBTX, user platform
 	if billDiscount < 0 {
 		return cartResult{}, platform.NewError(http.StatusBadRequest, "ส่วนลดท้ายบิลต้องไม่ติดลบ")
 	}
+	// A cart rebuilt from a quotation carries the bill discount that was
+	// authorised when the quotation was issued.
+	quotedCart := len(items) > 0
+	for _, item := range items {
+		quotedCart = quotedCart && item.quoted
+	}
 	if billDiscount > 0 {
-		if !platform.HasPermission(user, "sales.discount.line") {
+		if !platform.HasPermission(user, "sales.discount.line") && !quotedCart {
 			return cartResult{}, platform.NewError(http.StatusForbidden, "ไม่มีสิทธิ์ให้ส่วนลดท้ายบิล")
 		}
 		weights := make([]float64, len(result.Lines))
@@ -563,7 +569,7 @@ func (s *Service) priceCart(ctx context.Context, db platform.DBTX, user platform
 		if billDiscount > payable {
 			return cartResult{}, platform.NewError(http.StatusBadRequest, "ส่วนลดท้ายบิลมากกว่ายอดบิล")
 		}
-		if !platform.HasPermission(user, "price.override.global") && billDiscount > remainingCap {
+		if !platform.HasPermission(user, "price.override.global") && !quotedCart && billDiscount > remainingCap {
 			return cartResult{}, platform.NewError(http.StatusForbidden,
 				fmt.Sprintf("ส่วนลดท้ายบิลเกินเพดานรวม %.2f บาท", remainingCap))
 		}
