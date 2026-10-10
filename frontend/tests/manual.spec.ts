@@ -57,15 +57,18 @@ test.describe("refactored operational workflows", () => {
     await expect(page.getByText("ราคาขาย", { exact: true })).toHaveCount(0);
   });
 
-  test("ใบขายและ รพ.สต. ยังไม่เปิดใช้งาน และบอกตามจริง", async ({ page }) => {
+  test("ใบขายพาไปพื้นที่ V2 และ รพ.สต. บอกตามจริงว่ายังไม่พร้อม", async ({ page }) => {
     await signIn(page, "superadmin@erp.local", "/dashboard");
 
-    for (const route of ["/sales-management", "/government-sales"]) {
-      await page.goto(route);
-      await expect(page.getByRole("heading", { name: /ยังไม่เปิดใช้งาน$/ })).toBeVisible();
-      // No price, trial or subscribe button for billing that doesn't exist.
-      await expect(page.getByText("฿990")).toHaveCount(0);
-    }
+    // The Pro gate is switched off for now (DECISION_LOG 2026-10-09): ใบขาย
+    // leads to the owner-only V2 pilot, and รพ.สต. says plainly that it is
+    // not ready rather than offering a form that does nothing.
+    await page.goto("/sales-management");
+    await expect(page.getByRole("link", { name: "เปิดใบเสนอราคาและใบขาย V2" })).toBeVisible();
+    await page.goto("/government-sales");
+    await expect(page.getByText("งานส่วนนี้อยู่ในแผนพัฒนาลำดับถัดไป ยังไม่พร้อมทำรายการ")).toBeVisible();
+    // No price, trial or subscribe button for billing that doesn't exist.
+    await expect(page.getByText("฿990")).toHaveCount(0);
   });
 
   test("POS ขอสินค้าได้เฉพาะสินค้าและจำนวน และไม่มีเช็คหรือผ่อนชำระ", async ({ page }) => {

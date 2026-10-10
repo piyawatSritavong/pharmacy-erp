@@ -140,7 +140,9 @@ test("Admin: filters, record cards, forms, bounded dropdowns and short dialogs",
     } else {
       await expect(page.getByText("ไม่มีรายการแสดง", { exact: true })).toBeVisible();
     }
-    const opener = page.getByRole("button", { name: action, exact: true });
+    // An empty list repeats the page's action in its empty state; the
+    // header's copy is the one this walk is about.
+    const opener = page.getByRole("button", { name: action, exact: true }).first();
     await opener.click();
     const dialog = page.getByRole("dialog").last();
     for (const width of phoneWidths) {

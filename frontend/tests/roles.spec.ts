@@ -77,6 +77,7 @@ test.describe("สิทธิ์และการนำทางสองบ�
     const adminGroups: Array<[string, string[]]> = [
       ["รายงาน", ["แดชบอร์ด", "สรุปสิ้นเดือน", "รายงานสรุปสิ้นเดือน"]],
       ["คลังสินค้า", ["รายการสินค้า", "สต๊อกจริง", "สต๊อกผี", "หมวดสินค้า", "โปรโมชั่น", "เบิกสินค้า", "โอนสินค้า"]],
+      ["ลูกค้า", ["ลูกค้าและสมาชิก", "ลูกหนี้ค้างชำระ"]],
       ["ใบเอกสาร", ["ใบสั่งซื้อเข้า", "บริษัทคู่ค้า", "เคลม/คืนสินค้า", "รพ.สต.", "ใบขาย", "อย."]],
       ["ระบบ", ["ตั้งค่า", "ประวัติระบบ", "ประวัติการขาย"]],
     ];
@@ -106,6 +107,9 @@ test.describe("สิทธิ์และการนำทางสองบ�
       "เคลม/คืนสินค้า",
       // A branch runs its own promotions, so the till has a way in.
       "โปรโมชั่น",
+      // Members and their points, and money owed on credit bills.
+      "สมาชิก",
+      "รับชำระหนี้",
       "สรุปยอดขาย",
     ];
     await expect(posNav.getByRole("link")).toHaveCount(posLinks.length);
@@ -247,11 +251,18 @@ test.describe("สิทธิ์และการนำทางสองบ�
         session.page.getByRole("heading", { level: 1, name: heading, exact: true }),
       ).toBeVisible();
     }
-    // รพ.สต. and ใบขาย are not switched on: the page says so, without a sales pitch.
-    for (const path of ["/government-sales", "/sales-management"]) {
+    // The Pro gate is off for now (DECISION_LOG 2026-10-09): รพ.สต. says it is
+    // not ready yet, and ใบขาย opens its V2 pilot.
+    for (const [path, heading] of [["/government-sales", "รพ.สต."], ["/sales-management", "ใบขาย"]]) {
       await session.page.goto(path);
       await session.page.waitForURL(new RegExp(`${path}$`));
-      await expect(session.page.getByRole("heading", { name: /ยังไม่เปิดใช้งาน$/ })).toBeVisible();
+      await expect(session.page.getByRole("heading", { level: 1, name: heading, exact: true })).toBeVisible();
+    }
+    // The new customer pages open from the sidebar too.
+    for (const [path, heading] of [["/customers", "ลูกค้าและสมาชิก"], ["/receivables", "ลูกหนี้ค้างชำระ"]]) {
+      await session.page.goto(path);
+      await session.page.waitForURL(new RegExp(`${path}$`));
+      await expect(session.page.getByRole("heading", { level: 1, name: heading, exact: true })).toBeVisible();
     }
     await session.context.close();
   });

@@ -42,7 +42,8 @@ test.describe("Supply Chain Management", () => {
     await expect(
       page.getByRole("heading", { name: "บริษัทคู่ค้า", exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "เพิ่มบริษัทคู่ค้า" }).click();
+    // An empty list offers the same action again in its empty state.
+    await page.getByRole("button", { name: "เพิ่มบริษัทคู่ค้า" }).first().click();
     const supplierDialog = page.getByRole("dialog");
     await supplierDialog.getByLabel("รหัสคู่ค้า").fill(supplierCode);
     await supplierDialog.getByLabel("ชื่อบริษัท *").fill(supplierName);
@@ -71,7 +72,7 @@ test.describe("Supply Chain Management", () => {
     await expect(
       page.getByRole("heading", { name: "ใบสั่งซื้อเข้า", exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "สร้างใบสั่งซื้อเข้า" }).click();
+    await page.getByRole("button", { name: "สร้างใบสั่งซื้อเข้า" }).first().click();
     const poDialog = page.getByRole("dialog");
     await poDialog.getByLabel("บริษัทคู่ค้า *").click();
     await page.getByRole("option", { name: supplierName, exact: true }).click();
