@@ -36,7 +36,9 @@ type LineInput struct {
 }
 
 type QuoteRequest struct {
-	BranchID           string      `json:"branch_id"`
+	BranchID string `json:"branch_id"`
+	// CustomerID prices the quotation for that customer (wholesale tier).
+	CustomerID         string      `json:"customer_id"`
 	CustomerName       string      `json:"customer_name"`
 	CustomerTaxID      string      `json:"customer_tax_id"`
 	IsGovernment       bool        `json:"is_government_mode"`
@@ -47,6 +49,8 @@ type QuoteRequest struct {
 
 type InvoiceRequest struct {
 	BranchID           string      `json:"branch_id"`
+	CustomerID         string      `json:"customer_id"`
+	RedeemPoints       int         `json:"redeem_points"`
 	CustomerName       string      `json:"customer_name"`
 	CustomerTaxID      string      `json:"customer_tax_id"`
 	IsGovernment       bool        `json:"is_government_mode"`
@@ -60,10 +64,17 @@ type PaymentRequest struct {
 	PaymentType   string `json:"payment_type"`
 	ReferenceCode string `json:"reference_code"`
 	Notes         string `json:"notes"`
+	// Amount may settle part of the bill; zero settles what is left.
+	Amount float64 `json:"amount"`
 }
 
 type CheckoutRequest struct {
-	BranchID           string      `json:"branch_id"`
+	BranchID string `json:"branch_id"`
+	// CustomerID is the member or account the bill is sold to. It brings their
+	// tier prices and member promotions, lets them spend RedeemPoints, earns
+	// points on what is paid, and is required for a credit sale.
+	CustomerID         string      `json:"customer_id"`
+	RedeemPoints       int         `json:"redeem_points"`
 	CustomerName       string      `json:"customer_name"`
 	CustomerTaxID      string      `json:"customer_tax_id"`
 	IsGovernment       bool        `json:"is_government_mode"`
@@ -156,9 +167,11 @@ type pricedLine struct {
 	// to include any promotion once the cart is priced.
 	ManualDiscount    float64
 	BillDiscountShare float64
-	IsGiveaway        bool
-	PromotionID       string
-	PromotionName     string
+	// PointsDiscountShare is this line's part of the member's points spent.
+	PointsDiscountShare float64
+	IsGiveaway          bool
+	PromotionID         string
+	PromotionName       string
 	// Discount headroom left on this line after the cashier's own discount,
 	// used to cap the bill-level discount.
 	DiscountCeilingRemaining float64
@@ -177,7 +190,14 @@ func canOverride(user platform.AuthUser) bool {
 	return platform.HasPermission(user, "price.override.global") || platform.HasPermission(user, "price.override.pos")
 }
 
-func (s *Service) Preview(ctx context.Context, user platform.AuthUser, branchID string, isGovernment bool, items []LineInput, billDiscount float64) (map[string]any, error) {
+func firstOptions(opts []cartOptions) cartOptions {
+	if len(opts) == 0 {
+		return cartOptions{}
+	}
+	return opts[0]
+}
+
+func (s *Service) Preview(ctx context.Context, user platform.AuthUser, branchID string, isGovernment bool, items []LineInput, billDiscount float64, opts ...cartOptions) (map[string]any, error) {
 	branchID, err := platform.MustBranchID(user, branchID)
 	if err != nil {
 		return nil, err
@@ -189,7 +209,7 @@ func (s *Service) Preview(ctx context.Context, user platform.AuthUser, branchID 
 	if err != nil {
 		return nil, err
 	}
-	cart, err := s.priceCart(ctx, s.db, user, branchID, isGovernment, items, billDiscount, vatRate, false)
+	cart, err := s.priceCart(ctx, s.db, user, branchID, isGovernment, items, billDiscount, vatRate, false, firstOptions(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +227,7 @@ func (s *Service) Preview(ctx context.Context, user platform.AuthUser, branchID 
 	return preview, nil
 }
 
-func (s *Service) PreviewSale(ctx context.Context, user platform.AuthUser, branchID string, isGovernment bool, items []LineInput, billDiscount float64) (map[string]any, error) {
+func (s *Service) PreviewSale(ctx context.Context, user platform.AuthUser, branchID string, isGovernment bool, items []LineInput, billDiscount float64, opts ...cartOptions) (map[string]any, error) {
 	branchID, err := platform.MustBranchID(user, branchID)
 	if err != nil {
 		return nil, err
@@ -219,7 +239,7 @@ func (s *Service) PreviewSale(ctx context.Context, user platform.AuthUser, branc
 	if err != nil {
 		return nil, err
 	}
-	cart, err := s.priceCart(ctx, s.db, user, branchID, isGovernment, items, billDiscount, vatRate, true)
+	cart, err := s.priceCart(ctx, s.db, user, branchID, isGovernment, items, billDiscount, vatRate, true, firstOptions(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -248,39 +268,57 @@ func addCartSummary(preview map[string]any, cart cartResult) {
 	summary["promotion_discount_total"] = cart.PromotionDiscount
 	summary["discount_total"] = platform.Round2(cart.LineDiscount + cart.BillDiscount + cart.PromotionDiscount)
 	summary["giveaway_cost_total"] = cart.GiveawayCost
+	summary["points_redeemed"] = cart.PointsRedeemed
+	summary["points_discount"] = cart.PointsDiscount
 	preview["applied_promotions"] = cart.AppliedPromotions
+	if len(cart.GiveawayShortages) > 0 {
+		preview["giveaway_shortages"] = cart.GiveawayShortages
+	}
+	preview["loyalty"] = map[string]any{
+		"baht_per_point": cart.Loyalty.BahtPerPoint, "point_value": cart.Loyalty.PointValue,
+		"min_redeem_points": cart.Loyalty.MinRedeemPoints,
+	}
+	if customer := cart.Customer; customer != nil {
+		summary["points_to_earn"] = cart.Loyalty.PointsFor(cart.TotalAmount)
+		preview["customer"] = map[string]any{
+			"id": customer.ID, "customer_code": customer.Code, "name": customer.Name, "phone": customer.Phone,
+			"price_tier": customer.PriceTier, "points_balance": customer.PointsBalance,
+			"credit_limit": customer.CreditLimit, "credit_days": customer.CreditDays,
+		}
+	}
 }
 
 func buildPreview(lines []pricedLine, subtotal, taxAmount, totalAmount, vatRate float64) map[string]any {
 	payloadLines := make([]map[string]any, 0, len(lines))
 	for _, line := range lines {
 		payloadLines = append(payloadLines, map[string]any{
-			"product_id":       line.ProductID,
-			"inventory_lot_id": line.InventoryLotID,
-			"lot_number":       line.LotNumber,
-			"lot_received_at":  nullableLotTime(line.LotReceivedAt),
-			"lot_expires_on":   nullableSQLTime(line.LotExpiresOn),
-			"alias_id":         line.AliasID,
-			"actual_name":      line.ProductName,
-			"display_name":     line.DisplayName,
-			"quantity":         line.Quantity,
-			"stock_bucket":     line.StockBucket,
-			"unit_price":       line.UnitPrice,
-			"line_subtotal":    line.LineSubtotal,
-			"tax_rate":         line.TaxRate,
-			"tax_amount":       line.TaxAmount,
-			"line_total":       line.LineTotal,
-			"cost_snapshot":    line.CostSnapshot,
-			"price_source":     line.PriceSource,
-			"override_reason":  line.OverrideReason,
-			"unit_id":          line.UnitID,
-			"unit_name":        line.UnitName,
-			"conversion_qty":   line.ConversionQty,
-			"sold_quantity":    line.SoldQuantity,
-			"sold_unit_price":  line.SoldUnitPrice,
-			"discount_amount":  platform.Round2(line.DiscountAmount + line.BillDiscountShare),
-			"is_giveaway":      line.IsGiveaway,
-			"promotion_name":   line.PromotionName,
+			"product_id":            line.ProductID,
+			"inventory_lot_id":      line.InventoryLotID,
+			"lot_number":            line.LotNumber,
+			"lot_received_at":       nullableLotTime(line.LotReceivedAt),
+			"lot_expires_on":        nullableSQLTime(line.LotExpiresOn),
+			"alias_id":              line.AliasID,
+			"actual_name":           line.ProductName,
+			"display_name":          line.DisplayName,
+			"quantity":              line.Quantity,
+			"stock_bucket":          line.StockBucket,
+			"unit_price":            line.UnitPrice,
+			"line_subtotal":         line.LineSubtotal,
+			"tax_rate":              line.TaxRate,
+			"tax_amount":            line.TaxAmount,
+			"line_total":            line.LineTotal,
+			"cost_snapshot":         line.CostSnapshot,
+			"price_source":          line.PriceSource,
+			"override_reason":       line.OverrideReason,
+			"unit_id":               line.UnitID,
+			"unit_name":             line.UnitName,
+			"conversion_qty":        line.ConversionQty,
+			"sold_quantity":         line.SoldQuantity,
+			"sold_unit_price":       line.SoldUnitPrice,
+			"discount_amount":       platform.Round2(line.DiscountAmount + line.BillDiscountShare + line.PointsDiscountShare),
+			"points_discount_share": line.PointsDiscountShare,
+			"is_giveaway":           line.IsGiveaway,
+			"promotion_name":        line.PromotionName,
 		})
 	}
 	return map[string]any{
@@ -324,7 +362,7 @@ func (s *Service) CreateQuotation(ctx context.Context, user platform.AuthUser, m
 		if err != nil {
 			return err
 		}
-		cart, err := s.priceCart(ctx, tx, user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount, vatRate, false)
+		cart, err := s.priceCart(ctx, tx, user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount, vatRate, false, cartOptions{CustomerID: input.CustomerID})
 		if err != nil {
 			return err
 		}
@@ -390,12 +428,14 @@ func (s *Service) CreateInvoice(ctx context.Context, user platform.AuthUser, met
 		if err != nil {
 			return err
 		}
-		cart, err := s.priceCart(ctx, tx, user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount, vatRate, true)
+		cart, err := s.priceCart(ctx, tx, user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount, vatRate, true,
+			cartOptions{CustomerID: input.CustomerID, RedeemPoints: input.RedeemPoints, LockCustomer: true})
 		if err != nil {
 			return err
 		}
 		lines, subtotal, taxAmount, totalAmount := cart.Lines, cart.Subtotal, cart.TaxAmount, cart.TotalAmount
 		invoiceID = platform.MustUUID()
+		customerName, customerTaxID := customerOnBill(cart.Customer, input.CustomerName, input.CustomerTaxID)
 		if err := s.lockAndApplyStock(ctx, tx, input.BranchID, invoiceID, user, lines, meta); err != nil {
 			return err
 		}
@@ -405,9 +445,14 @@ func (s *Service) CreateInvoice(ctx context.Context, user platform.AuthUser, met
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO invoices (id, branch_id, invoice_number, source_quote_id, customer_name, customer_tax_id, payment_status, invoice_status, is_government_mode, tax_invoice_type, request_full_tax_invoice, subtotal, tax_rate, tax_amount, total_amount, bill_discount_amount, line_discount_total, promotion_discount_total, giveaway_cost_total, created_by, issued_at, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, 'unpaid', 'issued', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $19)
-		`, invoiceID, input.BranchID, invoiceNumber, platform.NullUUID(input.SourceQuotationID), strings.TrimSpace(input.CustomerName), platform.NullString(input.CustomerTaxID), input.IsGovernment, taxInvoiceType(input.FullTaxInvoice), input.FullTaxInvoice, subtotal, vatRate, taxAmount, totalAmount, cart.BillDiscount, cart.LineDiscount, cart.PromotionDiscount, cart.GiveawayCost, user.ID, issuedAt); err != nil {
+			INSERT INTO invoices (id, branch_id, invoice_number, source_quote_id, customer_name, customer_tax_id, payment_status, invoice_status, is_government_mode, tax_invoice_type, request_full_tax_invoice, subtotal, tax_rate, tax_amount, total_amount, bill_discount_amount, line_discount_total, promotion_discount_total, giveaway_cost_total, created_by, issued_at, created_at, updated_at,
+				customer_id, points_redeemed, points_discount)
+			VALUES ($1, $2, $3, $4, $5, $6, 'unpaid', 'issued', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $19, $20, $21, $22)
+		`, invoiceID, input.BranchID, invoiceNumber, platform.NullUUID(input.SourceQuotationID), customerName, platform.NullString(customerTaxID), input.IsGovernment, taxInvoiceType(input.FullTaxInvoice), input.FullTaxInvoice, subtotal, vatRate, taxAmount, totalAmount, cart.BillDiscount, cart.LineDiscount, cart.PromotionDiscount, cart.GiveawayCost, user.ID, issuedAt,
+			customerIDOf(cart.Customer), cart.PointsRedeemed, cart.PointsDiscount); err != nil {
+			return err
+		}
+		if _, _, err := recordLoyalty(ctx, tx, cart, invoiceID, input.BranchID, user.ID); err != nil {
 			return err
 		}
 
@@ -419,16 +464,17 @@ func (s *Service) CreateInvoice(ctx context.Context, user platform.AuthUser, met
 					line_total,price_source,override_reason,cost_snapshot,inventory_lot_id,
 					lot_number_snapshot,lot_received_at_snapshot,lot_expires_on_snapshot,
 					unit_id,unit_name_snapshot,unit_conversion_qty,sold_quantity,sold_unit_price,
-					discount_amount,bill_discount_share,is_giveaway,promotion_id,promotion_name_snapshot,created_at
+					discount_amount,bill_discount_share,is_giveaway,promotion_id,promotion_name_snapshot,created_at,
+					points_discount_share
 				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-					$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,NOW())
+					$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,NOW(),$31)
 			`, platform.MustUUID(), invoiceID, line.ProductID, platform.NullUUID(line.AliasID), line.ProductName, line.DisplayName,
 				line.Quantity, line.StockBucket, line.UnitPrice, line.LineSubtotal, line.TaxRate, line.TaxAmount,
 				line.LineTotal, line.PriceSource, line.OverrideReason, line.CostSnapshot, line.InventoryLotID,
 				line.LotNumber, line.LotReceivedAt, line.LotExpiresOn,
 				platform.NullUUID(&line.UnitID), line.UnitName, lineConversion(line), line.SoldQuantity, line.SoldUnitPrice,
 				line.DiscountAmount, line.BillDiscountShare, line.IsGiveaway,
-				platform.NullUUID(&line.PromotionID), line.PromotionName); err != nil {
+				platform.NullUUID(&line.PromotionID), line.PromotionName, line.PointsDiscountShare); err != nil {
 				return err
 			}
 		}
@@ -488,6 +534,9 @@ func validateCheckoutPayment(input CheckoutRequest, totalAmount float64) (checko
 		settlement.ChangeAmount = checkoutCentsToMoney(tenderedCents - totalCents)
 	case "bank_transfer":
 		settlement.TransferAmount = checkoutCentsToMoney(totalCents)
+	case "credit":
+		// Nothing changes hands at the till: the bill is owed. Whether the
+		// customer may owe it is checked against their credit line in checkoutInTx.
 	case "mixed":
 		if transferCents <= 0 || transferCents >= totalCents {
 			return settlement, platform.NewError(http.StatusBadRequest, "ยอดเงินโอนต้องมากกว่าศูนย์และน้อยกว่ายอดชำระ")
@@ -501,7 +550,7 @@ func validateCheckoutPayment(input CheckoutRequest, totalAmount float64) (checko
 		settlement.TenderedAmount = checkoutCentsToMoney(tenderedCents)
 		settlement.ChangeAmount = checkoutCentsToMoney(tenderedCents - cashCents)
 	default:
-		return settlement, platform.NewError(http.StatusBadRequest, "กรุณาเลือกชำระด้วยเงินสด เงินโอน หรือเงินสดผสมเงินโอน")
+		return settlement, platform.NewError(http.StatusBadRequest, "กรุณาเลือกชำระด้วยเงินสด เงินโอน เงินสดผสมเงินโอน หรือขายเชื่อ")
 	}
 	return settlement, nil
 }
@@ -516,7 +565,8 @@ func (s *Service) PreviewCheckout(ctx context.Context, user platform.AuthUser, i
 	if input.FullTaxInvoice && strings.TrimSpace(input.CustomerTaxID) == "" {
 		return nil, platform.NewError(http.StatusBadRequest, "ใบกำกับภาษีเต็มรูปต้องระบุเลขประจำตัวผู้เสียภาษี")
 	}
-	preview, err := s.PreviewSale(ctx, user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount)
+	preview, err := s.PreviewSale(ctx, user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount,
+		cartOptions{CustomerID: input.CustomerID, RedeemPoints: input.RedeemPoints})
 	if err != nil {
 		return nil, err
 	}
@@ -525,6 +575,18 @@ func (s *Service) PreviewCheckout(ctx context.Context, user platform.AuthUser, i
 	settlement, err := validateCheckoutPayment(input, totalAmount)
 	if err != nil {
 		return nil, err
+	}
+	if input.PaymentType == "credit" {
+		customer, err := loadCartCustomer(ctx, s.db, input.CustomerID, false)
+		if err != nil {
+			return nil, err
+		}
+		decision, err := checkCredit(ctx, s.db, customer, totalAmount)
+		if err != nil {
+			return nil, err
+		}
+		summary["due_date"] = decision.DueDate.Format("2006-01-02")
+		summary["credit_available_after"] = decision.Available
 	}
 	summary["payment_type"] = input.PaymentType
 	summary["cash_amount"] = settlement.CashAmount
@@ -579,7 +641,8 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 	if err != nil {
 		return nil, err
 	}
-	cart, err := s.priceCart(ctx, tx, user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount, vatRate, true)
+	cart, err := s.priceCart(ctx, tx, user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount, vatRate, true,
+		cartOptions{CustomerID: input.CustomerID, RedeemPoints: input.RedeemPoints, LockCustomer: true})
 	if err != nil {
 		return nil, err
 	}
@@ -587,6 +650,17 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 	settlement, err := validateCheckoutPayment(input, totalAmount)
 	if err != nil {
 		return nil, err
+	}
+	paymentStatus, saleType := "paid", "cash"
+	var credit creditDecision
+	dueDate := sql.NullTime{}
+	if input.PaymentType == "credit" {
+		credit, err = checkCredit(ctx, tx, cart.Customer, totalAmount)
+		if err != nil {
+			return nil, err
+		}
+		paymentStatus, saleType = "unpaid", "credit"
+		dueDate = sql.NullTime{Time: credit.DueDate, Valid: true}
 	}
 	invoiceID := platform.MustUUID()
 	if err := s.lockAndApplyStock(ctx, tx, input.BranchID, invoiceID, user, lines, meta); err != nil {
@@ -596,7 +670,7 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 	if err != nil {
 		return nil, err
 	}
-	customerName := strings.TrimSpace(input.CustomerName)
+	customerName, customerTaxID := customerOnBill(cart.Customer, input.CustomerName, input.CustomerTaxID)
 	if customerName == "" {
 		customerName = "ลูกค้าหน้าร้าน"
 	}
@@ -606,12 +680,15 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 				payment_status, invoice_status, is_government_mode, tax_invoice_type, subtotal,
 				tax_rate, tax_amount, total_amount, created_by, issued_at, created_at, updated_at,
 				request_full_tax_invoice, notes, bill_discount_amount, line_discount_total,
-				promotion_discount_total, giveaway_cost_total
-			) VALUES ($1, $2, $3, $4, $5, 'paid', 'issued', $6, $7, $8, $9, $10, $11, $12, $13, $13, $13, $14, $15, $16, $17, $18, $19)
+				promotion_discount_total, giveaway_cost_total,
+				customer_id, sale_type, due_date, points_redeemed, points_discount
+			) VALUES ($1, $2, $3, $4, $5, $20, 'issued', $6, $7, $8, $9, $10, $11, $12, $13, $13, $13, $14, $15, $16, $17, $18, $19,
+				$21, $22, $23, $24, $25)
 	`, invoiceID, input.BranchID, invoiceNumber, customerName,
-		platform.NullString(input.CustomerTaxID), input.IsGovernment, taxInvoiceType(input.FullTaxInvoice), subtotal,
+		platform.NullString(customerTaxID), input.IsGovernment, taxInvoiceType(input.FullTaxInvoice), subtotal,
 		vatRate, taxAmount, totalAmount, user.ID, issuedAt, input.FullTaxInvoice,
-		documentNote, cart.BillDiscount, cart.LineDiscount, cart.PromotionDiscount, cart.GiveawayCost); err != nil {
+		documentNote, cart.BillDiscount, cart.LineDiscount, cart.PromotionDiscount, cart.GiveawayCost,
+		paymentStatus, customerIDOf(cart.Customer), saleType, dueDate, cart.PointsRedeemed, cart.PointsDiscount); err != nil {
 		return nil, err
 	}
 	for _, line := range lines {
@@ -623,9 +700,10 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 					cost_snapshot, inventory_lot_id, lot_number_snapshot,
 					lot_received_at_snapshot, lot_expires_on_snapshot,
 					unit_id, unit_name_snapshot, unit_conversion_qty, sold_quantity, sold_unit_price,
-					discount_amount, bill_discount_share, is_giveaway, promotion_id, promotion_name_snapshot, created_at
+					discount_amount, bill_discount_share, is_giveaway, promotion_id, promotion_name_snapshot, created_at,
+						points_discount_share
 				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-					$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,NOW())
+					$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,NOW(),$31)
 		`, platform.MustUUID(), invoiceID, line.ProductID, platform.NullUUID(line.AliasID),
 			line.ProductName, line.DisplayName, line.Quantity, line.StockBucket,
 			line.UnitPrice, line.LineSubtotal, line.TaxRate, line.TaxAmount,
@@ -633,7 +711,7 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 			line.InventoryLotID, line.LotNumber, line.LotReceivedAt, line.LotExpiresOn,
 			platform.NullUUID(&line.UnitID), line.UnitName, lineConversion(line), line.SoldQuantity, line.SoldUnitPrice,
 			line.DiscountAmount, line.BillDiscountShare, line.IsGiveaway,
-			platform.NullUUID(&line.PromotionID), line.PromotionName); err != nil {
+			platform.NullUUID(&line.PromotionID), line.PromotionName, line.PointsDiscountShare); err != nil {
 			return nil, err
 		}
 	}
@@ -643,12 +721,16 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 		}
 		if _, err := tx.ExecContext(ctx, `
 				INSERT INTO invoice_payments (
-					id, invoice_id, payment_type, amount, reference_code, notes, created_by, created_at
-				) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+					id, invoice_id, payment_type, amount, reference_code, notes, created_by, created_at, received_branch_id
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
 		`, platform.MustUUID(), invoiceID, payment.PaymentType, payment.Amount,
-			payment.ReferenceCode, paymentNote, user.ID); err != nil {
+			payment.ReferenceCode, paymentNote, user.ID, input.BranchID); err != nil {
 			return nil, err
 		}
+	}
+	pointsEarned, pointsBalance, err := recordLoyalty(ctx, tx, cart, invoiceID, input.BranchID, user.ID)
+	if err != nil {
+		return nil, err
 	}
 	meta.EntityType = "invoice"
 	meta.EntityID = &invoiceID
@@ -661,6 +743,10 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 		"transfer_amount": settlement.TransferAmount,
 		"tendered_amount": settlement.TenderedAmount,
 		"change_amount":   settlement.ChangeAmount,
+		"customer_id":     customerIDOf(cart.Customer).String,
+		"points_earned":   pointsEarned,
+		"points_redeemed": cart.PointsRedeemed,
+		"sale_type":       saleType,
 	}
 	if err := s.audit.Log(ctx, tx, meta); err != nil {
 		return nil, err
@@ -682,7 +768,7 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 			return nil, platform.NewError(http.StatusConflict, "บิลที่เรียกกลับมาถูกใช้ ยกเลิก หรือหมดอายุแล้ว")
 		}
 	}
-	return map[string]any{
+	result := map[string]any{
 		"invoice_id":      invoiceID,
 		"invoice_number":  invoiceNumber,
 		"total_amount":    totalAmount,
@@ -690,7 +776,21 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 		"transfer_amount": settlement.TransferAmount,
 		"tendered_amount": settlement.TenderedAmount,
 		"change_amount":   settlement.ChangeAmount,
-	}, nil
+		"sale_type":       saleType,
+		"payment_status":  paymentStatus,
+	}
+	if customer := cart.Customer; customer != nil {
+		result["customer"] = map[string]any{"id": customer.ID, "name": customer.Name, "customer_code": customer.Code}
+		result["points_earned"] = pointsEarned
+		result["points_redeemed"] = cart.PointsRedeemed
+		result["points_discount"] = cart.PointsDiscount
+		result["points_balance"] = pointsBalance
+	}
+	if saleType == "credit" {
+		result["due_date"] = credit.DueDate.Format("2006-01-02")
+		result["credit_available"] = credit.Available
+	}
+	return result, nil
 }
 
 func (s *Service) CollectPayment(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, invoiceID string, input PaymentRequest) error {
@@ -702,14 +802,15 @@ func (s *Service) CollectPayment(ctx context.Context, user platform.AuthUser, me
 	}
 	return platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
 		var branchID string
-		var totalAmount float64
+		var totalAmount, paidAmount float64
 		var paymentStatus string
 		if err := tx.QueryRowContext(ctx, `
-			SELECT branch_id::text, total_amount, payment_status
+			SELECT branch_id::text, total_amount, payment_status,
+			       COALESCE((SELECT SUM(amount) FROM invoice_payments WHERE invoice_id = invoices.id), 0)
 			FROM invoices
 			WHERE id = $1 AND deleted_at IS NULL
 			FOR UPDATE
-		`, invoiceID).Scan(&branchID, &totalAmount, &paymentStatus); err != nil {
+		`, invoiceID).Scan(&branchID, &totalAmount, &paymentStatus, &paidAmount); err != nil {
 			return err
 		}
 		if _, err := platform.MustBranchID(user, branchID); err != nil {
@@ -718,29 +819,53 @@ func (s *Service) CollectPayment(ctx context.Context, user platform.AuthUser, me
 		if paymentStatus == "paid" {
 			return platform.NewError(http.StatusConflict, "invoice is already paid")
 		}
+		remainingCents, _ := checkoutMoneyCents(platform.Round2(totalAmount - paidAmount))
+		amountCents := remainingCents
+		if input.Amount != 0 {
+			cents, valid := checkoutMoneyCents(input.Amount)
+			if !valid || cents <= 0 {
+				return platform.NewError(http.StatusBadRequest, "ยอดรับชำระต้องมากกว่าศูนย์และมีทศนิยมไม่เกิน 2 ตำแหน่ง")
+			}
+			if cents > remainingCents {
+				return platform.NewError(http.StatusBadRequest, fmt.Sprintf("ยอดรับชำระมากกว่ายอดค้าง %.2f บาท", checkoutCentsToMoney(remainingCents)))
+			}
+			amountCents = cents
+		}
+		if amountCents <= 0 {
+			return platform.NewError(http.StatusConflict, "invoice is already paid")
+		}
+		nextStatus := "partial"
+		if amountCents == remainingCents {
+			nextStatus = "paid"
+		}
+		receivedBranch := platform.OwnBranchID(user)
+		if receivedBranch == "" {
+			receivedBranch = branchID
+		}
+		amount := checkoutCentsToMoney(amountCents)
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO invoice_payments (id, invoice_id, payment_type, amount, reference_code, notes, created_by, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-		`, platform.MustUUID(), invoiceID, input.PaymentType, totalAmount,
+			INSERT INTO invoice_payments (id, invoice_id, payment_type, amount, reference_code, notes, created_by, created_at, received_branch_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
+		`, platform.MustUUID(), invoiceID, input.PaymentType, amount,
 			func() string {
 				if input.PaymentType == "bank_transfer" {
 					return strings.TrimSpace(input.ReferenceCode)
 				}
 				return ""
-			}(), strings.TrimSpace(input.Notes), user.ID); err != nil {
+			}(), strings.TrimSpace(input.Notes), user.ID, receivedBranch); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE invoices
-			SET payment_status = 'paid', updated_at = NOW()
+			SET payment_status = $2, updated_at = NOW()
 			WHERE id = $1
-		`, invoiceID); err != nil {
+		`, invoiceID, nextStatus); err != nil {
 			return err
 		}
 		meta.EntityType = "invoice"
 		meta.EntityID = &invoiceID
 		meta.Action = "invoice.collect_payment"
-		meta.After = map[string]any{"payment_type": input.PaymentType, "amount": totalAmount}
+		meta.After = map[string]any{"payment_type": input.PaymentType, "amount": amount, "payment_status": nextStatus}
 		return s.audit.Log(ctx, tx, meta)
 	})
 }
@@ -819,10 +944,11 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 		       -- 'adjusted' like any repriced bill, so without this the two
 		       -- cannot be told apart and a link meant for one lands on both.
 		       EXISTS(SELECT 1 FROM invoice_items ii WHERE ii.invoice_id = i.id AND ii.reconciliation_removed_at IS NOT NULL),
-		       COALESCE(replaced.invoice_number,'')
+		       COALESCE(replaced.invoice_number,''), i.sale_type, COALESCE(c.customer_code,'')
 		FROM invoices i
 		INNER JOIN branches b ON b.id = i.branch_id
 		LEFT JOIN invoices replaced ON replaced.id = i.replaces_invoice_id
+		LEFT JOIN customers c ON c.id = i.customer_id
 	`
 	args := []any{}
 	conditions := []string{"i.invoice_status = 'issued'"}
@@ -852,12 +978,12 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, invoiceNumber, customerName, paymentStatus, paymentMethod, taxInvoiceType, branchName, hiddenByID, originalNumber, replacesNumber string
+		var id, invoiceNumber, customerName, paymentStatus, paymentMethod, taxInvoiceType, branchName, hiddenByID, originalNumber, replacesNumber, saleType, customerCode string
 		var totalAmount float64
 		var isGovernment, requestFullTax, repriced, hasRemovedLines bool
 		var issuedAt time.Time
 		var deletedAt sql.NullTime
-		if err := rows.Scan(&id, &invoiceNumber, &customerName, &paymentStatus, &paymentMethod, &totalAmount, &isGovernment, &taxInvoiceType, &requestFullTax, &branchName, &issuedAt, &deletedAt, &hiddenByID, &originalNumber, &repriced, &hasRemovedLines, &replacesNumber); err != nil {
+		if err := rows.Scan(&id, &invoiceNumber, &customerName, &paymentStatus, &paymentMethod, &totalAmount, &isGovernment, &taxInvoiceType, &requestFullTax, &branchName, &issuedAt, &deletedAt, &hiddenByID, &originalNumber, &repriced, &hasRemovedLines, &replacesNumber, &saleType, &customerCode); err != nil {
 			return nil, err
 		}
 		item := map[string]any{
@@ -878,6 +1004,8 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 			// Set when this bill was issued to replace an abbreviated one that
 			// the customer came back to upgrade.
 			"replaces_invoice_number": replacesNumber,
+			"sale_type":               saleType,
+			"customer_code":           customerCode,
 		}
 		if user.RoleKey == "super_admin" {
 			item["original_invoice_number"] = originalNumber
@@ -992,6 +1120,13 @@ func (s *Service) GetInvoice(ctx context.Context, user platform.AuthUser, invoic
 		"total_amount":       totalAmount,
 		"branch_name":        branchName,
 		"issued_at":          issuedAt,
+	}
+	customerDetails, err := invoiceCustomerDetails(ctx, s.db, id)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range customerDetails {
+		payload[key] = value
 	}
 	if user.RoleKey == "super_admin" {
 		payload["original_invoice_number"] = originalNumber
@@ -1290,20 +1425,28 @@ func (s *Service) GetInvoicePrint(ctx context.Context, user platform.AuthUser, i
 		return nil, err
 	}
 
+	document := map[string]any{
+		"id":                 id,
+		"invoice_number":     invoiceNumber,
+		"issued_at":          issuedAt,
+		"payment_status":     paymentStatus,
+		"invoice_status":     invoiceStatus,
+		"notes":              notes,
+		"customer_name":      customerName,
+		"customer_tax_id":    customerTaxID,
+		"is_government_mode": isGovernment,
+		"tax_invoice_type":   taxInvoiceType,
+		"seller_name":        sellerName,
+	}
+	customerDetails, err := invoiceCustomerDetails(ctx, s.db, id)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range customerDetails {
+		document[key] = value
+	}
 	return map[string]any{
-		"document": map[string]any{
-			"id":                 id,
-			"invoice_number":     invoiceNumber,
-			"issued_at":          issuedAt,
-			"payment_status":     paymentStatus,
-			"invoice_status":     invoiceStatus,
-			"notes":              notes,
-			"customer_name":      customerName,
-			"customer_tax_id":    customerTaxID,
-			"is_government_mode": isGovernment,
-			"tax_invoice_type":   taxInvoiceType,
-			"seller_name":        sellerName,
-		},
+		"document": document,
 		"company": map[string]any{
 			"name":    companyName,
 			"tax_id":  companyTaxID,
@@ -1556,6 +1699,9 @@ func (s *Service) deleteInvoiceTx(ctx context.Context, tx *sql.Tx, user platform
 	if monthEndCount > 0 {
 		return "", platform.NewError(http.StatusConflict, "ใบขายนี้ถูกอ้างอิงในกระดาษทำการปิดเดือนและไม่สามารถลบได้")
 	}
+	if err := reverseInvoiceCustomerEffects(ctx, tx, invoiceID, number, branchID, user.ID); err != nil {
+		return "", err
+	}
 
 	rows, err := tx.QueryContext(ctx, `
 		SELECT product_id::text, stock_bucket, SUM(quantity)::int
@@ -1788,7 +1934,7 @@ func nextDocumentNumber(ctx context.Context, tx *sql.Tx, branchID string, docTyp
 	return number, nil
 }
 
-func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platform.AuthUser, branchID string, isGovernment bool, items []LineInput, vatRate float64, requireLot bool) ([]pricedLine, float64, float64, float64, error) {
+func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platform.AuthUser, branchID string, isGovernment bool, items []LineInput, vatRate float64, requireLot bool, wholesale bool) ([]pricedLine, float64, float64, float64, error) {
 	if len(items) == 0 {
 		return nil, 0, 0, 0, platform.NewError(http.StatusBadRequest, "at least one line is required")
 	}
@@ -1848,6 +1994,22 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 		}
 		soldQuantity := item.Quantity
 		baseQuantity := soldQuantity * unit.Conversion
+		// A quantity break or the wholesale price replaces the shelf price
+		// when it is lower. Government sales keep their own alias pricing.
+		tierSource := ""
+		if !isGovernment {
+			price, customerTier, ok, err := tierPrice(ctx, db, productID, unit, branchID, wholesale, soldQuantity)
+			if err != nil {
+				return nil, 0, 0, 0, err
+			}
+			if ok && price < unit.Price {
+				unit.Price = price
+				tierSource = "quantity_tier"
+				if customerTier == "wholesale" {
+					tierSource = "wholesale_tier"
+				}
+			}
+		}
 
 		var lotID, lotNumber string
 		var lotReceivedAt time.Time
@@ -1881,6 +2043,8 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 		}
 		if item.quoted {
 			priceSource = "quotation"
+		} else if tierSource != "" && priceSource == "branch_price" {
+			priceSource = tierSource
 		}
 		// The discount ceiling is stored per base unit, so scale it to the unit
 		// actually being sold before comparing.
@@ -2262,7 +2426,8 @@ func (h *Handler) PreviewQuotation(c echo.Context) error {
 	if input.BranchID == "" && user.BranchID != nil {
 		input.BranchID = *user.BranchID
 	}
-	result, err := h.service.Preview(c.Request().Context(), user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount)
+	result, err := h.service.Preview(c.Request().Context(), user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount,
+		cartOptions{CustomerID: input.CustomerID})
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
 	}
@@ -2278,7 +2443,8 @@ func (h *Handler) PreviewInvoice(c echo.Context) error {
 	if input.BranchID == "" && user.BranchID != nil {
 		input.BranchID = *user.BranchID
 	}
-	result, err := h.service.PreviewSale(c.Request().Context(), user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount)
+	result, err := h.service.PreviewSale(c.Request().Context(), user, input.BranchID, input.IsGovernment, input.Items, input.BillDiscountAmount,
+		cartOptions{CustomerID: input.CustomerID, RedeemPoints: input.RedeemPoints})
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
 	}

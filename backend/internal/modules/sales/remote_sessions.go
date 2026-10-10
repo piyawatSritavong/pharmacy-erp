@@ -53,6 +53,10 @@ type RemoteCart struct {
 	CustomerTaxID      string           `json:"customer_tax_id"`
 	IsGovernment       bool             `json:"is_government_mode"`
 	Notes              string           `json:"notes"`
+	// The member head office picked travels with the cart, so the till
+	// settles the same priced bill (tier prices, points) it was shown.
+	CustomerID   string `json:"customer_id,omitempty"`
+	RedeemPoints int    `json:"redeem_points,omitempty"`
 }
 
 type RemoteSessionRequest struct {
@@ -321,6 +325,8 @@ func (s *Service) CheckoutRemoteSession(ctx context.Context, user platform.AuthU
 		}
 		result, err = s.checkoutInTx(ctx, tx, user, meta, CheckoutRequest{
 			BranchID:           branchID,
+			CustomerID:         cart.CustomerID,
+			RedeemPoints:       cart.RedeemPoints,
 			CustomerName:       cart.CustomerName,
 			CustomerTaxID:      cart.CustomerTaxID,
 			IsGovernment:       cart.IsGovernment,

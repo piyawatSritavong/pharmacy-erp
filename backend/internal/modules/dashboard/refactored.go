@@ -22,9 +22,9 @@ func (s *Service) refactoredGlobalSummary(ctx context.Context, user platform.Aut
 		return nil, err
 	}
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*), COALESCE(SUM(total_amount), 0)
-		FROM invoices
-		WHERE payment_status = 'unpaid' AND invoice_status = 'issued' AND deleted_at IS NULL
+		SELECT COUNT(*), COALESCE(SUM(i.total_amount - COALESCE((SELECT SUM(amount) FROM invoice_payments WHERE invoice_id = i.id), 0)), 0)
+		FROM invoices i
+		WHERE i.payment_status <> 'paid' AND i.invoice_status = 'issued' AND i.deleted_at IS NULL
 	`).Scan(&unpaidCount, &unpaidTotal); err != nil {
 		return nil, err
 	}

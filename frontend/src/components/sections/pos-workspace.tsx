@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { Field } from "@/components/ui/field";
 import { PosCart } from "@/components/sections/pos-cart";
+import { CustomerPickerDialog, PosCustomerPanel, toPosCustomer, type PosCustomer } from "@/components/sections/pos-customer";
 import { Button, buttonVariants, CheckboxField, Dialog, DialogContent, DialogHeader, EmptyState, ErrorState, Input, LoadingState, Notice, Select } from "@/components/ui/primitives";
 import { cn, currency } from "@/lib/utils";
 import { PARKED_BILL_RESUME_KEY, type ParkedBillClaim } from "@/lib/parked-bill";
@@ -43,8 +44,15 @@ type Preview = {
     bill_discount_amount?: number;
     promotion_discount_total?: number;
     discount_total?: number;
+    points_redeemed?: number;
+    points_discount?: number;
+    points_to_earn?: number;
+    due_date?: string;
+    credit_available_after?: number;
   };
   applied_promotions?: Option[];
+  giveaway_shortages?: Option[];
+  loyalty?: { baht_per_point: number; point_value: number; min_redeem_points: number };
 };
 
 // The POS portal only receives availability_status; exact counts stay with the
@@ -99,6 +107,7 @@ export function PosWorkspace({
   endpointBase = "/pos",
   remoteBranchId = "",
   watchRemote = false,
+  canRegisterMembers = true,
 }: {
   branchId: string;
   branchName: string;
@@ -111,6 +120,8 @@ export function PosWorkspace({
   remoteBranchId?: string;
   /** POS: watch for a cart head office has left waiting at this till. */
   watchRemote?: boolean;
+  /** The cashier may register a new member from the till. */
+  canRegisterMembers?: boolean;
 }) {
   const refresh = useRefresh();
   const [search, setSearch] = useState("");
@@ -129,7 +140,12 @@ export function PosWorkspace({
   const [preview, setPreview] = useState<Preview | null>(null);
   const [message, setMessage] = useState("");
   const [paymentOpen, setPaymentOpen] = useState(false);
-  const [paymentType, setPaymentType] = useState<"cash" | "bank_transfer" | "mixed">("cash");
+  const [paymentType, setPaymentType] = useState<"cash" | "bank_transfer" | "mixed" | "credit">("cash");
+  // The member the bill is sold to: tier prices, points, and credit.
+  const [customer, setCustomer] = useState<PosCustomer | null>(null);
+  const [redeemPoints, setRedeemPoints] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [loyalty, setLoyalty] = useState({ baht_per_point: 25, point_value: 0.25, min_redeem_points: 40 });
   const [tendered, setTendered] = useState("");
   const [transferAmount, setTransferAmount] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
@@ -318,11 +334,13 @@ export function PosWorkspace({
             customer_name: fullTaxInvoice ? customerName : "",
             customer_tax_id: fullTaxInvoice ? customerTaxId : "",
             is_government_mode: false,
-            notes: parkNote
+            notes: parkNote,
+            customer_id: customer?.id || "",
+            redeem_points: Number(redeemPoints || 0)
       });
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [billDiscount, cart, customerName, customerTaxId, fullTaxInvoice, parkNote, preview, remoteBranchId, saveRemoteCart]);
+  }, [billDiscount, cart, customer, customerName, customerTaxId, fullTaxInvoice, parkNote, preview, redeemPoints, remoteBranchId, saveRemoteCart]);
 
   // ...and watches for the till to take the money.
   useEffect(() => {
@@ -365,6 +383,7 @@ export function PosWorkspace({
               setCustomerName(String(cartData.customer_name || ""));
               setCustomerTaxId(String(cartData.customer_tax_id || ""));
               setParkNote(String(cartData.notes || ""));
+              restoreCustomer(String(cartData.customer_id || ""), Number(cartData.redeem_points || 0));
             }
           }
         })
@@ -441,6 +460,7 @@ export function PosWorkspace({
           setCustomerName(String(cartData.customer_name || ""));
           setCustomerTaxId(String(cartData.customer_tax_id || ""));
           setParkNote(String(cartData.notes || ""));
+          restoreCustomer(String(cartData.customer_id || ""), Number(cartData.redeem_points || 0));
         })
         .catch(() => {
           /* the next tick retries */
@@ -467,6 +487,8 @@ export function PosWorkspace({
       reference_code: paymentReference,
       parked_bill_id: parkedClaim?.id || "",
       parked_claim_token: parkedClaim?.claimToken || "",
+      customer_id: customer?.id || "",
+      redeem_points: Number(redeemPoints || 0),
       items: cart.map((line) => ({
         product_id: String(line.product.id),
         inventory_lot_id: String(line.lot.id),
@@ -505,7 +527,7 @@ export function PosWorkspace({
     return () => window.clearTimeout(timer);
     // payload intentionally follows every cart and tax-document field.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchId, cart, billDiscount, customerName, customerTaxId, fullTaxInvoice]);
+  }, [branchId, cart, billDiscount, customer, customerName, customerTaxId, fullTaxInvoice, redeemPoints]);
 
   useEffect(() => {
     // Active, in-date promotions for the shortcut bar; the backend already
@@ -516,6 +538,40 @@ export function PosWorkspace({
         setPromotions([]);
         toast.error("โหลดโปรโมชั่นไม่สำเร็จ แถบโปรโมชั่นจึงไม่แสดง");
       });
+  }, []);
+
+  // A cart handed over (parked, or pushed by head office) names its member by
+  // id; the till loads the current points and credit rather than trusting a
+  // stale snapshot.
+  const restoredCustomerId = useRef("");
+  function restoreCustomer(customerId: string, points: number) {
+    if (!customerId) {
+      if (restoredCustomerId.current) {
+        restoredCustomerId.current = "";
+        setCustomer(null);
+        setRedeemPoints("");
+      }
+      return;
+    }
+    setRedeemPoints(points ? String(points) : "");
+    if (restoredCustomerId.current === customerId) return;
+    restoredCustomerId.current = customerId;
+    void proxyClient<Option>(`/customers/${encodeURIComponent(customerId)}`)
+      .then((item) => setCustomer(toPosCustomer(item)))
+      .catch(() => setMessage("โหลดข้อมูลสมาชิกของบิลนี้ไม่สำเร็จ"));
+  }
+
+  function clearCustomer() {
+    restoredCustomerId.current = "";
+    setCustomer(null);
+    setRedeemPoints("");
+    if (paymentType === "credit") setPaymentType("cash");
+  }
+
+  useEffect(() => {
+    void proxyClient<{ baht_per_point: number; point_value: number; min_redeem_points: number }>("/loyalty-settings")
+      .then(setLoyalty)
+      .catch(() => undefined);
   }, []);
 
   async function chooseProductLot(product: Option) {
@@ -580,7 +636,7 @@ export function PosWorkspace({
     : paymentType === "cash"
       ? paymentTotalCents
       : 0;
-  const localChangeCents = tenderedCents == null
+  const localChangeCents = tenderedCents == null || paymentType === "credit"
     ? 0
     : paymentType === "mixed" && transferCents != null
       ? Math.max(0, tenderedCents + transferCents - paymentTotalCents)
@@ -636,7 +692,7 @@ export function PosWorkspace({
       setTransferAmount("");
       return;
     }
-    if (nextType === "bank_transfer") {
+    if (nextType === "bank_transfer" || nextType === "credit") {
       setTendered("");
       setTransferAmount("");
       return;
@@ -670,6 +726,7 @@ export function PosWorkspace({
         full_tax_invoice?: boolean;
         note?: string;
         bill_discount_amount?: number;
+        customer_id?: string;
         items?: Array<Record<string, unknown>>;
         };
       const restored: CartLine[] = (bill.items || []).map((item) => ({
@@ -693,6 +750,7 @@ export function PosWorkspace({
       setFullTaxInvoice(Boolean(bill.full_tax_invoice));
       setBillDiscount(Number(bill.bill_discount_amount || 0) ? String(bill.bill_discount_amount) : "");
       setParkNote(String(bill.note || ""));
+      restoreCustomer(String(bill.customer_id || ""), 0);
       setCartOpen(true);
       setMessage("เรียกบิลที่พักไว้กลับมาแล้ว ตรวจสอบราคาและสต๊อกอีกครั้งก่อนชำระเงิน");
       }).catch(() => {
@@ -725,6 +783,7 @@ export function PosWorkspace({
           full_tax_invoice: fullTaxInvoice,
           note: parkNote,
           bill_discount_amount: Number(billDiscount || 0),
+          customer_id: customer?.id || "",
           items: cart.map((line) => ({
             product_id: String(line.product.id),
             inventory_lot_id: String(line.lot.id),
@@ -748,6 +807,7 @@ export function PosWorkspace({
       setFullTaxInvoice(false);
       setBillDiscount("");
       setParkNote("");
+      clearCustomer();
       setParkOpen(false);
       setMessage("พักบิลไว้แล้ว เปิดดูได้ที่เมนู พักบิล");
     } catch (error) {
@@ -777,6 +837,7 @@ export function PosWorkspace({
       setParkNote("");
     }
     setCart([]);
+    clearCustomer();
   }
 
   async function openPayment() {
@@ -811,7 +872,7 @@ export function PosWorkspace({
     setPaymentReady(false);
 
     let validationError = "";
-    if (fullTaxInvoice && !customerTaxId.trim()) {
+    if (fullTaxInvoice && !customerTaxId.trim() && !customer?.tax_id) {
       validationError = "กรุณาระบุเลขประจำตัวผู้เสียภาษี";
     } else if (paymentType === "cash" && (tenderedCents == null || tenderedCents <= 0)) {
       validationError = "เงินสดที่รับต้องมากกว่า 0";
@@ -863,6 +924,7 @@ export function PosWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     customerTaxId,
+    customer,
     fullTaxInvoice,
     paymentOpen,
     paymentTotalCents,
@@ -912,6 +974,9 @@ export function PosWorkspace({
       // left in state they were applied to the next customer's sale too.
       setBillDiscount("");
       setParkNote("");
+      restoredCustomerId.current = "";
+      setCustomer(null);
+      setRedeemPoints("");
       setPaymentReady(false);
       setPaymentError("");
       setMessage("");
@@ -926,6 +991,9 @@ export function PosWorkspace({
   function startNewSale() {
     setPaymentOpen(false);
     setReceipt(null);
+    restoredCustomerId.current = "";
+    setCustomer(null);
+    setRedeemPoints("");
     setBillDiscount("");
     setParkNote("");
     setCustomerName("");
@@ -1108,6 +1176,19 @@ export function PosWorkspace({
             </span>
           </div>
 
+          <div className="mt-3">
+            <PosCustomerPanel
+              customer={customer}
+              disabled={Boolean(remoteLock)}
+              minRedeemPoints={loyalty.min_redeem_points}
+              onClear={clearCustomer}
+              onPick={() => setPickerOpen(true)}
+              onRedeemChange={setRedeemPoints}
+              pointValue={loyalty.point_value}
+              redeemPoints={redeemPoints}
+            />
+          </div>
+
           <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
             <CheckboxField
               checked={fullTaxInvoice}
@@ -1248,6 +1329,16 @@ export function PosWorkspace({
             </div>
           ) : null}
 
+          {(preview?.giveaway_shortages || []).length ? (
+            <div className="mt-3 space-y-1 rounded-2xl border border-dashed border-warning p-3" role="status">
+              {(preview?.giveaway_shortages || []).map((item, index) => (
+                <p className="text-xs text-warning-800" key={`${String(item.product_id)}-${index}`}>
+                  ของแถม {String(item.product_name)} หมดสต๊อก ขาด {Number(item.short)} ชิ้น · {String(item.promotion_name)}
+                </p>
+              ))}
+            </div>
+          ) : null}
+
           <div className="mt-4">
             <Input
               aria-label="ส่วนลดท้ายบิล"
@@ -1265,9 +1356,18 @@ export function PosWorkspace({
                 <span>-{currency(Number(preview?.summary.discount_total || 0))}</span>
               </div>
             ) : null}
+            {Number(preview?.summary.points_discount || 0) > 0 ? (
+              <div className="flex justify-between text-success">
+                <span>ใช้ {Number(preview?.summary.points_redeemed || 0).toLocaleString("th-TH")} แต้ม</span>
+                <span>-{currency(Number(preview?.summary.points_discount || 0))}</span>
+              </div>
+            ) : null}
             <div className="flex justify-between"><span>ยอดก่อนภาษี</span><span>{currency(Number(preview?.summary.subtotal || 0))}</span></div>
             <div className="flex justify-between"><span>ภาษีมูลค่าเพิ่ม</span><span>{currency(Number(preview?.summary.tax_amount || 0))}</span></div>
             <div className="flex flex-wrap justify-between gap-1 pt-2 text-lg font-bold sm:text-xl"><span>ยอดรวม</span><span>{currency(Number(preview?.summary.total_amount || 0))}</span></div>
+            {customer && preview ? (
+              <p className="text-right text-xs text-primary">บิลนี้ได้ {Number(preview.summary.points_to_earn || 0).toLocaleString("th-TH")} แต้ม</p>
+            ) : null}
           </div>
 
           {message ? <p className="mt-4 rounded-xl bg-surface-warm p-3 text-sm">{message}</p> : null}
@@ -1348,6 +1448,18 @@ export function PosWorkspace({
         </PosCart>
       </section>
 
+      <CustomerPickerDialog
+        canRegister={canRegisterMembers}
+        onOpenChange={setPickerOpen}
+        onSelect={(picked) => {
+          restoredCustomerId.current = picked.id;
+          setCustomer(picked);
+          setRedeemPoints("");
+          setPickerOpen(false);
+        }}
+        open={pickerOpen}
+      />
+
       <Dialog onOpenChange={setParkOpen} open={parkOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader
@@ -1417,9 +1529,24 @@ export function PosWorkspace({
             {receipt ? (
               <div className="py-4 text-center">
                 <CheckCircle2 className="mx-auto h-20 w-20 text-success" />
-                <p className="mt-5 text-sm font-semibold text-success-700">ชำระเงินเสร็จสิ้น</p>
+                <p className="mt-5 text-sm font-semibold text-success-700">{String(receipt.sale_type) === "credit" ? "บันทึกขายเชื่อแล้ว" : "ชำระเงินเสร็จสิ้น"}</p>
                 <h2 className="mt-1 text-2xl font-bold">{String(receipt.invoice_number)}</h2>
                 <p className="mt-2 text-3xl font-bold">{currency(Number(receipt.total_amount || 0))}</p>
+                {receipt.customer ? (
+                  <div className="mt-4 rounded-2xl border border-primary/30 bg-primary/5 p-3 text-sm">
+                    <p className="font-semibold">{String((receipt.customer as Option).name)}</p>
+                    <p className="text-muted-foreground">
+                      ได้รับ {Number(receipt.points_earned || 0).toLocaleString("th-TH")} แต้ม
+                      {Number(receipt.points_redeemed || 0) ? ` · ใช้ ${Number(receipt.points_redeemed).toLocaleString("th-TH")} แต้ม` : ""}
+                      {" · คงเหลือ "}{Number(receipt.points_balance || 0).toLocaleString("th-TH")} แต้ม
+                    </p>
+                    {receipt.due_date ? (
+                      <p className="mt-1 font-semibold text-info-800">
+                        ครบกำหนดชำระ {new Date(String(receipt.due_date)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", dateStyle: "medium" })}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="mt-6 grid grid-cols-2 gap-3 rounded-2xl bg-muted p-4 text-left text-sm">
                   <div><span className="block text-muted-foreground">เงินสดสุทธิ</span><strong>{currency(Number(receipt.cash_amount || 0))}</strong></div>
                   <div><span className="block text-muted-foreground">เงินโอน</span><strong>{currency(Number(receipt.transfer_amount || 0))}</strong></div>
@@ -1455,7 +1582,17 @@ export function PosWorkspace({
                 <option value="cash">เงินสด</option>
                 <option value="bank_transfer">เงินโอน</option>
                 <option value="mixed">เงินสด + เงินโอน</option>
+                {customer && customer.credit_limit > 0 ? <option value="credit">ขายเชื่อ (เครดิต {customer.credit_days} วัน)</option> : null}
               </Select>
+              {paymentType === "credit" && customer ? (
+                <div className="rounded-2xl bg-info-50 p-4 text-sm text-info-800">
+                  <p className="font-semibold">ขายเชื่อให้ {customer.name}</p>
+                  <p className="mt-1">
+                    ครบกำหนดชำระ {preview?.summary.due_date ? new Date(preview.summary.due_date).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", dateStyle: "medium" }) : "-"}
+                    {preview?.summary.credit_available_after != null ? ` · วงเงินคงเหลือหลังบิลนี้ ${currency(Number(preview.summary.credit_available_after))}` : ""}
+                  </p>
+                </div>
+              ) : null}
               {paymentType === "bank_transfer" ? (
                 <label className="space-y-2">
                   <span className="text-sm font-semibold">ยอดเงินโอน</span>
@@ -1525,13 +1662,15 @@ export function PosWorkspace({
                   <p className="mt-3 text-xs text-muted-foreground">เงินทอน = เงินสดที่กรอก + ยอดเงินโอน − ยอดที่ต้องชำระ</p>
                 </div>
               ) : null}
-              <div className="flex items-center justify-between rounded-2xl bg-secondary p-4">
-                <span className="font-semibold">เงินทอน</span>
-                <span className="text-2xl font-bold">{currency(localChangeCents / 100)}</span>
-              </div>
+              {paymentType === "credit" ? null : (
+                <div className="flex items-center justify-between rounded-2xl bg-secondary p-4">
+                  <span className="font-semibold">เงินทอน</span>
+                  <span className="text-2xl font-bold">{currency(localChangeCents / 100)}</span>
+                </div>
+              )}
               {paymentError ? <Notice tone="error">{paymentError}</Notice> : null}
               <Button disabled={submitting || paymentChecking || !paymentReady} onClick={() => void checkout()} shape="pill" size="lg" type="button">
-                {submitting ? "กำลังชำระเงิน..." : paymentChecking ? "กำลังตรวจสอบยอด..." : "ยืนยันการชำระเงิน"}
+                {submitting ? "กำลังชำระเงิน..." : paymentChecking ? "กำลังตรวจสอบยอด..." : paymentType === "credit" ? "ยืนยันขายเชื่อ" : "ยืนยันการชำระเงิน"}
               </Button>
             </div>
               </>

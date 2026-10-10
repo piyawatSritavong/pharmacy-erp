@@ -12,6 +12,7 @@ import (
 	"pharmacy-erp/backend/internal/modules/audit"
 	"pharmacy-erp/backend/internal/modules/auth"
 	"pharmacy-erp/backend/internal/modules/branches"
+	"pharmacy-erp/backend/internal/modules/customers"
 	"pharmacy-erp/backend/internal/modules/dashboard"
 	"pharmacy-erp/backend/internal/modules/fda"
 	"pharmacy-erp/backend/internal/modules/inventory"
@@ -93,6 +94,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	dashboardHandler := dashboard.NewHandler(dashboard.NewService(db))
 	productHandler := products.NewHandler(products.NewService(db, auditService, productImages))
 	promotionHandler := promotions.NewHandler(promotions.NewService(db, auditService))
+	customerHandler := customers.NewHandler(customers.NewService(db, auditService))
 	purchasingHandler := purchasing.NewHandler(purchasing.NewService(db, auditService))
 	inventoryHandler := inventory.NewHandler(inventory.NewService(db, auditService))
 	salesHandler := sales.NewHandler(sales.NewService(db, auditService))
@@ -189,6 +191,20 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.POST("/promotions", promotionHandler.Create, appMiddleware.RequireAnyPermission("promotion.manage"))
 	protected.PUT("/promotions/:promotionID", promotionHandler.Update, appMiddleware.RequireAnyPermission("promotion.manage"))
 	protected.DELETE("/promotions/:promotionID", promotionHandler.Delete, appMiddleware.RequireAnyPermission("promotion.manage"))
+
+	// Customers: members and their points, wholesale and credit accounts.
+	protected.GET("/customers", customerHandler.List, appMiddleware.RequireAnyPermission("customer.view"))
+	protected.GET("/customers/lookup", customerHandler.Lookup, appMiddleware.RequireAnyPermission("customer.view"))
+	protected.GET("/customers/:customerID", customerHandler.Get, appMiddleware.RequireAnyPermission("customer.view"))
+	protected.POST("/customers", customerHandler.Create, appMiddleware.RequireAnyPermission("customer.manage"))
+	protected.PUT("/customers/:customerID", customerHandler.Update, appMiddleware.RequireAnyPermission("customer.manage"))
+	protected.POST("/customers/:customerID/points", customerHandler.AdjustPoints, appMiddleware.RequireAnyPermission("customer.credit.manage"))
+	protected.GET("/loyalty-settings", customerHandler.GetLoyaltySettings, appMiddleware.RequireAnyPermission("customer.view"))
+	protected.PUT("/loyalty-settings", customerHandler.SaveLoyaltySettings, appMiddleware.RequireAnyPermission("customer.credit.manage"))
+	protected.GET("/receivables", customerHandler.ListReceivables, appMiddleware.RequireAnyPermission("receivable.view"))
+	protected.POST("/receivables/payments", customerHandler.ReceivePayment, appMiddleware.RequireAnyPermission("payment.collect"))
+	protected.GET("/products/:productID/price-tiers", productHandler.ListPriceTiers, appMiddleware.RequireAnyPermission("products.view", "products.manage", "price_tier.manage"))
+	protected.PUT("/products/:productID/price-tiers", productHandler.SavePriceTiers, appMiddleware.RequireAnyPermission("price_tier.manage"))
 	protected.GET("/products/:productID/branch-settings/:branchID", productHandler.GetBranchSettings, appMiddleware.RequireAnyPermission("products.manage"))
 	protected.PUT("/products/:productID/branch-settings/:branchID", productHandler.UpdateBranchSettings, appMiddleware.RequireAnyPermission("products.manage"))
 	protected.DELETE("/products/:productID", productHandler.DeleteProduct, superadminOnly)

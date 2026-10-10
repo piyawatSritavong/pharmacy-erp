@@ -48,6 +48,8 @@ type Input struct {
 	Priority        int         `json:"priority"`
 	Notes           string      `json:"notes"`
 	Items           []ItemInput `json:"items"`
+	// MembersOnly applies the promotion only to bills sold to a member.
+	MembersOnly bool `json:"members_only"`
 }
 
 type Service struct {
@@ -193,13 +195,13 @@ func (s *Service) Create(ctx context.Context, user platform.AuthUser, meta audit
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO promotions (id, code, name, promo_type, branch_id, starts_at, ends_at, active,
 				min_quantity, min_amount, discount_percent, discount_amount, bundle_price,
-				max_uses_per_bill, priority, notes, created_by, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),NOW())
+				max_uses_per_bill, priority, notes, created_by, created_at, updated_at, members_only)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),NOW(),$18)
 		`, promotionID, clean.Code, clean.Name, clean.PromoType, platform.NullUUID(&clean.BranchID),
 			nullableDate(clean.StartsAt), nullableDate(clean.EndsAt), active,
 			clean.MinQuantity, platform.Round2(clean.MinAmount), clean.DiscountPercent,
 			platform.Round2(clean.DiscountAmount), platform.NullFloat64(clean.BundlePrice),
-			clean.MaxUsesPerBill, clean.Priority, strings.TrimSpace(clean.Notes), user.ID); err != nil {
+			clean.MaxUsesPerBill, clean.Priority, strings.TrimSpace(clean.Notes), user.ID, clean.MembersOnly); err != nil {
 			return platform.MapUniqueViolation(err, "รหัสโปรโมชั่นนี้ถูกใช้แล้ว")
 		}
 		if err := replaceItems(ctx, tx, promotionID, clean.Items); err != nil {
@@ -245,13 +247,13 @@ func (s *Service) Update(ctx context.Context, user platform.AuthUser, promotionI
 			UPDATE promotions
 			SET code=$2, name=$3, promo_type=$4, branch_id=$5, starts_at=$6, ends_at=$7, active=$8,
 			    min_quantity=$9, min_amount=$10, discount_percent=$11, discount_amount=$12,
-			    bundle_price=$13, max_uses_per_bill=$14, priority=$15, notes=$16, updated_at=NOW()
+			    bundle_price=$13, max_uses_per_bill=$14, priority=$15, notes=$16, members_only=$17, updated_at=NOW()
 			WHERE id=$1
 		`, promotionID, clean.Code, clean.Name, clean.PromoType, platform.NullUUID(&clean.BranchID),
 			nullableDate(clean.StartsAt), nullableDate(clean.EndsAt), active,
 			clean.MinQuantity, platform.Round2(clean.MinAmount), clean.DiscountPercent,
 			platform.Round2(clean.DiscountAmount), platform.NullFloat64(clean.BundlePrice),
-			clean.MaxUsesPerBill, clean.Priority, strings.TrimSpace(clean.Notes)); err != nil {
+			clean.MaxUsesPerBill, clean.Priority, strings.TrimSpace(clean.Notes), clean.MembersOnly); err != nil {
 			return platform.MapUniqueViolation(err, "รหัสโปรโมชั่นนี้ถูกใช้แล้ว")
 		}
 		if err := replaceItems(ctx, tx, promotionID, clean.Items); err != nil {
@@ -332,7 +334,7 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 		SELECT pr.id::text, pr.code, pr.name, pr.promo_type, COALESCE(pr.branch_id::text,''),
 		       COALESCE(b.name,''), pr.starts_at, pr.ends_at, pr.active, pr.min_quantity, pr.min_amount,
 		       pr.discount_percent, pr.discount_amount, pr.bundle_price, pr.max_uses_per_bill,
-		       pr.priority, pr.notes
+		       pr.priority, pr.notes, pr.members_only
 		FROM promotions pr
 		LEFT JOIN branches b ON b.id = pr.branch_id
 		WHERE `+strings.Join(conditions, " AND ")+`
@@ -349,13 +351,13 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 	for rows.Next() {
 		var id, code, name, promoType, promoBranchID, branchName, notes string
 		var startsAt, endsAt sql.NullTime
-		var active bool
+		var active, membersOnly bool
 		var minQuantity, maxUses, priority int
 		var minAmount, discountPercent, discountAmount float64
 		var bundlePrice sql.NullFloat64
 		if err := rows.Scan(&id, &code, &name, &promoType, &promoBranchID, &branchName,
 			&startsAt, &endsAt, &active, &minQuantity, &minAmount, &discountPercent,
-			&discountAmount, &bundlePrice, &maxUses, &priority, &notes); err != nil {
+			&discountAmount, &bundlePrice, &maxUses, &priority, &notes, &membersOnly); err != nil {
 			return nil, err
 		}
 		item := map[string]any{
@@ -365,7 +367,7 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 			"active": active, "min_quantity": minQuantity, "min_amount": minAmount,
 			"discount_percent": discountPercent, "discount_amount": discountAmount,
 			"bundle_price": nullableFloatValue(bundlePrice), "max_uses_per_bill": maxUses,
-			"priority": priority, "notes": notes, "items": []map[string]any{},
+			"priority": priority, "notes": notes, "items": []map[string]any{}, "members_only": membersOnly,
 			// A branch sees head office's company-wide promotions because they
 			// apply to it, not because they are its to change. Saying so here
 			// keeps the screen from offering a button the server will refuse.

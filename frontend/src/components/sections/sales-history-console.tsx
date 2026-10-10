@@ -63,6 +63,7 @@ export function SalesHistoryConsole({
   const [branchFilter, setBranchFilter] = useState(params.get("branch") || "");
   const [paymentFilter, setPaymentFilter] = useState(params.get("payment_status") || "");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState(params.get("payment_method") || "");
+  const saleTypeFilter = params.get("sale_type") || "";
   const [closeStatusFilter, setCloseStatusFilter] = useState(params.get("close_status") || "");
   // "adjusted" covers two different outcomes — a bill repriced whole, and one
   // the close also struck lines from. The dashboard links to each separately,
@@ -99,6 +100,7 @@ export function SalesHistoryConsole({
         if (branchFilter && String(invoice.branch_name) !== branchFilter) return false;
         if (paymentFilter && String(invoice.payment_status) !== paymentFilter) return false;
         if (paymentMethodFilter && String(invoice.payment_method) !== paymentMethodFilter) return false;
+        if (saleTypeFilter && String(invoice.sale_type) !== saleTypeFilter) return false;
         if (removedLinesFilter && String(Boolean(invoice.has_removed_lines)) !== String(removedLinesFilter === "1")) return false;
         // Bills the API says nothing about (anyone but the superadmin) are
         // active by definition — nothing has closed over them.
@@ -120,7 +122,7 @@ export function SalesHistoryConsole({
         if (byDate !== 0) return byDate;
         return String(b.invoice_number || "").localeCompare(String(a.invoice_number || ""), "th", { numeric: true });
       });
-  }, [branchFilter, closeStatusFilter, dateFrom, dateTo, initialItems, paymentFilter, paymentMethodFilter, removedLinesFilter, search, taxFilter]);
+  }, [branchFilter, closeStatusFilter, dateFrom, dateTo, initialItems, paymentFilter, paymentMethodFilter, removedLinesFilter, saleTypeFilter, search, taxFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(Math.max(1, page), totalPages);
@@ -299,7 +301,7 @@ export function SalesHistoryConsole({
               label: isSuperAdmin ? "ชำระเงิน" : "สถานะ",
               className: "whitespace-nowrap",
               ...(isSuperAdmin
-                ? { render: (row: Option) => (String(row.payment_status) === "paid" ? "ชำระแล้ว" : "ค้างชำระ") }
+                ? { render: (row: Option) => `${String(row.sale_type) === "credit" ? "ขายเชื่อ · " : ""}${String(row.payment_status) === "paid" ? "ชำระแล้ว" : String(row.payment_status) === "partial" ? "ชำระบางส่วน" : "ค้างชำระ"}` }
                 : {})
             },
             ...(isSuperAdmin

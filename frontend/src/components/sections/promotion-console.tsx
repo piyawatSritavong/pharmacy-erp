@@ -6,7 +6,7 @@ import { Trash2 } from "lucide-react";
 import { SectionCard } from "@/components/sections/common";
 import { Field } from "@/components/ui/field";
 import { ProductSearchPicker } from "@/components/sections/product-search-picker";
-import { Badge, Button, Dialog, DialogContent, DialogFooter, DialogHeader, EmptyState, FeedbackNotice, Input, Select } from "@/components/ui/primitives";
+import { Badge, Button, CheckboxField, Dialog, DialogContent, DialogFooter, DialogHeader, EmptyState, FeedbackNotice, Input, Select } from "@/components/ui/primitives";
 import type { Feedback } from "@/components/ui/primitives";
 import { currency } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
@@ -71,6 +71,7 @@ export function PromotionConsole({
   const [discountAmount, setDiscountAmount] = useState("");
   const [bundlePrice, setBundlePrice] = useState("");
   const [maxUses, setMaxUses] = useState("0");
+  const [membersOnly, setMembersOnly] = useState(false);
   const [rows, setRows] = useState<PromotionItemRow[]>([{ product_id: "", quantity: "1", role: "condition" }]);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [saving, setSaving] = useState(false);
@@ -87,7 +88,7 @@ export function PromotionConsole({
   function resetForm() {
     setCode(""); setName(""); setStartsAt(""); setEndsAt("");
     setMinQuantity(""); setMinAmount(""); setDiscountPercent(""); setDiscountAmount("");
-    setBundlePrice(""); setMaxUses("0");
+    setBundlePrice(""); setMaxUses("0"); setMembersOnly(false);
     setRows([{ product_id: "", quantity: "1", role: allowedRoles[0] }]);
   }
 
@@ -111,6 +112,7 @@ export function PromotionConsole({
           discount_amount: Number(discountAmount || 0),
           bundle_price: bundlePrice ? Number(bundlePrice) : null,
           max_uses_per_bill: Number(maxUses || 0),
+          members_only: membersOnly,
           items: rows
             .filter((row) => row.product_id)
             .map((row) => ({
@@ -220,6 +222,11 @@ export function PromotionConsole({
           <Field hint="0 = ไม่จำกัดจำนวนครั้งต่อบิล" label="จำกัดต่อบิล (ครั้ง)">
             <Input aria-label="จำกัดต่อบิล" inputMode="numeric" onChange={(event) => setMaxUses(event.target.value)} value={maxUses} />
           </Field>
+          <CheckboxField
+            checked={membersOnly}
+            label="เฉพาะสมาชิก (ต้องเลือกสมาชิกที่หน้าร้านจึงจะได้โปรนี้)"
+            onChange={(event) => setMembersOnly(event.target.checked)}
+          />
         </div>
 
         <div className="mt-6 space-y-3">
@@ -289,6 +296,7 @@ export function PromotionConsole({
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-semibold">{String(promotion.name)}</p>
                       <Badge>{TYPE_LABELS[String(promotion.promo_type)] || String(promotion.promo_type)}</Badge>
+                      {promotion.members_only ? <Badge tone="primary">เฉพาะสมาชิก</Badge> : null}
                       <Badge tone={promotion.active ? "success" : "neutral"}>
                         {promotion.active ? "เปิดใช้งาน" : "ปิดอยู่"}
                       </Badge>

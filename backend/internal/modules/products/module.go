@@ -230,6 +230,9 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 	if err := attachProductUnits(ctx, s.db, items); err != nil {
 		return ListResult{}, err
 	}
+	if err := attachPriceTiers(ctx, s.db, items, branchID); err != nil {
+		return ListResult{}, err
+	}
 	totalPages := 1
 	if pageSize > 0 {
 		totalPages = (total + pageSize - 1) / pageSize

@@ -148,12 +148,15 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 		query += ` AND a.entity_type NOT IN ('month_end_workpaper','month_end_workpaper_line','month_end_reconciliation')
 			AND a.action NOT LIKE 'month_end.%'
 			AND NOT (a.entity_type='invoice' AND a.action='invoice.delete')
-			AND NOT (
+			AND NOT COALESCE(
 				a.before_data ? 'qty_ghost' OR a.after_data ? 'qty_ghost'
 				OR a.before_data->>'stock_bucket'='ghost' OR a.after_data->>'stock_bucket'='ghost'
 				OR a.before_data->>'from_bucket'='ghost' OR a.after_data->>'from_bucket'='ghost'
-				OR a.before_data->>'to_bucket'='ghost' OR a.after_data->>'to_bucket'='ghost'
-			)`
+				OR a.before_data->>'to_bucket'='ghost' OR a.after_data->>'to_bucket'='ghost',
+			FALSE)`
+		// COALESCE: most entries have no before_data, and a NULL there made the
+		// whole test NULL, so NOT NULL hid every such entry from head office
+		// (QA 2026-09-02, AUD-02b).
 	}
 	// This read the other way round: a branch id in the query string was used
 	// as sent, and the clamp below it only applied when none was — so the guard

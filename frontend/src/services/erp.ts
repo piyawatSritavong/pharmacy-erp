@@ -130,6 +130,8 @@ export type TenderSplit = {
   transfer_amount: number;
   total_amount: number;
   invoice_count: number;
+  /** Still owed on the window's bills (credit sales): sold, not yet money. */
+  outstanding_amount?: number;
 };
 
 export type DailyBreakdown = {
@@ -392,4 +394,18 @@ export async function getAuditLogs(filters?: Record<string, string | undefined>)
   });
   const suffix = query.size ? `?${query.toString()}` : "";
   return apiServer<{ items: Array<Record<string, unknown>> }>(`/audit-logs${suffix}`);
+}
+
+export async function getLoyaltySettings() {
+  return apiServer<{ baht_per_point: number; point_value: number; min_redeem_points: number }>("/loyalty-settings");
+}
+
+export async function getReceivables(filters?: { branchId?: string; customerId?: string; status?: string; search?: string }) {
+  const query = new URLSearchParams();
+  if (filters?.branchId) query.set("branch_id", filters.branchId);
+  if (filters?.customerId) query.set("customer_id", filters.customerId);
+  if (filters?.status) query.set("status", filters.status);
+  if (filters?.search) query.set("search", filters.search);
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return apiServer<Record<string, unknown>>(`/receivables${suffix}`);
 }

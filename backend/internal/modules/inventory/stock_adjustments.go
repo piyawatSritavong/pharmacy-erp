@@ -110,6 +110,17 @@ func (s *Service) ListMovementHistory(ctx context.Context, user platform.AuthUse
 			&quantity, &referenceType, &referenceID, &note, &actorName, &createdAt); err != nil {
 			return ListResult{}, err
 		}
+		// The close's return of real stock to the warehouse is a real
+		// movement everyone must see for the totals to add up, but its name
+		// and note describe the close, which only the superadmin is told of.
+		if user.RoleKey != "super_admin" {
+			switch movementType {
+			case "month_end_return_to_warehouse":
+				movementType, note = "transfer_out", ""
+			case "month_end_return_received":
+				movementType, note = "transfer_in", ""
+			}
+		}
 		items = append(items, map[string]any{
 			"id": id, "branch_id": branchID, "branch_name": branchName, "product_id": productID,
 			"sku": sku, "product_name": productName, "movement_type": movementType,

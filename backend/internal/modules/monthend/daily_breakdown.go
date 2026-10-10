@@ -29,6 +29,10 @@ const (
 	groupCashRepriced        = "cash_repriced"
 	groupCashMixed           = "cash_mixed"
 	groupUnpaid              = "unpaid"
+	// groupCreditSale is a credit bill that has since been paid off. Its money
+	// arrived through receivables, not at a till, so it is never a cash
+	// candidate for the close.
+	groupCreditSale = "credit_sale"
 )
 
 // realGroups is what "ยอดรวมจริง" adds up. The two mixed-tender groups are here
@@ -37,7 +41,7 @@ const (
 // silently dropped them off the page along with their money.
 var realGroups = []string{
 	groupTransferAbbreviated, groupTransferFullTax, groupCashFullTax,
-	groupMixedAbbreviated, groupMixedFullTax,
+	groupMixedAbbreviated, groupMixedFullTax, groupCreditSale,
 }
 var closeGroups = []string{groupCashGhostHidden, groupCashRepriced, groupCashMixed}
 
@@ -58,6 +62,10 @@ type breakdownTally struct {
 	cashCents     int64
 	transferCents int64
 	tenderCount   int
+	// outstandingCents is what the window's bills still owe — credit sales and
+	// back-office bills not yet paid — so the tender board can say how much of
+	// the day's sales has not arrived as money yet.
+	outstandingCents int64
 }
 
 func newBreakdownTally() *breakdownTally {
@@ -126,10 +134,11 @@ func (t *breakdownTally) render(groups []string) map[string]any {
 			realBeforeCount+closeBeforeCount, realAfterCount+closeAfterCount)
 	}
 	out["tender"] = map[string]any{
-		"cash_amount":     centsToFloat(t.cashCents),
-		"transfer_amount": centsToFloat(t.transferCents),
-		"total_amount":    centsToFloat(t.cashCents + t.transferCents),
-		"invoice_count":   t.tenderCount,
+		"cash_amount":        centsToFloat(t.cashCents),
+		"transfer_amount":    centsToFloat(t.transferCents),
+		"total_amount":       centsToFloat(t.cashCents + t.transferCents),
+		"invoice_count":      t.tenderCount,
+		"outstanding_amount": centsToFloat(t.outstandingCents),
 	}
 	return out
 }
@@ -311,6 +320,7 @@ func (s *Service) fillFromClosedRound(ctx context.Context, reconciliationID stri
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT s.branch_id::text,
 		       s.payment_method,
+		       i.sale_type,
 		       s.request_full_tax_invoice,
 		       s.original_total_amount,
 		       COALESCE(i.total_amount, 0),
@@ -330,13 +340,16 @@ func (s *Service) fillFromClosedRound(ctx context.Context, reconciliationID stri
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var branchID, paymentMethod string
+		var branchID, paymentMethod, saleType string
 		var fullTax, removed, partlyRemoved bool
 		var before, after float64
-		if err := rows.Scan(&branchID, &paymentMethod, &fullTax, &before, &after, &removed, &partlyRemoved); err != nil {
+		if err := rows.Scan(&branchID, &paymentMethod, &saleType, &fullTax, &before, &after, &removed, &partlyRemoved); err != nil {
 			return err
 		}
 		group := recordedGroup(paymentMethod, fullTax, removed, partlyRemoved, before, after)
+		if saleType == "credit" {
+			group = groupCreditSale
+		}
 		if group == "" {
 			continue
 		}
@@ -411,6 +424,9 @@ func (s *Service) fillFromLivePlan(ctx context.Context, input ReconciliationInpu
 
 // plannedGroup reads back the decision the plan just made about a bill.
 func plannedGroup(invoice *reconciliationInvoice) string {
+	if invoice.SaleType == "credit" {
+		return groupCreditSale
+	}
 	if invoice.SuppressionCandidate {
 		switch {
 		case invoice.WillSuppress:
@@ -472,7 +488,8 @@ func (s *Service) seedBreakdownBranches(ctx context.Context, branchIDs []string,
 
 func (s *Service) addUnpaidToBreakdown(ctx context.Context, branchIDs []string, periodStart, periodEnd time.Time, overall *breakdownTally, tallyFor func(string) *breakdownTally) error {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT i.branch_id::text, i.total_amount
+		SELECT i.branch_id::text, i.total_amount,
+		       i.total_amount - COALESCE((SELECT SUM(amount) FROM invoice_payments WHERE invoice_id = i.id), 0)
 		FROM invoices i
 		WHERE i.deleted_at IS NULL
 		  AND i.invoice_status = 'issued'
@@ -486,13 +503,16 @@ func (s *Service) addUnpaidToBreakdown(ctx context.Context, branchIDs []string, 
 	defer rows.Close()
 	for rows.Next() {
 		var branchID string
-		var amount float64
-		if err := rows.Scan(&branchID, &amount); err != nil {
+		var amount, outstanding float64
+		if err := rows.Scan(&branchID, &amount, &outstanding); err != nil {
 			return err
 		}
 		cents := centsFromFloat(amount)
 		overall.add(groupUnpaid, cents, cents, true)
 		tallyFor(branchID).add(groupUnpaid, cents, cents, true)
+		owed := centsFromFloat(outstanding)
+		overall.outstandingCents += owed
+		tallyFor(branchID).outstandingCents += owed
 	}
 	return rows.Err()
 }

@@ -23,6 +23,7 @@ type unitInfo struct {
 	Name       string
 	Conversion int
 	Price      float64
+	IsBase     bool
 }
 
 // resolveUnit loads the selling unit for a line. An empty unitID means the base
@@ -34,23 +35,24 @@ func resolveUnit(ctx context.Context, db platform.DBTX, productID, unitID string
 		name          string
 		conversionQty int
 		sellingPrice  sql.NullFloat64
+		isBase        bool
 	)
 	query := `
-		SELECT id::text, unit_name, conversion_qty, selling_price
+		SELECT id::text, unit_name, conversion_qty, selling_price, is_base
 		FROM product_units
 		WHERE product_id = $1 AND active = TRUE AND `
 	arg := any(productID)
 	var err error
 	if unitID == "" {
-		err = db.QueryRowContext(ctx, query+`is_base`, arg).Scan(&id, &name, &conversionQty, &sellingPrice)
+		err = db.QueryRowContext(ctx, query+`is_base`, arg).Scan(&id, &name, &conversionQty, &sellingPrice, &isBase)
 	} else {
-		err = db.QueryRowContext(ctx, query+`id = $2`, arg, unitID).Scan(&id, &name, &conversionQty, &sellingPrice)
+		err = db.QueryRowContext(ctx, query+`id = $2`, arg, unitID).Scan(&id, &name, &conversionQty, &sellingPrice, &isBase)
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			if unitID == "" {
 				// Product predates the unit table; treat it as a 1:1 base unit.
-				return unitInfo{Name: fallbackName, Conversion: 1, Price: basePrice}, nil
+				return unitInfo{Name: fallbackName, Conversion: 1, Price: basePrice, IsBase: true}, nil
 			}
 			return unitInfo{}, platform.NewError(http.StatusBadRequest, "หน่วยนับที่เลือกใช้กับสินค้านี้ไม่ได้")
 		}
@@ -63,7 +65,33 @@ func resolveUnit(ctx context.Context, db platform.DBTX, productID, unitID string
 	if sellingPrice.Valid {
 		price = platform.Round2(sellingPrice.Float64)
 	}
-	return unitInfo{ID: id, Name: name, Conversion: conversionQty, Price: price}, nil
+	return unitInfo{ID: id, Name: name, Conversion: conversionQty, Price: price, IsBase: isBase}, nil
+}
+
+// tierPrice is the lowest tier price a line qualifies for: a quantity break
+// open to everyone, or a wholesale price when the customer is on the
+// wholesale tier. A tier row prices one selling unit; a row without a unit
+// prices the base unit. ok is false when no tier applies.
+func tierPrice(ctx context.Context, db platform.DBTX, productID string, unit unitInfo, branchID string, wholesale bool, soldQuantity int) (float64, string, bool, error) {
+	var price float64
+	var customerTier string
+	err := db.QueryRowContext(ctx, `
+		SELECT unit_price, customer_tier
+		FROM product_price_tiers
+		WHERE product_id = $1 AND active AND min_quantity <= $2
+		  AND (branch_id IS NULL OR branch_id::text = $3)
+		  AND (customer_tier = 'all' OR ($4 AND customer_tier = 'wholesale'))
+		  AND (($5 <> '' AND unit_id::text = $5) OR (unit_id IS NULL AND $6))
+		ORDER BY unit_price ASC, min_quantity DESC
+		LIMIT 1
+	`, productID, soldQuantity, branchID, wholesale, unit.ID, unit.IsBase).Scan(&price, &customerTier)
+	if err == sql.ErrNoRows {
+		return 0, "", false, nil
+	}
+	if err != nil {
+		return 0, "", false, err
+	}
+	return platform.Round2(price), customerTier, true, nil
 }
 
 // lotAllocation is one FEFO slice of stock reserved for a promotional giveaway.
@@ -76,11 +104,11 @@ type lotAllocation struct {
 	ExpiresOn  sql.NullTime
 }
 
-// allocateFEFO reserves `needed` base units across the branch's sellable lots,
-// oldest expiry first, so giveaways consume stock exactly like a sold line.
-func allocateFEFO(ctx context.Context, db platform.DBTX, branchID, productID, productName string, needed int) ([]lotAllocation, error) {
+// allocateFEFOUpTo reserves as much of `needed` as the branch has, oldest
+// expiry first, and says how many units it could not find.
+func allocateFEFOUpTo(ctx context.Context, db platform.DBTX, branchID, productID string, needed int) ([]lotAllocation, int, error) {
 	if needed <= 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	rows, err := db.QueryContext(ctx, `
 		SELECT id::text, lot_number, remaining_quantity, unit_cost, received_at, expires_on
@@ -90,7 +118,7 @@ func allocateFEFO(ctx context.Context, db platform.DBTX, branchID, productID, pr
 		ORDER BY expires_on NULLS LAST, received_at, id
 	`, branchID, productID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -101,7 +129,7 @@ func allocateFEFO(ctx context.Context, db platform.DBTX, branchID, productID, pr
 		var available int
 		if err := rows.Scan(&allocation.LotID, &allocation.LotNumber, &available,
 			&allocation.UnitCost, &allocation.ReceivedAt, &allocation.ExpiresOn); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		take := available
 		if take > remaining {
@@ -112,13 +140,9 @@ func allocateFEFO(ctx context.Context, db platform.DBTX, branchID, productID, pr
 		allocations = append(allocations, allocation)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	if remaining > 0 {
-		return nil, platform.NewError(http.StatusConflict,
-			fmt.Sprintf("สต๊อกของแถม %s ไม่เพียงพอ (ขาดอีก %d)", productName, remaining))
-	}
-	return allocations, nil
+	return allocations, remaining, nil
 }
 
 // promotion is one active campaign plus the products it references.
@@ -145,17 +169,18 @@ type promotionItem struct {
 	Quantity    int // expressed in base units
 }
 
-func loadActivePromotions(ctx context.Context, db platform.DBTX, branchID string) ([]promotion, error) {
+func loadActivePromotions(ctx context.Context, db platform.DBTX, branchID string, member bool) ([]promotion, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT id::text, code, name, promo_type, min_quantity, min_amount, discount_percent,
 		       discount_amount, bundle_price, max_uses_per_bill, priority
 		FROM promotions
 		WHERE active
 		  AND (branch_id IS NULL OR branch_id = $1)
+		  AND (NOT members_only OR $2)
 		  AND (starts_at IS NULL OR starts_at <= (NOW() AT TIME ZONE 'Asia/Bangkok')::date)
 		  AND (ends_at IS NULL OR ends_at >= (NOW() AT TIME ZONE 'Asia/Bangkok')::date)
 		ORDER BY priority DESC, created_at
-	`, branchID)
+	`, branchID, member)
 	if err != nil {
 		return nil, err
 	}
@@ -459,25 +484,117 @@ type cartResult struct {
 	PromotionDiscount float64
 	GiveawayCost      float64
 	AppliedPromotions []map[string]any
+	// Giveaways the promotion earned but the branch had none left to give.
+	GiveawayShortages []map[string]any
+	// The member the cart is sold to, if any, and the points they spend on it.
+	Customer       *cartCustomer
+	PointsRedeemed int
+	PointsDiscount float64
+	Loyalty        loyaltyRules
+}
+
+// cartOptions are the parts of a sale that depend on who is buying.
+type cartOptions struct {
+	CustomerID   string
+	RedeemPoints int
+	// LockCustomer takes the customer row lock, for the checkout transaction:
+	// two tills selling to the same member cannot both spend the same points
+	// or both use the last of a credit line.
+	LockCustomer bool
+}
+
+type cartCustomer struct {
+	ID            string
+	Code          string
+	Name          string
+	Phone         string
+	TaxID         string
+	Address       string
+	PriceTier     string
+	CreditLimit   float64
+	CreditDays    int
+	PointsBalance int
+}
+
+type loyaltyRules struct {
+	BahtPerPoint    float64
+	PointValue      float64
+	MinRedeemPoints int
+}
+
+func loadLoyaltyRules(ctx context.Context, db platform.DBTX) (loyaltyRules, error) {
+	perPoint, err := platform.GetSettingFloat(ctx, db, "loyalty_baht_per_point", 25)
+	if err != nil {
+		return loyaltyRules{}, err
+	}
+	value, err := platform.GetSettingFloat(ctx, db, "loyalty_point_value", 0.25)
+	if err != nil {
+		return loyaltyRules{}, err
+	}
+	minimum, err := platform.GetSettingFloat(ctx, db, "loyalty_min_redeem_points", 40)
+	if err != nil {
+		return loyaltyRules{}, err
+	}
+	return loyaltyRules{BahtPerPoint: perPoint, PointValue: value, MinRedeemPoints: int(minimum)}, nil
+}
+
+// PointsFor is what a bill of this total earns: whole points only.
+func (rules loyaltyRules) PointsFor(total float64) int {
+	if rules.BahtPerPoint <= 0 || total <= 0 {
+		return 0
+	}
+	return int(math.Floor(platform.Round2(total)/rules.BahtPerPoint + 1e-9))
+}
+
+func loadCartCustomer(ctx context.Context, db platform.DBTX, customerID string, lock bool) (*cartCustomer, error) {
+	customerID = strings.TrimSpace(customerID)
+	if customerID == "" {
+		return nil, nil
+	}
+	query := `
+		SELECT id::text, customer_code, name, phone, tax_id, address, price_tier, credit_limit, credit_days, points_balance
+		FROM customers WHERE id = $1 AND active`
+	if lock {
+		query += " FOR UPDATE"
+	}
+	var customer cartCustomer
+	if err := db.QueryRowContext(ctx, query, customerID).Scan(&customer.ID, &customer.Code, &customer.Name,
+		&customer.Phone, &customer.TaxID, &customer.Address, &customer.PriceTier, &customer.CreditLimit,
+		&customer.CreditDays, &customer.PointsBalance); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, platform.NewError(http.StatusBadRequest, "ไม่พบลูกค้าที่เลือก หรือลูกค้าถูกปิดใช้งาน")
+		}
+		return nil, err
+	}
+	return &customer, nil
 }
 
 // priceCart prices the cashier's lines, lets promotions add giveaways and
 // discounts, then spreads the bill discount across the remaining value. VAT is
 // always charged on what the customer actually pays.
 func (s *Service) priceCart(ctx context.Context, db platform.DBTX, user platform.AuthUser, branchID string,
-	isGovernment bool, items []LineInput, billDiscount float64, vatRate float64, requireLot bool) (cartResult, error) {
+	isGovernment bool, items []LineInput, billDiscount float64, vatRate float64, requireLot bool, opts cartOptions) (cartResult, error) {
 
-	lines, _, _, _, err := s.priceLines(ctx, db, user, branchID, isGovernment, items, vatRate, requireLot)
+	customer, err := loadCartCustomer(ctx, db, opts.CustomerID, opts.LockCustomer)
+	if err != nil {
+		return cartResult{}, err
+	}
+	rules, err := loadLoyaltyRules(ctx, db)
+	if err != nil {
+		return cartResult{}, err
+	}
+	wholesale := customer != nil && customer.PriceTier == "wholesale"
+	lines, _, _, _, err := s.priceLines(ctx, db, user, branchID, isGovernment, items, vatRate, requireLot, wholesale)
 	if err != nil {
 		return cartResult{}, err
 	}
 
-	result := cartResult{Lines: lines, AppliedPromotions: []map[string]any{}}
+	result := cartResult{Lines: lines, AppliedPromotions: []map[string]any{}, Customer: customer, Loyalty: rules}
 	for _, line := range lines {
 		result.LineDiscount = platform.Round2(result.LineDiscount + line.DiscountAmount)
 	}
 
-	promotions, err := loadActivePromotions(ctx, db, branchID)
+	promotions, err := loadActivePromotions(ctx, db, branchID, customer != nil)
 	if err != nil {
 		return cartResult{}, err
 	}
@@ -503,9 +620,18 @@ func (s *Service) priceCart(ctx context.Context, db platform.DBTX, user platform
 			if giveaway.Quantity <= 0 {
 				continue
 			}
-			allocations, err := allocateFEFO(ctx, db, branchID, giveaway.ProductID, giveaway.ProductName, giveaway.Quantity)
+			// A giveaway the branch has run out of must not stop the sale:
+			// the customer gets what is on the shelf and the cashier is told.
+			allocations, short, err := allocateFEFOUpTo(ctx, db, branchID, giveaway.ProductID, giveaway.Quantity)
 			if err != nil {
 				return cartResult{}, err
+			}
+			if short > 0 {
+				result.GiveawayShortages = append(result.GiveawayShortages, map[string]any{
+					"promotion_id": giveaway.PromotionID, "promotion_name": giveaway.PromotionName,
+					"product_id": giveaway.ProductID, "product_name": giveaway.ProductName,
+					"quantity": giveaway.Quantity, "short": short,
+				})
 			}
 			for _, allocation := range allocations {
 				result.Lines = append(result.Lines, pricedLine{
@@ -582,6 +708,51 @@ func (s *Service) priceCart(ctx context.Context, db platform.DBTX, user platform
 			result.Lines[index] = line
 		}
 		result.BillDiscount = billDiscount
+	}
+
+	// Points last: the member spends them on what is left to pay, like a
+	// voucher, spread over the lines so VAT is charged on the real price paid.
+	if opts.RedeemPoints < 0 {
+		return cartResult{}, platform.NewError(http.StatusBadRequest, "จำนวนแต้มต้องไม่ติดลบ")
+	}
+	if opts.RedeemPoints > 0 {
+		if customer == nil {
+			return cartResult{}, platform.NewError(http.StatusBadRequest, "ใช้แต้มได้เฉพาะเมื่อเลือกลูกค้าสมาชิก")
+		}
+		if opts.RedeemPoints > customer.PointsBalance {
+			return cartResult{}, platform.NewError(http.StatusBadRequest,
+				fmt.Sprintf("แต้มคงเหลือของ %s มี %d แต้ม", customer.Name, customer.PointsBalance))
+		}
+		if opts.RedeemPoints < rules.MinRedeemPoints {
+			return cartResult{}, platform.NewError(http.StatusBadRequest,
+				fmt.Sprintf("ใช้แต้มขั้นต่ำครั้งละ %d แต้ม", rules.MinRedeemPoints))
+		}
+		value := platform.Round2(float64(opts.RedeemPoints) * rules.PointValue)
+		weights := make([]float64, len(result.Lines))
+		indexes := []int{}
+		payable := 0.0
+		for index, line := range result.Lines {
+			if line.IsGiveaway || line.LineSubtotal <= 0 {
+				continue
+			}
+			weights[index] = line.LineSubtotal
+			indexes = append(indexes, index)
+			payable = platform.Round2(payable + line.LineSubtotal)
+		}
+		if value > payable {
+			return cartResult{}, platform.NewError(http.StatusBadRequest,
+				fmt.Sprintf("มูลค่าแต้มที่ใช้ (%.2f บาท) มากกว่ายอดที่ต้องชำระ", value))
+		}
+		shares := map[int]float64{}
+		spread(shares, indexes, weights, value)
+		for index, share := range shares {
+			line := result.Lines[index]
+			line.PointsDiscountShare = platform.Round2(share)
+			line.LineSubtotal = platform.Round2(line.LineSubtotal - share)
+			result.Lines[index] = line
+		}
+		result.PointsRedeemed = opts.RedeemPoints
+		result.PointsDiscount = value
 	}
 
 	// Final VAT and totals from the net line values.

@@ -21,7 +21,7 @@ func TestSalesAndQuotationsRejectGhostForEveryRole(t *testing.T) {
 		{role: "branch_pos", code: http.StatusForbidden},
 		{role: "super_admin", code: http.StatusBadRequest},
 	} {
-		_, _, _, _, err := service.priceLines(context.Background(), nil, platform.AuthUser{RoleKey: test.role}, "branch", false, []LineInput{{ProductID: "product", StockBucket: "ghost", Quantity: 1}}, 0, false)
+		_, _, _, _, err := service.priceLines(context.Background(), nil, platform.AuthUser{RoleKey: test.role}, "branch", false, []LineInput{{ProductID: "product", StockBucket: "ghost", Quantity: 1}}, 0, false, false)
 		appErr, ok := err.(*platform.AppError)
 		if !ok || appErr.Code != test.code {
 			t.Fatalf("role %s: expected AppError %d, got %#v", test.role, test.code, err)

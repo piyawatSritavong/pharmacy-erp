@@ -46,6 +46,7 @@ type Input struct {
 	Note               string  `json:"note"`
 	BillDiscountAmount float64 `json:"bill_discount_amount"`
 	Items              []Item  `json:"items"`
+	CustomerID         string  `json:"customer_id"`
 }
 
 type Service struct{ db *sql.DB }
@@ -97,11 +98,11 @@ func (s *Service) Create(ctx context.Context, user platform.AuthUser, input Inpu
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO parked_bills (id, branch_id, created_by, customer_name, customer_tax_id,
 		                          full_tax_invoice, note, bill_discount_amount, items,
-		                          item_count, estimated_total, expires_at, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,NOW(),NOW())
+		                          item_count, estimated_total, expires_at, created_at, updated_at, customer_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,NOW(),NOW(),$13)
 	`, id, branchID, user.ID, strings.TrimSpace(input.CustomerName), strings.TrimSpace(input.CustomerTaxID),
 		input.FullTaxInvoice, strings.TrimSpace(input.Note), input.BillDiscountAmount, string(encoded), count,
-		platform.Round2(total), expires); err != nil {
+		platform.Round2(total), expires, platform.NullUUID(&input.CustomerID)); err != nil {
 		return nil, err
 	}
 	return map[string]any{"id": id, "expires_at": expires.Format(time.RFC3339)}, nil
@@ -167,7 +168,7 @@ func (s *Service) Get(ctx context.Context, user platform.AuthUser, id string) (m
 	}
 	item, err := scanParkedBill(s.db.QueryRowContext(ctx, `
 		SELECT customer_name, customer_tax_id, full_tax_invoice, note,
-		       bill_discount_amount, items::text, created_at
+		       bill_discount_amount, items::text, created_at, COALESCE(customer_id::text, '')
 		FROM parked_bills WHERE id = $1 AND branch_id = $2 AND expires_at > NOW()
 		  AND status = 'open'
 	`, id, branchID), id)
@@ -187,7 +188,7 @@ func (s *Service) GetClaimed(ctx context.Context, user platform.AuthUser, id, cl
 	}
 	item, err := scanParkedBill(s.db.QueryRowContext(ctx, `
 		SELECT customer_name, customer_tax_id, full_tax_invoice, note,
-		       bill_discount_amount, items::text, created_at
+		       bill_discount_amount, items::text, created_at, COALESCE(customer_id::text, '')
 		FROM parked_bills
 		WHERE id=$1 AND branch_id=$2 AND claimed_by=$3 AND claim_token=$4
 		  AND status='claimed' AND expires_at>NOW()
@@ -199,11 +200,11 @@ func (s *Service) GetClaimed(ctx context.Context, user platform.AuthUser, id, cl
 }
 
 func scanParkedBill(scanner interface{ Scan(...any) error }, id string) (map[string]any, error) {
-	var customer, taxID, note, raw string
+	var customer, taxID, note, raw, customerID string
 	var billDiscount float64
 	var fullTax bool
 	var created time.Time
-	if err := scanner.Scan(&customer, &taxID, &fullTax, &note, &billDiscount, &raw, &created); err != nil {
+	if err := scanner.Scan(&customer, &taxID, &fullTax, &note, &billDiscount, &raw, &created, &customerID); err != nil {
 		return nil, err
 	}
 	var items []Item
@@ -214,7 +215,7 @@ func scanParkedBill(scanner interface{ Scan(...any) error }, id string) (map[str
 		"id": id, "customer_name": customer, "customer_tax_id": taxID,
 		"full_tax_invoice": fullTax, "note": note,
 		"bill_discount_amount": billDiscount, "items": items,
-		"created_at": created.Format(time.RFC3339),
+		"created_at": created.Format(time.RFC3339), "customer_id": customerID,
 	}, nil
 }
 

@@ -202,6 +202,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 			"suppliers.view.global", "suppliers.manage.global", "purchase_orders.view.global", "purchase_orders.manage.global",
 			"promotion.manage", "promotion.view", "sales.discount.line",
 			"returns.manage", "fda.manage",
+			"customer.view", "customer.manage", "customer.credit.manage", "receivable.view", "price_tier.manage",
 			// Superadmin also opens the two branch-operations pages.
 			"dashboard.view.self", "inventory.view.branch",
 		},
@@ -211,6 +212,9 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 			// A branch runs its own promotions; the service pins every write to
 			// the branch the user belongs to.
 			"promotion.view", "promotion.manage", "sales.discount.line",
+			// The till registers members and takes money owed on credit bills;
+			// credit lines and wholesale prices are head office's.
+			"customer.view", "customer.manage", "receivable.view",
 		},
 	}
 

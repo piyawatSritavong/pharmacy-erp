@@ -6,6 +6,7 @@ import { Plus, Search } from "lucide-react";
 import { z } from "zod";
 
 import { DataTable, SectionCard } from "@/components/sections/common";
+import { ProductPricingDialog } from "@/components/sections/product-pricing-dialog";
 import { Field } from "@/components/ui/field";
 import {
   Button,
@@ -66,7 +67,9 @@ export function ProductCatalogConsole({
   defaultSearch,
   defaultCategoryId,
   defaultSalesChannel,
-  pagination
+  pagination,
+  canEditUnits = false,
+  canEditTiers = false
 }: {
   initialItems: Option[];
   categories: Option[];
@@ -74,6 +77,8 @@ export function ProductCatalogConsole({
   defaultCategoryId: string;
   defaultSalesChannel: string;
   pagination: PaginationState;
+  canEditUnits?: boolean;
+  canEditTiers?: boolean;
 }) {
   const router = useRouter();
   const refresh = useRefresh();
@@ -85,6 +90,7 @@ export function ProductCatalogConsole({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Option>(blankProduct);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [pricingProduct, setPricingProduct] = useState<Option | null>(null);
   const errors = useFormErrors(productSchema);
 
   const rows = useMemo(
@@ -249,9 +255,14 @@ export function ProductCatalogConsole({
           )}
           emptyDescription={filtered ? "ไม่พบสินค้าตามตัวกรอง ลองปรับคำค้นหาหรือตัวกรอง" : "ยังไม่มีสินค้าในระบบ เริ่มจากเพิ่มสินค้ารายการแรก"}
           rowActions={(row) => (
-            <Button onClick={() => openEdit(row)} type="button" variant="secondary">
-              แก้ไข
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button onClick={() => setPricingProduct(row)} type="button" variant="secondary">
+                หน่วย/ราคาส่ง
+              </Button>
+              <Button onClick={() => openEdit(row)} type="button" variant="secondary">
+                แก้ไข
+              </Button>
+            </div>
           )}
           rows={rows}
         />
@@ -266,6 +277,13 @@ export function ProductCatalogConsole({
           totalPages={pagination.total_pages}
         />
       </SectionCard>
+
+      <ProductPricingDialog
+        canEditTiers={canEditTiers}
+        canEditUnits={canEditUnits}
+        onClose={() => setPricingProduct(null)}
+        product={pricingProduct}
+      />
 
       <Dialog onOpenChange={setDialogOpen} open={dialogOpen}>
         <DialogContent className="max-w-3xl">

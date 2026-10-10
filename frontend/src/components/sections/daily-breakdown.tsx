@@ -19,6 +19,7 @@ type GroupKey =
   | "cash_ghost_hidden"
   | "cash_repriced"
   | "cash_mixed"
+  | "credit_sale"
   | "unpaid";
 
 type GroupSpec = {
@@ -76,6 +77,14 @@ const REAL_GROUPS: GroupSpec[] = [
     title: "เงินสด + โอน ผสม + ใบกำกับเต็มรูป",
     note: "จ่ายสองทาง จึงไม่เข้าเงื่อนไข",
     paymentType: "mixed",
+    closeStatus: "active",
+    paid: true
+  },
+  {
+    key: "credit_sale",
+    title: "ขายเชื่อ — รับชำระครบแล้ว",
+    note: "บิลเครดิตของลูกค้า รับเงินผ่านลูกหนี้ ไม่เข้าเงื่อนไขปิดรอบ",
+    paymentType: "cash",
     closeStatus: "active",
     paid: true
   }
@@ -160,7 +169,8 @@ function bills(count: number) {
  */
 function historyHref(spec: GroupSpec, data: { date_from: string; date_to: string }, branchName?: string) {
   const query = new URLSearchParams({ date_from: data.date_from, date_to: data.date_to });
-  if (spec.key !== "unpaid") query.set("payment_method", spec.paymentType);
+  if (spec.key === "credit_sale") query.set("sale_type", "credit");
+  else if (spec.key !== "unpaid") query.set("payment_method", spec.paymentType);
   if (spec.taxInvoice) query.set("tax_invoice_type", spec.taxInvoice);
   if (spec.key === "unpaid") query.set("payment_status", "unpaid");
   else query.set("close_status", spec.closeStatus);
@@ -483,8 +493,11 @@ function TenderBoard({ tender, compact }: { tender: TenderSplit; compact?: boole
           <span className="ml-2 text-xs font-normal text-muted-foreground">{bills(tender.invoice_count)}</span>
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:gap-3">
-        {rows.map((row) => (
+      <div className={`grid gap-2 sm:gap-3 ${Number(tender.outstanding_amount || 0) > 0 ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2"}`}>
+        {(Number(tender.outstanding_amount || 0) > 0
+          ? [...rows, { label: "ขายเชื่อ ค้างรับ", amount: Number(tender.outstanding_amount) }]
+          : rows
+        ).map((row) => (
           <div className={`rounded-xl border bg-card px-3 sm:px-4 ${compact ? "py-2 sm:py-3" : "py-2.5 sm:py-4"}`} key={row.label}>
             <p className={`font-medium ${compact ? "text-xs" : "text-sm"}`}>{row.label}</p>
             <p className={`mt-2 font-semibold tabular-nums [overflow-wrap:anywhere] ${compact ? "text-base sm:text-lg" : "text-lg sm:text-2xl"}`}>{currency(row.amount)}</p>

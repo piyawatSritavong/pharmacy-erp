@@ -17,7 +17,7 @@ export default async function ProductCatalogPage({
     page_size?: string;
   }>;
 }) {
-  requirePermission(await requireSession(), ["products.view", "products.manage"]);
+  const session = requirePermission(await requireSession(), ["products.view", "products.manage"]);
   const resolved = await searchParams;
   const search = resolved?.search || "";
   const categoryId = resolved?.category_id || "";
@@ -43,6 +43,8 @@ export default async function ProductCatalogPage({
         defaultSearch={search}
         initialItems={products.items}
         pagination={products.pagination}
+        canEditUnits={session.user.permissions.includes("products.manage")}
+        canEditTiers={session.user.permissions.includes("price_tier.manage")}
       />
     </div>
   );

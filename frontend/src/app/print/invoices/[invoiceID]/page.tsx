@@ -66,6 +66,13 @@ export default async function InvoicePrintPage({
           <p className="text-xs text-muted-foreground">ลูกค้า</p>
           <h2 className="mt-2 text-lg font-semibold">{String(document.customer_name || "-")}</h2>
           <p className="mt-2 text-sm text-muted-foreground">เลขประจำตัวผู้เสียภาษี: {String(document.customer_tax_id || "-")}</p>
+          {document.customer_code ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              สมาชิก {String(document.customer_code)} · แต้มบิลนี้ +{Number(document.points_earned || 0).toLocaleString("th-TH")}
+              {Number(document.points_redeemed || 0) ? ` / ใช้ ${Number(document.points_redeemed).toLocaleString("th-TH")}` : ""}
+              {document.points_balance != null ? ` · คงเหลือ ${Number(document.points_balance).toLocaleString("th-TH")} แต้ม` : ""}
+            </p>
+          ) : null}
           <p className="mt-2 text-sm text-muted-foreground">ผู้ขาย: {String(document.seller_name || "-")}</p>
           <p className="mt-2 text-sm text-muted-foreground">
             รูปแบบ: {Boolean(document.is_government_mode) ? "เอกสารราชการ" : "ขายปลีก"}
@@ -135,9 +142,21 @@ export default async function InvoicePrintPage({
             ) : (
               <p className="text-sm text-muted-foreground">ยังไม่มีรายการรับชำระ</p>
             )}
+            {document.sale_type === "credit" ? (
+              <div className="rounded-md border border-black px-4 py-3">
+                <p className="font-medium">ขายเชื่อ · ครบกำหนดชำระ {document.due_date ? new Date(String(document.due_date)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", dateStyle: "long" }) : "-"}</p>
+                <p className="text-sm text-muted-foreground">ค้างชำระ {currency(Number(document.outstanding || 0))}</p>
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="rounded-lg border border-black p-4">
+          {Number(document.points_discount || 0) > 0 ? (
+            <div className="flex items-center justify-between py-2 text-sm">
+              <span>ส่วนลดจากแต้ม ({Number(document.points_redeemed || 0).toLocaleString("th-TH")} แต้ม)</span>
+              <span>-{currency(Number(document.points_discount))}</span>
+            </div>
+          ) : null}
           <div className="flex items-center justify-between py-2 text-sm">
             <span>ยอดก่อนภาษี</span>
             <span>{currency(Number(summary.subtotal || 0))}</span>

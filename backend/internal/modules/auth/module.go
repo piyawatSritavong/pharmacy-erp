@@ -245,6 +245,8 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 		// A branch runs its own promotions, so the till needs a way in. Head
 		// office's company-wide ones show here too, read-only.
 		items = appendItemIf(items, has("promotion.manage"), "pos_promotions", "โปรโมชั่น", "/promotions", "ตั้งส่วนลด ของแถม และราคาชุดของสาขานี้")
+		items = appendItemIf(items, has("customer.view"), "pos_customers", "สมาชิก", "/customers", "สมัครสมาชิก ค้นหาแต้มสะสม และประวัติการซื้อ")
+		items = appendItemIf(items, has("receivable.view"), "pos_receivables", "รับชำระหนี้", "/receivables", "รับชำระบิลขายเชื่อของลูกค้า")
 		items = appendItemIf(items, has("dashboard.view.self"), "daily_sales_summary", "สรุปยอดขาย", "/daily-sales", "ยอดขายและยอดรับชำระประจำวัน")
 		return items
 	}
@@ -258,6 +260,10 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 	// สรุปยอดขาย is intentionally absent from the back-office nav: รายงานสรุปสิ้นเดือน
 	// covers the same ground for a global user in more detail. The POS portal
 	// keeps its own สรุปยอดขาย, which is that cashier's till for the day.
+
+	var customerChildren []map[string]any
+	customerChildren = appendItemIf(customerChildren, has("customer.view"), "customers", "ลูกค้าและสมาชิก", "/customers", "สมาชิก แต้มสะสม ระดับราคาส่ง และวงเงินเครดิต")
+	customerChildren = appendItemIf(customerChildren, has("receivable.view"), "receivables", "ลูกหนี้ค้างชำระ", "/receivables", "บิลขายเชื่อที่ยังไม่ได้รับเงิน อายุหนี้ และรับชำระ")
 
 	var inventoryChildren []map[string]any
 	inventoryChildren = appendItemIf(inventoryChildren, has("products.view", "products.manage"), "product_catalog", "รายการสินค้า", "/product-catalog", "แหล่งข้อมูลสินค้าเดียวที่ทุกสาขาดึงไปใช้")
@@ -291,6 +297,7 @@ func navigationFor(user platform.AuthUser) []map[string]any {
 		inventoryGroupDescription = "สต๊อกจริง สต๊อกผี หมวดสินค้า และการโอนสินค้า"
 	}
 	items = appendGroup(items, "inventory_group", "คลังสินค้า", inventoryGroupDescription, inventoryChildren)
+	items = appendGroup(items, "customers_group", "ลูกค้า", "สมาชิก แต้มสะสม เครดิต และลูกหนี้", customerChildren)
 	items = appendGroup(items, "documents_group", "ใบเอกสาร", "ใบสั่งซื้อ บริษัทคู่ค้า รพ.สต. ใบขาย และเอกสาร อย.", documentsChildren)
 
 	// branch_ops_group: a branch-scoped back-office role (e.g. หัวหน้าสาขา)

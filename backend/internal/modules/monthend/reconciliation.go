@@ -91,7 +91,10 @@ type reconciliationItem struct {
 }
 
 type reconciliationInvoice struct {
-	ID                    string                `json:"id"`
+	ID string `json:"id"`
+	// SaleType "credit" marks a bill sold on credit and settled through
+	// receivables; the close never treats it as a cash candidate.
+	SaleType              string                `json:"sale_type"`
 	BranchID              string                `json:"branch_id"`
 	BranchCode            string                `json:"branch_code"`
 	BranchName            string                `json:"branch_name"`
@@ -266,7 +269,7 @@ func (s *Service) loadReconciliationSource(ctx context.Context, db platform.DBTX
 	rows, err := db.QueryContext(ctx, `
 		SELECT i.id::text,i.branch_id::text,b.code,b.name,i.invoice_number,i.customer_name,
 		       i.issued_at,i.created_at,i.total_amount,i.payment_method,
-		       i.request_full_tax_invoice
+		       i.request_full_tax_invoice,i.sale_type
 		FROM invoices i
 		INNER JOIN branches b ON b.id=i.branch_id
 		WHERE i.deleted_at IS NULL
@@ -284,11 +287,11 @@ func (s *Service) loadReconciliationSource(ctx context.Context, db platform.DBTX
 		invoice := &reconciliationInvoice{Items: []*reconciliationItem{}}
 		if err := rows.Scan(&invoice.ID, &invoice.BranchID, &invoice.BranchCode, &invoice.BranchName,
 			&invoice.InvoiceNumber, &invoice.CustomerName, &invoice.IssuedAt, &invoice.CreatedAt, &invoice.TotalAmount,
-			&invoice.PaymentMethod, &invoice.RequestFullTaxInvoice); err != nil {
+			&invoice.PaymentMethod, &invoice.RequestFullTaxInvoice, &invoice.SaleType); err != nil {
 			rows.Close()
 			return reconciliationSource{}, err
 		}
-		invoice.SuppressionCandidate = invoice.PaymentMethod == "cash" && !invoice.RequestFullTaxInvoice
+		invoice.SuppressionCandidate = invoice.PaymentMethod == "cash" && !invoice.RequestFullTaxInvoice && invoice.SaleType != "credit"
 		invoice.Classification = classificationUnchanged
 		invoice.FinalTotal = invoice.TotalAmount
 		source.OriginalRevenue += centsFromFloat(invoice.TotalAmount)
