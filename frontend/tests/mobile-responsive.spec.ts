@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { addProductToCart, choosePaymentMethod } from "./pos-helpers";
 import { passwordFor } from "./credentials";
 import type { NavigationItem, Session } from "../src/types";
 
@@ -173,10 +174,11 @@ test("POS: quantities, discounts, all payment types, receipt and cart persistenc
     await route.fulfill({ json: { invoice_id: "mobile-ui-test", invoice_number: "UI-TEST-001", total_amount: 100, cash_amount: 100, transfer_amount: 0, tendered_amount: 100, change_amount: 0 } });
   });
   await page.goto("/sales");
-  await page.getByRole("button", { name: /เพิ่ม .* ลงตะกร้า/ }).first().click();
-  const lot = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: /เลือก Lot/ }) });
-  await lot.getByRole("button", { name: /^Lot / }).first().click();
+  await addProductToCart(page, page.getByRole("button", { name: /เพิ่ม .* ลงตะกร้า/ }).first());
+  // The cart stays shut after an add; the bar under the shelf opens it.
   const cart = page.getByRole("dialog", { name: "รายการขายปัจจุบัน", exact: true });
+  await expect(cart).toHaveCount(0);
+  await page.getByTestId("pos-checkout-bar").getByRole("button", { name: /^ดูตะกร้า/ }).click();
   await fitsViewport(cart, page);
   await cart.getByRole("button", { name: /^เพิ่มจำนวน / }).click();
   await expect(cart.getByText("2", { exact: true })).toBeVisible();
@@ -189,8 +191,7 @@ test("POS: quantities, discounts, all payment types, receipt and cart persistenc
   await cart.getByRole("button", { name: "รับชำระเงิน", exact: true }).click();
   const payment = page.getByRole("dialog", { name: "รับชำระเงิน", exact: true });
   for (const method of ["เงินสด", "เงินโอน", "เงินสด + เงินโอน"]) {
-    await payment.getByRole("combobox", { name: "ช่องทางชำระเงิน" }).click();
-    await page.getByRole("option", { name: method, exact: true }).click();
+    await choosePaymentMethod(payment, method);
     await expect(payment.getByRole("button", { name: "ยืนยันการชำระเงิน" })).toBeEnabled();
     for (const width of phoneWidths) {
       await page.setViewportSize({ width, height: 568 });
@@ -209,8 +210,28 @@ test("POS: quantities, discounts, all payment types, receipt and cart persistenc
   expect((checkoutBody?.items as unknown[]).length).toBe(1);
   await page.getByRole("button", { name: "เริ่มรายการใหม่" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByTestId("pos-checkout-bar")).toHaveCount(0);
   await page.getByRole("button", { name: /^ตะกร้า/ }).click();
   await expect(cart.getByRole("button", { name: "รับชำระเงิน", exact: true })).toBeDisabled();
+});
+
+test("POS: a one-item cash sale takes three taps on a phone", async ({ page }) => {
+  await signIn(page, "pos.mes@erp.local");
+  await page.route("**/api/backend/pos/checkout", (route) =>
+    route.fulfill({ json: { invoice_id: "tap-test", invoice_number: "UI-TAP-001", total_amount: 100, cash_amount: 100, transfer_amount: 0, tendered_amount: 100, change_amount: 0 } })
+  );
+  await page.goto("/sales");
+  // 1: add. A product with several lots asks for one, which is a fourth tap.
+  await addProductToCart(page, page.getByRole("button", { name: /เพิ่ม .* ลงตะกร้า/ }).first());
+  // 2: pay, straight from the bar under the shelf.
+  await page.getByTestId("pos-checkout-bar").getByRole("button", { name: "ชำระเงิน", exact: true }).click();
+  const payment = page.getByRole("dialog", { name: "รับชำระเงิน", exact: true });
+  // Cash defaults to the exact amount, so nothing needs typing.
+  const confirm = payment.getByRole("button", { name: "ยืนยันการชำระเงิน" });
+  await expect(confirm).toBeEnabled();
+  // 3: confirm.
+  await confirm.click();
+  await expect(page.getByRole("dialog", { name: "ชำระเงินเสร็จสิ้น" })).toBeVisible();
 });
 
 test("POS: mobile requisition product picker and quantities fit the dialog", async ({ page }) => {

@@ -401,3 +401,33 @@ func TestRetriesGiveUpAndReportTheLastStatus(t *testing.T) {
 		t.Fatalf("expected %d attempts, got %d", maxAttempts, attempts)
 	}
 }
+
+func TestSignedURLsAreReusedUntilTheObjectChanges(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost && strings.Contains(req.RequestURI, "/object/sign/") {
+			calls++
+		}
+		_, _ = w.Write([]byte(`{"signedURL":"/object/sign/b/a.jpg?token=t"}`))
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "k", "b")
+	for i := 0; i < 3; i++ {
+		if _, err := client.SignedURL(context.Background(), "a.jpg", 0); err != nil {
+			t.Fatalf("sign: %v", err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("a photo shown three times should be signed once, signed %d times", calls)
+	}
+	if err := client.Delete(context.Background(), "a.jpg"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := client.SignedURL(context.Background(), "a.jpg", 0); err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("a removed photo must be signed afresh, signed %d times", calls)
+	}
+}

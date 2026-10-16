@@ -69,7 +69,7 @@ export function NotificationBell() {
 
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), POLL_MS);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, POLL_MS);
     return () => window.clearInterval(timer);
   }, [load]);
 

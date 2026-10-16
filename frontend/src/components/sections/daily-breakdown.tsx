@@ -423,7 +423,7 @@ function Breakdown({
               </p>
             ) : null}
             <Link
-              className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-primary transition hover:underline"
+              className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-xs font-medium text-primary transition hover:underline sm:min-h-0"
               href={`/sales-history?date_from=${window.date_from}&date_to=${window.date_to}${branchName ? `&branch=${encodeURIComponent(branchName)}` : ""}`}
             >
               <Receipt className="h-3.5 w-3.5" />
@@ -530,6 +530,8 @@ export function DailyBreakdownBoards({
   useEffect(() => {
     if (!live) return;
     const timer = setInterval(() => {
+      // A dashboard nobody is looking at does not re-render the page.
+      if (!(document.visibilityState === "visible")) return;
       router.refresh();
       setRefreshedAt(new Intl.DateTimeFormat("th-TH", { timeZone: "Asia/Bangkok", timeStyle: "medium" }).format(new Date()));
     }, 20_000);

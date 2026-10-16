@@ -3,7 +3,7 @@ import { PageIntro } from "@/components/sections/common";
 import { ClaimsConsole } from "@/components/sections/claims-console";
 import { PosClaimsConsole } from "@/components/sections/pos-claims-console";
 import { requirePermission } from "@/lib/rbac";
-import { getBranches, getInvoices, getProductReturns, getSuppliers, requireSession } from "@/services/erp";
+import { getBranches, getProductReturns, getSuppliers, requireSession } from "@/services/erp";
 
 export const metadata: Metadata = { title: "เคลม/คืนสินค้า" };
 
@@ -14,11 +14,11 @@ export default async function ClaimsPage() {
   const isManager = (session.user.permissions || []).includes("returns.manage");
 
   if (!isManager) {
-    const [returns, invoices] = await Promise.all([getProductReturns(), getInvoices()]);
+    const returns = await getProductReturns();
     return (
       <div className="space-y-6">
         <PageIntro title="เคลม/คืนสินค้า" description="แจ้งคืนหรือเคลมสินค้าที่ขายไปแล้ว และติดตามสถานะ" />
-        <PosClaimsConsole initialItems={returns.items} invoices={invoices.items} />
+        <PosClaimsConsole initialItems={returns.items} />
       </div>
     );
   }

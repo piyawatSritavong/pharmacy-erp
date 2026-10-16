@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { ChevronDown, ChevronRight, FileClock } from "lucide-react";
 
 import { SectionCard } from "@/components/sections/common";
-import { EmptyState, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/primitives";
+import { Button, EmptyState, Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from "@/components/ui/primitives";
 import { currency } from "@/lib/utils";
 import { periodLabel, shortDate } from "@/lib/month-end-groups";
 
@@ -17,6 +18,7 @@ type Group = {
   periodEnd: string;
   rows: Row[];
   total: number;
+  count: number;
 };
 
 const OPEN_KEY = "__open__";
@@ -41,9 +43,41 @@ const statusLabels: Record<string, string> = { paid: "ชำระแล้ว",
  *  rounds because the round is chosen by date range. Bills not yet in any round
  *  sit in their own group at the top.
  */
-export function SalesSummaryInvoices({ invoices, everyone = false }: { invoices: Row[]; everyone?: boolean }) {
+const ROWS_STEP = 30;
+
+export function SalesSummaryInvoices({
+  invoices,
+  groups: serverGroups = [],
+  total = invoices.length,
+  dateFrom = "",
+  dateTo = "",
+  everyone = false
+}: {
+  /** The newest bills only; the server caps how many it sends. */
+  invoices: Row[];
+  /** Every round's count and total, over all bills in the range. */
+  groups?: Row[];
+  total?: number;
+  dateFrom?: string;
+  dateTo?: string;
+  everyone?: boolean;
+}) {
+  const [shown, setShown] = useState<Record<string, number>>({});
   const groups = useMemo<Group[]>(() => {
     const buckets = new Map<string, Group>();
+    for (const group of serverGroups) {
+      const number = text(group.reconciliation_number);
+      const key = number || OPEN_KEY;
+      buckets.set(key, {
+        key,
+        number,
+        periodStart: text(group.reconciliation_period_start),
+        periodEnd: text(group.reconciliation_period_end),
+        rows: [],
+        total: Number(group.total || 0),
+        count: Number(group.count || 0)
+      });
+    }
     for (const invoice of invoices) {
       const number = text(invoice.reconciliation_number);
       const key = number || OPEN_KEY;
@@ -54,19 +88,23 @@ export function SalesSummaryInvoices({ invoices, everyone = false }: { invoices:
           periodStart: text(invoice.reconciliation_period_start),
           periodEnd: text(invoice.reconciliation_period_end),
           rows: [],
-          total: 0
+          total: 0,
+          count: 0
         });
       }
       const group = buckets.get(key)!;
       group.rows.push(invoice);
-      group.total += Number(invoice.total_amount || 0);
+      if (!serverGroups.length) {
+        group.total += Number(invoice.total_amount || 0);
+        group.count += 1;
+      }
     }
     return [...buckets.values()].sort((a, b) => {
       if (a.key === OPEN_KEY) return -1;
       if (b.key === OPEN_KEY) return 1;
       return (b.periodStart || "").localeCompare(a.periodStart || "");
     });
-  }, [invoices]);
+  }, [invoices, serverGroups]);
 
   // The newest group opens; older rounds stay folded until asked for.
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -107,40 +145,57 @@ export function SalesSummaryInvoices({ invoices, everyone = false }: { invoices:
                   </span>
                   <span className="shrink-0 text-right text-sm">
                     <span className="block font-semibold tabular-nums">{currency(group.total)}</span>
-                    <span className="block text-xs text-muted-foreground">{group.rows.length.toLocaleString("th-TH")} ใบ</span>
+                    <span className="block text-xs text-muted-foreground">{group.count.toLocaleString("th-TH")} ใบ</span>
                   </span>
                 </button>
                 {expanded ? (
-                  <TableContainer>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>เลขที่ใบขาย</TableHead>
-                          <TableHead>ลูกค้า</TableHead>
-                          {everyone ? <TableHead>สาขา</TableHead> : null}
-                          <TableHead>สถานะ</TableHead>
-                          <TableHead className="text-right">ยอดรวม</TableHead>
-                          <TableHead>วันที่ออก</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {group.rows.map((invoice) => (
-                          <TableRow key={text(invoice.id)}>
-                            <TableCell className="whitespace-nowrap font-medium">{text(invoice.invoice_number)}</TableCell>
-                            <TableCell>{text(invoice.customer_name)}</TableCell>
-                            {everyone ? <TableCell className="whitespace-nowrap">{text(invoice.branch_name)}</TableCell> : null}
-                            <TableCell>{statusLabels[text(invoice.payment_status)] || text(invoice.payment_status)}</TableCell>
-                            <TableCell className="whitespace-nowrap text-right tabular-nums">{currency(Number(invoice.total_amount || 0))}</TableCell>
-                            <TableCell className="whitespace-nowrap">{dateTime(invoice.issued_at)}</TableCell>
+                  <div className="p-2 sm:p-0">
+                    <TableContainer>
+                      <Table className="mobile-card-table">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>เลขที่ใบขาย</TableHead>
+                            <TableHead>ลูกค้า</TableHead>
+                            {everyone ? <TableHead>สาขา</TableHead> : null}
+                            <TableHead>สถานะ</TableHead>
+                            <TableHead className="text-right">ยอดรวม</TableHead>
+                            <TableHead>วันที่ออก</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
+                        </TableHeader>
+                        <TableBody>
+                          {group.rows.slice(0, shown[group.key] || ROWS_STEP).map((invoice) => (
+                            <TableRow key={text(invoice.id)}>
+                              <TableCell className="whitespace-nowrap font-medium" data-label="เลขที่ใบขาย" data-primary="true">{text(invoice.invoice_number)}</TableCell>
+                              <TableCell data-label="ลูกค้า">{text(invoice.customer_name) || "-"}</TableCell>
+                              {everyone ? <TableCell className="whitespace-nowrap" data-label="สาขา">{text(invoice.branch_name)}</TableCell> : null}
+                              <TableCell data-label="สถานะ">{statusLabels[text(invoice.payment_status)] || text(invoice.payment_status)}</TableCell>
+                              <TableCell className="whitespace-nowrap text-right tabular-nums" data-label="ยอดรวม">{currency(Number(invoice.total_amount || 0))}</TableCell>
+                              <TableCell className="whitespace-nowrap" data-label="วันที่ออก">{dateTime(invoice.issued_at)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                    {group.rows.length > (shown[group.key] || ROWS_STEP) ? (
+                      <div className="p-3 text-center">
+                        <Button onClick={() => setShown((current) => ({ ...current, [group.key]: (current[group.key] || ROWS_STEP) + ROWS_STEP }))} type="button" variant="secondary">
+                          แสดงเพิ่ม
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             );
           })}
+          {total > invoices.length ? (
+            <p className="text-sm text-muted-foreground">
+              แสดง {invoices.length.toLocaleString("th-TH")} บิลล่าสุดจากทั้งหมด {total.toLocaleString("th-TH")} บิล ·{" "}
+              <Link className="font-semibold text-primary underline-offset-4 hover:underline" href={`/sales-history?date_from=${dateFrom}&date_to=${dateTo}`}>
+                ดูทั้งหมดในประวัติการขาย
+              </Link>
+            </p>
+          ) : null}
         </div>
       )}
     </SectionCard>

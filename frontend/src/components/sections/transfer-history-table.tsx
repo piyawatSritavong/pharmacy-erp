@@ -150,7 +150,7 @@ export function TransferHistoryTable({
                         <button
                           aria-expanded={open}
                           aria-label={`ดูรายการในใบโอน ${text(row.transfer_code)}`}
-                          className="grid h-6 w-6 place-items-center rounded text-muted-foreground"
+                          className="-m-2 grid h-11 w-11 place-items-center rounded text-muted-foreground"
                           onClick={(event) => { event.stopPropagation(); setExpanded(open ? null : id); }}
                           type="button"
                         >

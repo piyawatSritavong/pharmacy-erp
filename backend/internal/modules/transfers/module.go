@@ -61,7 +61,9 @@ func NewService(db *sql.DB, auditService *audit.Service) *Service {
 	return &Service{db: db, audit: auditService}
 }
 
-func (s *Service) List(ctx context.Context, user platform.AuthUser) ([]map[string]any, error) {
+// List returns the transfers the user may see. openOnly keeps those still on
+// their way, which is all the POS badge needs to count.
+func (s *Service) List(ctx context.Context, user platform.AuthUser, openOnly bool) ([]map[string]any, error) {
 	query := `
 		SELECT t.id, t.transfer_code, t.source_branch_id::text, t.destination_branch_id::text,
 		       sb.name, db2.name, t.status, t.request_note, t.pickup_name, t.courier_name,
@@ -86,9 +88,16 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser) ([]map[strin
 		INNER JOIN branches db2 ON db2.id = t.destination_branch_id
 	`
 	args := []any{}
+	conditions := []string{}
 	if user.BranchID != nil && !platform.HasPermission(user, "transfer.approve") {
 		args = append(args, *user.BranchID)
-		query += " WHERE t.source_branch_id = $1 OR t.destination_branch_id = $1"
+		conditions = append(conditions, "(t.source_branch_id = $1 OR t.destination_branch_id = $1)")
+	}
+	if openOnly {
+		conditions = append(conditions, "t.status IN ('requested','in_transit')")
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	query += " ORDER BY t.requested_at DESC"
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -556,7 +565,7 @@ func NewHandler(service *Service) *Handler {
 }
 
 func (h *Handler) List(c echo.Context) error {
-	items, err := h.service.List(c.Request().Context(), platform.CurrentUser(c))
+	items, err := h.service.List(c.Request().Context(), platform.CurrentUser(c), c.QueryParam("open") == "1")
 	if err != nil {
 		return platform.HandleHTTPError(c, platform.WrapError(http.StatusInternalServerError, "failed to load transfers", err))
 	}

@@ -241,7 +241,7 @@ export function StockRequestConsole({
           description="ขอเติมสต๊อกจากผู้ดูแล และติดตามสถานะใบโอนที่สร้างให้"
           actions={<Button onClick={() => setRequestOpen(true)} type="button"><PackagePlus className="h-4 w-4" />สร้างใบเบิกสินค้า</Button>}
         >
-          <DataTable
+          <DataTable mobileCards
             columns={[
               { key: "product_name", label: "สินค้า" },
               { key: "requested_quantity", label: "จำนวนที่ขอ" },
@@ -327,7 +327,7 @@ export function StockRequestConsole({
             </Select>
           </Field>
         </div>
-        <DataTable
+        <DataTable mobileCards
           columns={[
             { key: "destination_branch_name", label: "ปลายทาง" },
             { key: "product_name", label: "สินค้า" },

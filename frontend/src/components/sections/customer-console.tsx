@@ -216,7 +216,7 @@ export function CustomerConsole({
       <section className="overflow-hidden rounded-2xl border bg-card shadow-card">
         <div className="flex flex-col gap-3 border-b bg-surface-warm p-3 sm:p-5 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-1 flex-wrap items-center gap-3">
-            <div className="relative min-w-0 flex-1 md:max-w-md">
+            <div className="relative min-w-0 basis-full sm:basis-auto sm:flex-1 md:max-w-md">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
                 aria-label="ค้นหาลูกค้า"
@@ -226,7 +226,7 @@ export function CustomerConsole({
                 value={search}
               />
             </div>
-            <Select aria-label="กรองระดับราคา" className="w-40 shrink-0" onChange={(event) => { setTier(event.target.value); setPage(1); }} value={tier}>
+            <Select aria-label="กรองระดับราคา" className="min-w-0 flex-1 sm:w-40 sm:flex-none" onChange={(event) => { setTier(event.target.value); setPage(1); }} value={tier}>
               <option value="">ทุกระดับราคา</option>
               <option value="retail">ขายปลีก</option>
               <option value="wholesale">ขายส่ง</option>

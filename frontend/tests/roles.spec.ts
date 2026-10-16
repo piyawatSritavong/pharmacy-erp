@@ -1,4 +1,5 @@
 import type { Browser, BrowserContext, Page } from "@playwright/test";
+import { addProductToCart, choosePaymentMethod } from "./pos-helpers";
 import { expect, test } from "@playwright/test";
 
 import { passwordFor } from "./credentials";
@@ -459,19 +460,12 @@ test.describe("สิทธิ์และการนำทางสองบ�
       .getByRole("button", { name: /^เพิ่ม .* ลงตะกร้า$/ })
       .filter({ hasText: "+ เพิ่ม" });
     await expect(sellable.first()).toBeVisible();
-    await sellable.first().click();
-    // Selling a tracked product picks a lot first: one cart line, one lot.
-    const lotDialog = session.page.getByRole("dialog");
-    if (await lotDialog.isVisible().catch(() => false)) {
-      await lotDialog.getByRole("button").filter({ hasText: /^Lot / }).first().click();
-    }
+    // Selling a tracked product needs a lot: one cart line, one lot.
+    await addProductToCart(session.page, sellable.first());
     await session.page.getByRole("button", { name: "รับชำระเงิน" }).click();
     const paymentDialog = session.page.getByRole("dialog");
     await expect(paymentDialog).toBeVisible();
-    await paymentDialog.getByLabel("ช่องทางชำระเงิน").click();
-    await session.page
-      .getByRole("option", { name: "เงินสด + เงินโอน" })
-      .click();
+    await choosePaymentMethod(paymentDialog, "เงินสด + เงินโอน");
     const cashInput = paymentDialog.getByLabel("เงินสดที่ต้องชำระ");
     const transferInput = paymentDialog.getByLabel("ยอดเงินโอน");
     await expect(cashInput).toBeVisible();

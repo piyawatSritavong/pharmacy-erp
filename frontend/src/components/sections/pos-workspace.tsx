@@ -96,6 +96,17 @@ function parseMoneyCents(value: string) {
   return Math.round(amount * 100);
 }
 
+/** Exact change, then the banknotes a customer is likely to hand over. */
+function quickCash(totalCents: number): number[] {
+  if (totalCents <= 0) return [];
+  const values = [totalCents];
+  for (const note of [100, 500, 1000]) {
+    const cents = Math.ceil(totalCents / (note * 100)) * note * 100;
+    if (cents > totalCents && !values.includes(cents)) values.push(cents);
+  }
+  return values.slice(0, 4);
+}
+
 export function PosWorkspace({
   branchId,
   branchName,
@@ -388,7 +399,7 @@ export function PosWorkspace({
           }
         })
         .catch(() => {});
-    const timer = window.setInterval(load, 3000);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") load(); }, 3000);
     return () => window.clearInterval(timer);
   }, [remoteBranchId]);
 
@@ -466,7 +477,7 @@ export function PosWorkspace({
           /* the next tick retries */
         });
     load();
-    const timer = window.setInterval(load, 3000);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") load(); }, 3000);
     return () => window.clearInterval(timer);
   }, [watchRemote]);
 
@@ -574,6 +585,9 @@ export function PosWorkspace({
       .catch(() => undefined);
   }, []);
 
+  // Which product's lots are being looked up, so its button can say so.
+  const [pendingProductId, setPendingProductId] = useState("");
+
   async function chooseProductLot(product: Option) {
     setMessage("");
     setReceipt(null);
@@ -583,36 +597,53 @@ export function PosWorkspace({
       toast.error("สินค้านี้หมดสต๊อก");
       return;
     }
-    setLotProduct(product);
-    setLotOptions([]);
-    setLotsLoading(true);
+    if (pendingProductId) return;
+    setPendingProductId(String(product.id));
     try {
       const query = new URLSearchParams({ branch_id: branchId, product_id: String(product.id), stock_bucket: "real" });
       const result = await proxyClient<{ items: Option[] }>(`/sales/lot-options?${query.toString()}`);
+      if (!result.items.length) {
+        setMessage("ไม่มี Lot ที่พร้อมขายสำหรับสินค้านี้");
+        toast.error("ไม่มี Lot ที่พร้อมขายสำหรับสินค้านี้");
+        return;
+      }
+      // One lot leaves nothing to choose: it goes straight into the cart.
+      if (result.items.length === 1) {
+        addLot(product, result.items[0]);
+        return;
+      }
       setLotOptions(result.items);
-      if (!result.items.length) setMessage("ไม่มี Lot ที่พร้อมขายสำหรับสินค้านี้");
+      setLotProduct(product);
     } catch (caught) {
-      setLotProduct(null);
-      setMessage(caught instanceof Error ? caught.message : "โหลด Lot ไม่สำเร็จ");
+      const text = caught instanceof Error ? caught.message : "โหลด Lot ไม่สำเร็จ";
+      setMessage(text);
+      toast.error(text);
     } finally {
+      setPendingProductId("");
       setLotsLoading(false);
     }
   }
 
-  function addSelectedLot(lot: Option) {
-    if (!lotProduct) return;
+  function addLot(product: Option, lot: Option) {
     setCart((current) => {
-      const key = `${String(lotProduct.id)}:${String(lot.id)}`;
+      const key = `${String(product.id)}:${String(lot.id)}`;
       const existing = current.find((line) => cartLineKey(line) === key);
       if (existing) {
         return current.map((line) =>
           cartLineKey(line) === key ? { ...line, quantity: line.quantity + 1 } : line
         );
       }
-      return [...current, { product: lotProduct, lot, quantity: 1, unitId: "", discount: "" }];
+      return [...current, { product, lot, quantity: 1, unitId: "", discount: "" }];
     });
+    // The cart stays shut: a phone keeps the shelf in view so the next item is
+    // one tap away, and the bar at the bottom shows the running bill.
+    toast.success(`เพิ่ม ${String(product.name)} แล้ว`, { duration: 1200 });
+  }
+
+  function addSelectedLot(lot: Option) {
+    if (!lotProduct) return;
+    addLot(lotProduct, lot);
     setLotProduct(null);
-    setCartOpen(true);
   }
 
   function updateLine(key: string, patch: Partial<CartLine>) {
@@ -840,17 +871,24 @@ export function PosWorkspace({
     clearCustomer();
   }
 
+  // Payment opens from the bar under the shelf too, where the cart's own
+  // message line is out of sight; a toast carries the reason either way.
+  function notify(text: string) {
+    setMessage(text);
+    if (!cartOpen) toast.error(text);
+  }
+
   async function openPayment() {
     if (remoteForeignSession) {
-      setMessage("รายการรีโมตนี้กำลังดำเนินการโดยผู้ใช้อื่น จึงไม่สามารถรับชำระหรือแก้ไขได้");
+      notify("รายการรีโมตนี้กำลังดำเนินการโดยผู้ใช้อื่น จึงไม่สามารถรับชำระหรือแก้ไขได้");
       return;
     }
     if (remoteBranchId && !remoteSessionReady) {
-      setMessage("กำลังบันทึกรายการรีโมต กรุณารอให้สาขาได้รับรายการก่อนรับชำระ");
+      notify("กำลังบันทึกรายการรีโมต กรุณารอให้สาขาได้รับรายการก่อนรับชำระ");
       return;
     }
     if (!cart.length) {
-      setMessage("กรุณาเพิ่มสินค้าอย่างน้อย 1 รายการ");
+      notify("กรุณาเพิ่มสินค้าอย่างน้อย 1 รายการ");
       return;
     }
     try {
@@ -863,7 +901,7 @@ export function PosWorkspace({
       setPaymentOpen(true);
       setMessage("");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ตรวจสอบยอดชำระไม่สำเร็จ");
+      notify(error instanceof Error ? error.message : "ตรวจสอบยอดชำระไม่สำเร็จ");
     }
   }
 
@@ -1088,12 +1126,14 @@ export function PosWorkspace({
               return (
                 <article className="overflow-hidden rounded-2xl border bg-card shadow-card" key={String(product.id)}>
                   <button
+                    aria-busy={pendingProductId === String(product.id)}
                     aria-label={`เพิ่ม ${String(product.name)} ลงตะกร้า`}
-                    className="grid w-full grid-cols-[80px_minmax(0,1fr)] text-left sm:block"
+                    className="grid w-full grid-cols-[64px_minmax(0,1fr)] text-left disabled:opacity-60 sm:block"
+                    disabled={Boolean(pendingProductId) && pendingProductId !== String(product.id)}
                     onClick={() => void chooseProductLot(product)}
                     type="button"
                   >
-                    <div className="relative h-full min-h-28 overflow-hidden sm:h-44 bg-gradient-to-br from-placeholder-from to-placeholder-to">
+                    <div className="relative h-full min-h-20 overflow-hidden sm:h-44 bg-gradient-to-br from-placeholder-from to-placeholder-to">
                       {Boolean(product.image_available) && !brokenImages.has(String(product.id)) ? (
                         <Image
                           alt={String(product.name)}
@@ -1102,40 +1142,44 @@ export function PosWorkspace({
                           // A photo that fails to load falls back to the
                           // placeholder rather than a broken-image box.
                           onError={() => setBrokenImages((current) => new Set(current).add(String(product.id)))}
-                          sizes="(max-width: 639px) 80px, (max-width: 1023px) 50vw, 33vw"
+                          sizes="(max-width: 639px) 64px, (max-width: 1023px) 50vw, 33vw"
                           src={`/api/backend/products/${String(product.id)}/image`}
                           unoptimized
+                          loading="lazy"
                         />
                       ) : (
                         <div className="grid h-full place-items-center">
-                          <Package className="h-10 w-10 text-primary/35 sm:h-16 sm:w-16" />
+                          <Package className="h-8 w-8 text-primary/35 sm:h-16 sm:w-16" />
                         </div>
                       )}
                       {Number(product.image_count || 0) > 1 ? (
-                        <span className="absolute bottom-2 right-2 rounded-full bg-black/70 px-2 py-1 text-xs font-bold text-white">
+                        <span className="absolute bottom-1 right-1 hidden rounded-full bg-black/70 px-2 py-1 text-xs font-bold text-white sm:inline">
                           {Number(product.image_count)} รูป
                         </span>
                       ) : null}
                     </div>
-                    <div className="min-w-0 p-2.5 sm:p-4">
-                      <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                        <div>
-                          <h2 className="break-words text-sm font-bold sm:text-base">{String(product.name)}</h2>
-                          <p className="mt-1 break-all text-xs text-muted-foreground">
+                    <div className="min-w-0 px-3 py-2 sm:p-4">
+                      <div className="flex min-w-0 flex-col sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                        <div className="min-w-0">
+                          <h2 className="line-clamp-2 break-words text-sm font-bold sm:text-base">{String(product.name)}</h2>
+                          <p className="mt-0.5 hidden break-all text-xs text-muted-foreground sm:block">
                             {String(product.sku)}
                           </p>
                         </div>
-                        <span className="font-bold text-primary">
+                        <span className="hidden font-bold text-primary sm:inline">
                           {currency(Number(product.effective_price || 0))}
                         </span>
                       </div>
                       <p className="mt-3 hidden min-h-10 text-sm sm:line-clamp-2 text-muted-foreground">
                         {String(product.description || "ไม่มีรายละเอียด")}
                       </p>
-                      <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-xs sm:mt-4">
-                        <span>{stockLabel(stock, String(product.unit_name || "ชิ้น"))}</span>
-                        <span className="rounded-full bg-primary px-3 py-1.5 font-bold text-primary-foreground">
-                          {isSellable(stock) ? "+ เพิ่ม" : "หมด"}
+                      <div className="mt-1 flex items-center justify-between gap-2 text-xs sm:mt-4">
+                        <span className="min-w-0">
+                          <span className="block font-bold text-primary sm:hidden">{currency(Number(product.effective_price || 0))}</span>
+                          <span className="text-muted-foreground sm:text-foreground">{stockLabel(stock, String(product.unit_name || "ชิ้น"))}</span>
+                        </span>
+                        <span className="shrink-0 rounded-full bg-primary px-3 py-1.5 font-bold text-primary-foreground">
+                          {pendingProductId === String(product.id) ? "กำลังเพิ่ม..." : isSellable(stock) ? "+ เพิ่ม" : "หมด"}
                         </span>
                       </div>
                     </div>
@@ -1160,6 +1204,26 @@ export function PosWorkspace({
             {/* Scrolling this into view asks for the next page. */}
             <div aria-hidden className="h-6" ref={sentinelRef} />
           </div>
+          {cart.length ? (
+            // The running bill, always in reach on a phone or tablet; the
+            // desktop shows the whole cart beside the shelf instead.
+            <div className="flex shrink-0 items-center gap-2 rounded-2xl border bg-card p-2 shadow-card xl:hidden" data-testid="pos-checkout-bar">
+              <button
+                className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl px-2 text-left hover:bg-muted"
+                onClick={() => setCartOpen(true)}
+                type="button"
+              >
+                <ShoppingCart className="h-5 w-5 shrink-0 text-primary" />
+                <span className="min-w-0">
+                  <span className="block text-xs text-muted-foreground">ดูตะกร้า · {cart.reduce((sum, line) => sum + line.quantity, 0).toLocaleString("th-TH")} ชิ้น</span>
+                  <span className="block font-bold tabular-nums">{preview ? currency(Number(preview.summary.total_amount || 0)) : previewError ? "แตะเพื่อดูรายละเอียด" : "กำลังคำนวณ..."}</span>
+                </span>
+              </button>
+              <Button className="min-h-11 shrink-0 px-5" onClick={() => void openPayment()} shape="pill" type="button">
+                ชำระเงิน
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         <PosCart onOpenChange={setCartOpen} open={cartOpen}>
@@ -1574,16 +1638,28 @@ export function PosWorkspace({
 
             </div>
             <div className="mt-3 grid gap-3 sm:mt-6 sm:gap-4">
-              <Select
-                aria-label="ช่องทางชำระเงิน"
-                onChange={(event) => configurePayment(event.target.value as typeof paymentType)}
-                value={paymentType}
-              >
-                <option value="cash">เงินสด</option>
-                <option value="bank_transfer">เงินโอน</option>
-                <option value="mixed">เงินสด + เงินโอน</option>
-                {customer && customer.credit_limit > 0 ? <option value="credit">ขายเชื่อ (เครดิต {customer.credit_days} วัน)</option> : null}
-              </Select>
+              <div aria-label="ช่องทางชำระเงิน" className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup">
+                {([
+                  ["cash", "เงินสด"],
+                  ["bank_transfer", "เงินโอน"],
+                  ["mixed", "เงินสด + เงินโอน"],
+                  ...(customer && customer.credit_limit > 0 ? [["credit", `ขายเชื่อ ${customer.credit_days} วัน`]] : [])
+                ] as Array<[typeof paymentType, string]>).map(([value, label]) => (
+                  <button
+                    aria-checked={paymentType === value}
+                    className={cn(
+                      "min-h-11 rounded-xl border px-2 text-sm font-semibold transition",
+                      paymentType === value ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted"
+                    )}
+                    key={value}
+                    onClick={() => configurePayment(value)}
+                    role="radio"
+                    type="button"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               {paymentType === "credit" && customer ? (
                 <div className="rounded-2xl bg-info-50 p-4 text-sm text-info-800">
                   <p className="font-semibold">ขายเชื่อให้ {customer.name}</p>
@@ -1651,6 +1727,18 @@ export function PosWorkspace({
                     type="number"
                     value={tendered}
                   />
+                  <span className="flex flex-wrap gap-2">
+                    {quickCash(paymentTotalCents).map((cents) => (
+                      <button
+                        className="min-h-10 rounded-full border px-3 text-sm font-semibold tabular-nums hover:bg-muted"
+                        key={cents}
+                        onClick={() => setTendered((cents / 100).toFixed(2))}
+                        type="button"
+                      >
+                        {cents === paymentTotalCents ? "พอดี" : (cents / 100).toLocaleString("th-TH")}
+                      </button>
+                    ))}
+                  </span>
                 </label>
               ) : null}
               {paymentType === "mixed" ? (

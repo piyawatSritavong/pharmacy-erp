@@ -6,9 +6,17 @@ import { getInvoices, requireSession } from "@/services/erp";
 
 export const metadata: Metadata = { title: "ประวัติการขาย" };
 
-export default async function SalesHistoryPage() {
+const FILTER_KEYS = ["search", "branch", "payment_status", "payment_method", "sale_type", "close_status", "removed_lines", "tax_invoice_type", "date_from", "date_to"];
+
+export default async function SalesHistoryPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const session = requirePermission(await requireSession(), ["invoice.view"]);
-  const invoices = await getInvoices();
+  const resolved = (await searchParams) || {};
+  const params: Record<string, string> = { page: "1", page_size: "20" };
+  for (const key of FILTER_KEYS) {
+    const value = resolved[key];
+    if (typeof value === "string" && value) params[key] = value;
+  }
+  const invoices = await getInvoices(params);
 
   return (
     <div className="space-y-6">
@@ -21,7 +29,7 @@ export default async function SalesHistoryPage() {
         }
       />
       <SalesHistoryConsole
-        initialItems={invoices.items.map((item) => ({ ...item, tax_invoice_label: item.tax_invoice_type === "full" ? "เต็มรูป" : "อย่างย่อ" }))}
+        initial={invoices}
         isSuperAdmin={session.user.role_key === "super_admin"}
         showFullTimestamp={session.user.role_key === "super_admin"}
       />

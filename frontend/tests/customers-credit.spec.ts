@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
+import { addProductToCart, choosePaymentMethod } from "./pos-helpers";
 
 import { passwordFor } from "./credentials";
 
@@ -26,11 +27,7 @@ async function open(browser: Browser, email: string, landing: RegExp) {
 
 /** Puts the first sellable product on the till into the cart. */
 async function addFirstProduct(page: Page) {
-  await page.getByRole("button", { name: /^เพิ่ม .* ลงตะกร้า$/ }).first().click();
-  const lotDialog = page.getByRole("dialog", { name: /^เลือก Lot/ });
-  await expect(lotDialog).toBeVisible();
-  await lotDialog.getByRole("button", { name: /^Lot / }).first().click();
-  await expect(lotDialog).toHaveCount(0);
+  await addProductToCart(page, page.getByRole("button", { name: /^เพิ่ม .* ลงตะกร้า$/ }).first());
 }
 
 async function pay(page: Page, method?: string | RegExp) {
@@ -38,8 +35,7 @@ async function pay(page: Page, method?: string | RegExp) {
   const payment = page.getByRole("dialog", { name: "รับชำระเงิน" });
   await expect(payment).toBeVisible();
   if (method) {
-    await payment.getByRole("combobox", { name: "ช่องทางชำระเงิน" }).click();
-    await page.getByRole("option", { name: method, exact: typeof method === "string" }).click();
+    await choosePaymentMethod(payment, method);
   }
   const confirm = payment.getByRole("button", { name: /^ยืนยัน/ });
   await expect(confirm).toBeEnabled();

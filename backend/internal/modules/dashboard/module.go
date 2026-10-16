@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -154,11 +155,50 @@ func (result salesSummaryResult) payload(daily bool) map[string]any {
 			{"key": "bank_received", "label": bankLabel, "value": result.BankReceived},
 			{"key": "credit_outstanding", "label": "ขายเชื่อ (ยังไม่รับเงิน)", "value": result.CreditSales},
 		},
-		"recent_invoices": result.Invoices,
-		"recent_items": map[string]any{
-			"invoices": result.Invoices,
-		},
+		// A long range holds tens of thousands of bills. The summary sends the
+		// groups whole and only the newest bills; the full list is a sales
+		// history search or an export away.
+		"recent_invoices": newestInvoices(result.Invoices, summaryInvoiceLimit),
+		"invoice_total":   len(result.Invoices),
+		"invoice_groups":  invoiceGroups(result.Invoices),
 	}
+}
+
+// summaryInvoiceLimit caps the bills the sales summary sends to the browser.
+const summaryInvoiceLimit = 200
+
+func newestInvoices(invoices []map[string]any, limit int) []map[string]any {
+	if len(invoices) <= limit {
+		return invoices
+	}
+	return invoices[:limit]
+}
+
+// invoiceGroups totals the bills per month-end round, so the summary can show
+// every round's count and value without sending each bill in it.
+func invoiceGroups(invoices []map[string]any) []map[string]any {
+	groups := []map[string]any{}
+	index := map[string]int{}
+	for _, invoice := range invoices {
+		key, _ := invoice["reconciliation_number"].(string)
+		position, seen := index[key]
+		if !seen {
+			position = len(groups)
+			index[key] = position
+			groups = append(groups, map[string]any{
+				"reconciliation_number":       key,
+				"reconciliation_period_start": invoice["reconciliation_period_start"],
+				"reconciliation_period_end":   invoice["reconciliation_period_end"],
+				"count":                       0,
+				"total":                       0.0,
+			})
+		}
+		group := groups[position]
+		group["count"] = group["count"].(int) + 1
+		amount, _ := invoice["total_amount"].(float64)
+		group["total"] = math.Round((group["total"].(float64)+amount)*100) / 100
+	}
+	return groups
 }
 
 func bangkokDayRange(dateInput string) (time.Time, time.Time, string, error) {

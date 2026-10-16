@@ -3,10 +3,12 @@ package sales
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -936,7 +938,34 @@ func (s *Service) ListQuotations(ctx context.Context, user platform.AuthUser, go
 	return items, rows.Err()
 }
 
+// InvoiceListFilter narrows the sales history on the server. The history used
+// to come back whole and be filtered in the browser, which grew with every bill
+// a branch ever issued: 1.3 MB for 2,600 bills, all of it rendered on a phone.
+type InvoiceListFilter struct {
+	Search         string
+	BranchName     string
+	PaymentStatus  string
+	PaymentMethod  string
+	SaleType       string
+	TaxInvoiceType string
+	CloseStatus    string
+	RemovedLines   string
+	DateFrom       string
+	DateTo         string
+	// PageSize 0 returns every matching bill (internal callers only).
+	Page     int
+	PageSize int
+}
+
+// ListInvoices returns every bill the user may see, newest first.
 func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, governmentMode *bool) ([]map[string]any, error) {
+	items, _, err := s.ListInvoicesPage(ctx, user, governmentMode, InvoiceListFilter{})
+	return items, err
+}
+
+// ListInvoicesPage returns one page of the bills matching filter, and how many
+// match in all.
+func (s *Service) ListInvoicesPage(ctx context.Context, user platform.AuthUser, governmentMode *bool, filter InvoiceListFilter) ([]map[string]any, int, error) {
 	query := `
 		SELECT i.id, i.invoice_number, i.customer_name, i.payment_status, i.payment_method, i.total_amount, i.is_government_mode, i.tax_invoice_type, i.request_full_tax_invoice, b.name, i.issued_at, i.deleted_at, COALESCE(i.hidden_by_id::text,''), COALESCE(i.original_invoice_number,''),
 		       EXISTS(SELECT 1 FROM invoice_items ii WHERE ii.invoice_id = i.id AND ii.reconciliation_discount_amount <> 0),
@@ -944,7 +973,8 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 		       -- 'adjusted' like any repriced bill, so without this the two
 		       -- cannot be told apart and a link meant for one lands on both.
 		       EXISTS(SELECT 1 FROM invoice_items ii WHERE ii.invoice_id = i.id AND ii.reconciliation_removed_at IS NOT NULL),
-		       COALESCE(replaced.invoice_number,''), i.sale_type, COALESCE(c.customer_code,'')
+		       COALESCE(replaced.invoice_number,''), i.sale_type, COALESCE(c.customer_code,''),
+		       COUNT(*) OVER()
 		FROM invoices i
 		INNER JOIN branches b ON b.id = i.branch_id
 		LEFT JOIN invoices replaced ON replaced.id = i.replaces_invoice_id
@@ -957,7 +987,7 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 	}
 	own, err := platform.BranchFilter(user, "")
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if own != "" {
 		args = append(args, own)
@@ -967,24 +997,85 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 		args = append(args, *governmentMode)
 		conditions = append(conditions, fmt.Sprintf("i.is_government_mode = $%d", len(args)))
 	}
+	equal := func(column, value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			args = append(args, value)
+			conditions = append(conditions, fmt.Sprintf("%s = $%d", column, len(args)))
+		}
+	}
+	equal("b.name", filter.BranchName)
+	equal("i.payment_status", filter.PaymentStatus)
+	equal("i.payment_method", filter.PaymentMethod)
+	equal("i.sale_type", filter.SaleType)
+	equal("i.tax_invoice_type", filter.TaxInvoiceType)
+	if term := strings.TrimSpace(filter.Search); term != "" {
+		args = append(args, "%"+escapeLike(term)+"%")
+		n := len(args)
+		conditions = append(conditions, fmt.Sprintf("(i.invoice_number ILIKE $%d OR i.customer_name ILIKE $%d OR COALESCE(i.original_invoice_number,'') ILIKE $%d OR COALESCE(c.customer_code,'') ILIKE $%d)", n, n, n, n))
+	}
+	const removedLines = "EXISTS(SELECT 1 FROM invoice_items ii WHERE ii.invoice_id = i.id AND ii.reconciliation_removed_at IS NOT NULL)"
+	const repricedLines = "EXISTS(SELECT 1 FROM invoice_items ii WHERE ii.invoice_id = i.id AND ii.reconciliation_discount_amount <> 0)"
+	switch filter.RemovedLines {
+	case "1":
+		conditions = append(conditions, removedLines)
+	case "0":
+		conditions = append(conditions, "NOT "+removedLines)
+	}
+	// Close states exist only for the superadmin; anyone else sees active bills.
+	if user.RoleKey == "super_admin" {
+		switch filter.CloseStatus {
+		case "hidden":
+			conditions = append(conditions, "i.deleted_at IS NOT NULL")
+		case "adjusted":
+			conditions = append(conditions, "i.deleted_at IS NULL AND "+repricedLines)
+		case "active":
+			conditions = append(conditions, "i.deleted_at IS NULL AND NOT "+repricedLines)
+		}
+	} else if filter.CloseStatus == "hidden" || filter.CloseStatus == "adjusted" {
+		conditions = append(conditions, "FALSE")
+	}
+	// Dates are business days in Bangkok, inclusive at both ends.
+	if day := strings.TrimSpace(filter.DateFrom); day != "" {
+		if _, err := time.Parse("2006-01-02", day); err != nil {
+			return nil, 0, platform.NewError(http.StatusBadRequest, "รูปแบบวันที่เริ่มต้นไม่ถูกต้อง")
+		}
+		args = append(args, day)
+		conditions = append(conditions, fmt.Sprintf("i.issued_at >= ($%d::date::timestamp AT TIME ZONE 'Asia/Bangkok')", len(args)))
+	}
+	if day := strings.TrimSpace(filter.DateTo); day != "" {
+		if _, err := time.Parse("2006-01-02", day); err != nil {
+			return nil, 0, platform.NewError(http.StatusBadRequest, "รูปแบบวันที่สิ้นสุดไม่ถูกต้อง")
+		}
+		args = append(args, day)
+		conditions = append(conditions, fmt.Sprintf("i.issued_at < (($%d::date + 1)::timestamp AT TIME ZONE 'Asia/Bangkok')", len(args)))
+	}
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += " ORDER BY i.issued_at DESC"
+	query += " ORDER BY i.issued_at DESC, i.invoice_number DESC"
+	if filter.PageSize > 0 {
+		page := filter.Page
+		if page < 1 {
+			page = 1
+		}
+		args = append(args, filter.PageSize, (page-1)*filter.PageSize)
+		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	}
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	items := []map[string]any{}
+	total := 0
 	for rows.Next() {
 		var id, invoiceNumber, customerName, paymentStatus, paymentMethod, taxInvoiceType, branchName, hiddenByID, originalNumber, replacesNumber, saleType, customerCode string
 		var totalAmount float64
 		var isGovernment, requestFullTax, repriced, hasRemovedLines bool
 		var issuedAt time.Time
 		var deletedAt sql.NullTime
-		if err := rows.Scan(&id, &invoiceNumber, &customerName, &paymentStatus, &paymentMethod, &totalAmount, &isGovernment, &taxInvoiceType, &requestFullTax, &branchName, &issuedAt, &deletedAt, &hiddenByID, &originalNumber, &repriced, &hasRemovedLines, &replacesNumber, &saleType, &customerCode); err != nil {
-			return nil, err
+		if err := rows.Scan(&id, &invoiceNumber, &customerName, &paymentStatus, &paymentMethod, &totalAmount, &isGovernment, &taxInvoiceType, &requestFullTax, &branchName, &issuedAt, &deletedAt, &hiddenByID, &originalNumber, &repriced, &hasRemovedLines, &replacesNumber, &saleType, &customerCode, &total); err != nil {
+			return nil, 0, err
 		}
 		item := map[string]any{
 			"id":             id,
@@ -1028,7 +1119,7 @@ func (s *Service) ListInvoices(ctx context.Context, user platform.AuthUser, gove
 		}
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	return items, total, rows.Err()
 }
 
 func (s *Service) GetQuotation(ctx context.Context, user platform.AuthUser, quotationID string) (map[string]any, error) {
@@ -2575,11 +2666,72 @@ func (h *Handler) ListInvoices(c echo.Context) error {
 	if err != nil {
 		return platform.HandleHTTPError(c, err)
 	}
-	items, err := h.service.ListInvoices(c.Request().Context(), platform.CurrentUser(c), governmentMode)
+	page, _ := strconv.Atoi(c.QueryParam("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.QueryParam("page_size"))
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	filter := InvoiceListFilter{
+		Search:         c.QueryParam("search"),
+		BranchName:     c.QueryParam("branch"),
+		PaymentStatus:  c.QueryParam("payment_status"),
+		PaymentMethod:  c.QueryParam("payment_method"),
+		SaleType:       c.QueryParam("sale_type"),
+		TaxInvoiceType: c.QueryParam("tax_invoice_type"),
+		CloseStatus:    c.QueryParam("close_status"),
+		RemovedLines:   c.QueryParam("removed_lines"),
+		DateFrom:       c.QueryParam("date_from"),
+		DateTo:         c.QueryParam("date_to"),
+		Page:           page,
+		PageSize:       pageSize,
+	}
+	user := platform.CurrentUser(c)
+	items, total, err := h.service.ListInvoicesPage(c.Request().Context(), user, governmentMode, filter)
 	if err != nil {
+		var appErr *platform.AppError
+		if errors.As(err, &appErr) {
+			return platform.HandleHTTPError(c, err)
+		}
 		return platform.HandleHTTPError(c, platform.WrapError(http.StatusInternalServerError, "failed to load invoices", err))
 	}
-	return platform.JSON(c, http.StatusOK, map[string]any{"items": items})
+	response := map[string]any{"items": items, "total": total, "page": page, "page_size": pageSize}
+	if platform.IsGlobalScope(user) {
+		branches, err := h.service.branchNames(c.Request().Context())
+		if err != nil {
+			return platform.HandleHTTPError(c, err)
+		}
+		response["branches"] = branches
+	}
+	return platform.JSON(c, http.StatusOK, response)
+}
+
+// escapeLike makes a user's search text match literally inside ILIKE.
+func escapeLike(value string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(value)
+}
+
+// branchNames lists the branches a history can be narrowed to.
+func (s *Service) branchNames(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT name FROM branches ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	names := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
 }
 
 func optionalBooleanQuery(raw string) (*bool, error) {

@@ -404,8 +404,9 @@ export function SettingsConsole({
         <TabsContent className="space-y-6" value="branches">
           <SectionCard
             actions={
-              <Button aria-label="เพิ่มสาขา" onClick={openBranchCreate} title="เพิ่มสาขา" type="button">
+              <Button onClick={openBranchCreate} type="button">
                 <Plus className="h-4 w-4" />
+                เพิ่มสาขา
               </Button>
             }
             description="การลบสาขาจะลบผู้ใช้ เอกสาร สต๊อก และการโอนที่เกี่ยวข้อง"
@@ -449,6 +450,7 @@ export function SettingsConsole({
             </div>
 
             <DataTable
+              mobileCards
               columns={[
                 { key: "code", label: "รหัส", className: "whitespace-nowrap font-medium" },
                 { key: "name", label: "ชื่อสาขา", className: "whitespace-nowrap" },
@@ -522,8 +524,9 @@ export function SettingsConsole({
         <TabsContent className="space-y-6" value="users">
           <SectionCard
             actions={
-              <Button aria-label="เพิ่มผู้ใช้" onClick={openUserCreate} title="เพิ่มผู้ใช้" type="button">
+              <Button onClick={openUserCreate} type="button">
                 <Plus className="h-4 w-4" />
+                เพิ่มผู้ใช้
               </Button>
             }
             description="การลบถาวรจะลบธุรกรรมที่ผู้ใช้นั้นสร้างและคำนวณยอดสต๊อกใหม่"
@@ -568,6 +571,7 @@ export function SettingsConsole({
             </div>
 
             <DataTable
+              mobileCards
               columns={[
                 { key: "name", label: "ชื่อ-นามสกุล", className: "whitespace-nowrap font-medium" },
                 { key: "email", label: "อีเมล", className: "whitespace-nowrap" },
@@ -729,7 +733,7 @@ export function SettingsConsole({
         <TabsContent className="space-y-6" value="marketplace">
           <MarketplaceConsole branches={branches} defaultBranchId={String(branches[0]?.id || "")} providers={providers} />
           <SectionCard title="คำสั่งซื้อจากตลาดออนไลน์">
-            <DataTable columns={[
+            <DataTable mobileCards columns={[
               { key: "provider_name", label: "ผู้ให้บริการ" },
               { key: "external_order_id", label: "เลขคำสั่งซื้อ" },
               { key: "customer_name", label: "ลูกค้า" },

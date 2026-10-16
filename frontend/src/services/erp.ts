@@ -331,9 +331,11 @@ export async function getQuotations(governmentMode?: boolean) {
   return apiServer<{ items: Array<Record<string, unknown>> }>(`/quotations${query}`);
 }
 
-export async function getInvoices(governmentMode?: boolean) {
-  const query = governmentMode === undefined ? "" : `?government_mode=${governmentMode}`;
-  return apiServer<{ items: Array<Record<string, unknown>> }>(`/invoices${query}`);
+export async function getInvoices(params: Record<string, string> = {}) {
+  const query = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== ""));
+  return apiServer<{ items: Array<Record<string, unknown>>; total: number; page: number; page_size: number; branches?: string[] }>(
+    `/invoices${query.size ? `?${query.toString()}` : ""}`
+  );
 }
 
 export async function getInvoice(id: string) {

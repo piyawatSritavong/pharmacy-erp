@@ -37,8 +37,15 @@ async function pickFirstProduct(page: Page, label: string) {
   else await page.getByLabel("ชื่อโปรโมชั่น").click(); // blur closes the empty results
 }
 
+/** The form folds away once a branch has promotions to list. */
+async function openPromotionForm(page: Page) {
+  const opener = page.getByRole("button", { name: "สร้างโปรโมชั่นใหม่" });
+  if (await opener.isVisible()) await opener.click();
+}
+
 async function createPercentPromotion(page: Page, code: string, name: string, branchOption?: string | RegExp) {
   await page.goto("/promotions");
+  await openPromotionForm(page);
   await pick(page, "ชนิดโปรโมชั่น", "ลดเป็นเปอร์เซ็นต์");
   await page.getByLabel("รหัสโปรโมชั่น").fill(code);
   await page.getByLabel("ชื่อโปรโมชั่น").fill(name);
@@ -47,7 +54,7 @@ async function createPercentPromotion(page: Page, code: string, name: string, br
   }
   await page.getByLabel("ส่วนลดเปอร์เซ็นต์").fill("10");
   await pickFirstProduct(page, "สินค้า 1");
-  await page.getByRole("button", { name: "สร้างโปรโมชั่น" }).click();
+  await page.getByRole("button", { name: "สร้างโปรโมชั่น", exact: true }).click();
   await expect(page.getByText(/สร้างโปรโมชั่นแล้ว|รหัสโปรโมชั่นนี้ถูกใช้แล้ว/)).toBeVisible();
 }
 
@@ -58,6 +65,7 @@ test.describe("โปรโมชั่นของแต่ละสาขา",
 
     await page.goto("/promotions");
     await expect(page.getByRole("heading", { name: "โปรโมชั่น", exact: true }).first()).toBeVisible();
+    await openPromotionForm(page);
     // The shop is told which branch it is setting up for rather than asked: the
     // server pins the write to whoever is signed in, so a picker would only
     // offer choices the server would refuse.
@@ -100,6 +108,7 @@ test.describe("โปรโมชั่นของแต่ละสาขา",
   test("สำนักงานใหญ่ยังเลือกได้ว่าจะให้สาขาไหน หรือทุกสาขา", async ({ page }) => {
     await signIn(page, "superadmin@erp.local", /\/dashboard$/);
     await page.goto("/promotions");
+    await openPromotionForm(page);
     await expect(page.getByRole("combobox", { name: "สาขาโปรโมชั่น" })).toBeEnabled();
     await expect(page.getByText("ตั้งจากสำนักงานใหญ่")).toHaveCount(0);
   });

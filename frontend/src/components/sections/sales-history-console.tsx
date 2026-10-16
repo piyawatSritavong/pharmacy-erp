@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { FileText, RotateCcw, Search } from "lucide-react";
+import { FileText, RotateCcw, Search, SlidersHorizontal } from "lucide-react";
 
 import { CLOSE_STATUS_LABEL, DataTable, SectionCard } from "@/components/sections/common";
 import { Field } from "@/components/ui/field";
@@ -11,7 +11,6 @@ import { badgeVariants, Button, Dialog, DialogContent, DialogFooter, DialogHeade
 import type { BadgeTone } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 import { proxyClient } from "@/services/api";
-import { useRefresh } from "@/components/layout/refresh-indicator";
 
 type Option = Record<string, unknown>;
 
@@ -30,18 +29,24 @@ const CLOSE_STATUS: Record<string, { label: string; tone: BadgeTone }> = {
 // original sale, pick the defective line, issue a replacement on the spot.
 // The back-office side (send to supplier, resolve Case A/B) lives on
 // /claims, gated by returns.manage, not this page.
+export type InvoicePage = { items: Option[]; total: number; page: number; page_size: number; branches?: string[] };
+
+function withTaxLabel(items: Option[]) {
+  return items.map((item) => ({ ...item, tax_invoice_label: item.tax_invoice_type === "full" ? "เต็มรูป" : "อย่างย่อ" }));
+}
+
 export function SalesHistoryConsole({
-  initialItems,
+  initial,
   showFullTimestamp = false,
   isSuperAdmin = false
 }: {
-  initialItems: Option[];
+  /** First page, read on the server with the same filters as the URL. */
+  initial: InvoicePage;
   showFullTimestamp?: boolean;
   /** Superadmin reads this page as an audit trail: before/after bill numbers
    *  and the close status, and no returns to issue from here. */
   isSuperAdmin?: boolean;
 }) {
-  const refresh = useRefresh();
   const [message, setMessage] = useState("");
   // The page-level line is for results; failures inside the return dialog
   // stay in the dialog.
@@ -53,22 +58,20 @@ export function SalesHistoryConsole({
   const [quantity, setQuantity] = useState(1);
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(false);
-  // Filter bar + pager, both client-side: GET /invoices returns the branch's
-  // history in one response and takes no page or search params.
-  // Seeded from the query string: the dashboard links here with the tile the
-  // operator clicked already narrowed down, and a link that landed on an
-  // unfiltered list would be an invitation to re-derive it by hand.
+  // Filters and paging run on the server: the whole history no longer comes
+  // down to the browser. Seeded from the query string, because the dashboard
+  // links here with the tile the operator clicked already narrowed down.
   const params = useSearchParams();
   const [search, setSearch] = useState(params.get("search") || "");
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [branchFilter, setBranchFilter] = useState(params.get("branch") || "");
   const [paymentFilter, setPaymentFilter] = useState(params.get("payment_status") || "");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState(params.get("payment_method") || "");
   const saleTypeFilter = params.get("sale_type") || "";
   const [closeStatusFilter, setCloseStatusFilter] = useState(params.get("close_status") || "");
   // "adjusted" covers two different outcomes — a bill repriced whole, and one
-  // the close also struck lines from. The dashboard links to each separately,
-  // so the list has to be able to tell them apart.
-  const [removedLinesFilter, setRemovedLinesFilter] = useState(params.get("removed_lines") || "");
+  // the close also struck lines from. The dashboard links to each separately.
+  const removedLinesFilter = params.get("removed_lines") || "";
   // ใบกำกับภาษีอย่างย่อ -> เต็มรูป, same day only.
   const [fullTaxInvoice, setFullTaxInvoice] = useState<Option | null>(null);
   const [fullTaxName, setFullTaxName] = useState("");
@@ -77,56 +80,67 @@ export function SalesHistoryConsole({
   const [taxFilter, setTaxFilter] = useState(params.get("tax_invoice_type") || "");
   const [dateFrom, setDateFrom] = useState(params.get("date_from") || "");
   const [dateTo, setDateTo] = useState(params.get("date_to") || "");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE_DEFAULT);
+  const [page, setPage] = useState(initial.page || 1);
+  const [pageSize, setPageSize] = useState(initial.page_size || PAGE_SIZE_DEFAULT);
+  const [result, setResult] = useState<InvoicePage>(initial);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState("");
+  // On a phone the filters fold away behind one button so the bills come first.
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
-  // Branch is only worth filtering when the history actually spans branches —
-  // a cashier sees one branch, a back-office user sees them all.
-  const branchOptions = useMemo(() => {
-    const names = new Set<string>();
-    for (const invoice of initialItems) {
-      const name = String(invoice.branch_name || "").trim();
-      if (name) names.add(name);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  const query = new URLSearchParams();
+  const put = (key: string, value: string) => { if (value) query.set(key, value); };
+  put("search", debouncedSearch.trim());
+  put("branch", branchFilter);
+  put("payment_status", paymentFilter);
+  put("payment_method", paymentMethodFilter);
+  put("sale_type", saleTypeFilter);
+  put("close_status", closeStatusFilter);
+  put("removed_lines", removedLinesFilter);
+  put("tax_invoice_type", taxFilter);
+  put("date_from", dateFrom);
+  put("date_to", dateTo);
+  const filterKey = query.toString();
+  query.set("page", String(page));
+  query.set("page_size", String(pageSize));
+  const requestKey = query.toString();
+
+  const firstLoad = useRef(true);
+  const load = useCallback(async (key: string) => {
+    setListLoading(true);
+    setListError("");
+    try {
+      setResult(await proxyClient<InvoicePage>(`/invoices?${key}`));
+    } catch (error) {
+      setListError(error instanceof Error ? error.message : "โหลดรายการขายไม่สำเร็จ");
+    } finally {
+      setListLoading(false);
     }
-    return [...names].sort((a, b) => a.localeCompare(b, "th"));
-  }, [initialItems]);
+  }, []);
+
+  useEffect(() => {
+    // The server already rendered the first page for the URL's filters.
+    if (firstLoad.current) {
+      firstLoad.current = false;
+      return;
+    }
+    void load(requestKey);
+    // Keep the address shareable without a server round trip.
+    window.history.replaceState(null, "", filterKey ? `?${filterKey}` : window.location.pathname);
+  }, [filterKey, load, requestKey]);
+
+  const refresh = () => void load(requestKey);
+  const rows = withTaxLabel(result.items);
+  const branchOptions = result.branches || [];
   const showBranch = branchOptions.length > 1;
-
-  const filtered = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase("th");
-    return initialItems
-      .filter((invoice) => {
-        if (term && ![invoice.invoice_number, invoice.customer_name].some((value) => String(value || "").toLocaleLowerCase("th").includes(term))) return false;
-        if (branchFilter && String(invoice.branch_name) !== branchFilter) return false;
-        if (paymentFilter && String(invoice.payment_status) !== paymentFilter) return false;
-        if (paymentMethodFilter && String(invoice.payment_method) !== paymentMethodFilter) return false;
-        if (saleTypeFilter && String(invoice.sale_type) !== saleTypeFilter) return false;
-        if (removedLinesFilter && String(Boolean(invoice.has_removed_lines)) !== String(removedLinesFilter === "1")) return false;
-        // Bills the API says nothing about (anyone but the superadmin) are
-        // active by definition — nothing has closed over them.
-        if (closeStatusFilter && String(invoice.reconciliation_status || "active") !== closeStatusFilter) return false;
-        if (taxFilter && String(invoice.tax_invoice_type) !== taxFilter) return false;
-        // issued_at is an ISO timestamp; comparing the date half keeps the
-        // range inclusive of the whole "to" day.
-        const day = String(invoice.issued_at || "").slice(0, 10);
-        if (dateFrom && day < dateFrom) return false;
-        if (dateTo && day > dateTo) return false;
-        return true;
-      })
-      // Newest sale first — the bill you just rang up is the one you come here
-      // looking for. Bill numbers break ties (also newest first), since a
-      // branch's numbering runs forward in time; sorting *by* the number put a
-      // June bill above a July one whenever numbering was reset at a close.
-      .sort((a, b) => {
-        const byDate = String(b.issued_at || "").localeCompare(String(a.issued_at || ""));
-        if (byDate !== 0) return byDate;
-        return String(b.invoice_number || "").localeCompare(String(a.invoice_number || ""), "th", { numeric: true });
-      });
-  }, [branchFilter, closeStatusFilter, dateFrom, dateTo, initialItems, paymentFilter, paymentMethodFilter, removedLinesFilter, saleTypeFilter, search, taxFilter]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(result.total / pageSize));
   const safePage = Math.min(Math.max(1, page), totalPages);
-  const rows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const activeFilters = [branchFilter, paymentFilter, paymentMethodFilter, closeStatusFilter, taxFilter, dateFrom, dateTo].filter(Boolean).length;
 
   function resetPage<T>(setter: (value: T) => void) {
     return (value: T) => { setter(value); setPage(1); };
@@ -213,8 +227,24 @@ export function SalesHistoryConsole({
     <div className="space-y-4">
       {message && !activeInvoice && !fullTaxInvoice ? <Notice tone={messageTone}>{message}</Notice> : null}
       <SectionCard description="ค้นหาด้วยเลขที่ใบขายหรือชื่อลูกค้า กรองตามสถานะและช่วงวันที่" title="ใบขายย้อนหลัง">
-        <div className="mb-4 flex flex-wrap items-end gap-3">
-          <Field className="w-60" label="ค้นหา">
+        <div className="mb-3 flex items-end gap-2 sm:hidden">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input
+              aria-label="ค้นหาใบขาย"
+              className="pl-9"
+              onChange={(event) => resetPage(setSearch)(event.target.value)}
+              placeholder="เลขที่ใบขาย หรือชื่อลูกค้า"
+              value={search}
+            />
+          </div>
+          <Button aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)} type="button" variant="secondary">
+            <SlidersHorizontal className="h-4 w-4" />
+            ตัวกรอง{activeFilters ? ` (${activeFilters})` : ""}
+          </Button>
+        </div>
+        <div className={cn("mb-4 flex-wrap items-end gap-3 sm:flex", filtersOpen ? "flex" : "hidden")}>
+          <Field className="hidden w-60 sm:block" label="ค้นหา">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
@@ -350,7 +380,7 @@ export function SalesHistoryConsole({
                 </Button>
               ) : null}
               <Link
-                className="inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
+                className="inline-flex min-h-10 items-center rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
                 href={`/print/invoices/${String(invoice.id)}`}
                 target="_blank"
               >
@@ -358,16 +388,18 @@ export function SalesHistoryConsole({
               </Link>
             </div>
           )}
-          emptyDescription="ลองปรับคำค้นหาหรือตัวกรอง"
+          emptyDescription={listLoading ? "กำลังโหลด..." : "ลองปรับคำค้นหาหรือตัวกรอง"}
+          mobileCards
           rows={rows}
         />
+        {listError ? <Notice className="mt-3" tone="error">{listError}</Notice> : null}
         <Pagination
           className="mt-4"
           onPageChange={setPage}
           onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
           page={safePage}
           pageSize={pageSize}
-          total={filtered.length}
+          total={result.total}
           totalPages={totalPages}
         />
       </SectionCard>

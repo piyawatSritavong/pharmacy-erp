@@ -42,7 +42,7 @@ export function usePosBadges(branchId: string): Record<string, number> {
       const [parkedResponse, requisitions, transfers] = await Promise.all([
         proxyClient<{ items: Option[] }>("/parked-bills").catch(() => ({ items: [] })),
         proxyClient<{ items: Option[] }>("/stock-transfer-requests").catch(() => ({ items: [] })),
-        proxyClient<{ items: Option[] }>("/transfers").catch(() => ({ items: [] }))
+        proxyClient<{ items: Option[] }>("/transfers?open=1").catch(() => ({ items: [] }))
       ]);
       setParked(parkedResponse.items.length);
       setResolvedRequisitions(requisitions.items.filter((item) => String(item.status) !== "pending").length);
@@ -56,10 +56,19 @@ export function usePosBadges(branchId: string): Record<string, number> {
     }
   }, [branchId]);
 
+  // A till left on another app or with the screen off stops polling, and
+  // catches up the moment it is looked at again.
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => void load(), POLL_MS);
-    return () => window.clearInterval(timer);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, POLL_MS);
+    const onVisible = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [load]);
 
   // Opening a menu marks its current count as seen, clearing the badge.

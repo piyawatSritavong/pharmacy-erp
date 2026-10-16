@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -43,7 +44,21 @@ type Client struct {
 	key     string
 	bucket  string
 	http    *http.Client
+	// signed remembers URLs already minted, so a grid of product photos asks
+	// storage once per photo per few minutes rather than once per view.
+	signedMu sync.Mutex
+	signed   map[string]signedEntry
 }
+
+type signedEntry struct {
+	url     string
+	expires time.Time
+}
+
+// signedReuseMargin is how much life a cached URL must have left to be handed
+// out again. It is longer than the one minute a browser may cache the redirect
+// that carries it, so no browser ever holds an expired URL.
+const signedReuseMargin = 2 * time.Minute
 
 // ErrNotAnAPIURL is returned when SUPABASE_URL holds something that is not the
 // project's REST endpoint — most often the database connection string, which
@@ -216,6 +231,7 @@ func (c *Client) Upload(ctx context.Context, objectPath string, content []byte, 
 	if c == nil {
 		return ErrNotConfigured
 	}
+	c.forgetSigned(objectPath)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.objectURL("object", objectPath), bytes.NewReader(content))
 	if err != nil {
 		return err
@@ -247,6 +263,14 @@ func (c *Client) SignedURL(ctx context.Context, objectPath string, ttl time.Dura
 	if ttl <= 0 {
 		ttl = SignedURLTTL
 	}
+	cacheKey := objectPath + "|" + ttl.String()
+	now := time.Now()
+	c.signedMu.Lock()
+	if entry, ok := c.signed[cacheKey]; ok && entry.expires.Sub(now) > signedReuseMargin {
+		c.signedMu.Unlock()
+		return entry.url, nil
+	}
+	c.signedMu.Unlock()
 	payload, err := json.Marshal(map[string]any{"expiresIn": int(ttl.Seconds())})
 	if err != nil {
 		return "", err
@@ -280,7 +304,25 @@ func (c *Client) SignedURL(ctx context.Context, objectPath string, ttl time.Dura
 		return "", errors.New("supabase storage: signed url was empty")
 	}
 	// The API answers with a path relative to /storage/v1, not an absolute URL.
-	return c.baseURL + "/storage/v1" + ensureLeadingSlash(signed.SignedURL), nil
+	absolute := c.baseURL + "/storage/v1" + ensureLeadingSlash(signed.SignedURL)
+	c.signedMu.Lock()
+	if c.signed == nil || len(c.signed) > 10000 {
+		c.signed = map[string]signedEntry{}
+	}
+	c.signed[cacheKey] = signedEntry{url: absolute, expires: now.Add(ttl)}
+	c.signedMu.Unlock()
+	return absolute, nil
+}
+
+// forgetSigned drops cached URLs for an object that has been replaced or removed.
+func (c *Client) forgetSigned(objectPath string) {
+	c.signedMu.Lock()
+	defer c.signedMu.Unlock()
+	for key := range c.signed {
+		if strings.HasPrefix(key, objectPath+"|") {
+			delete(c.signed, key)
+		}
+	}
 }
 
 // Delete removes an object. An object that is already gone is not an error:
@@ -289,6 +331,7 @@ func (c *Client) Delete(ctx context.Context, objectPath string) error {
 	if c == nil {
 		return ErrNotConfigured
 	}
+	c.forgetSigned(objectPath)
 	request, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.objectURL("object", objectPath), nil)
 	if err != nil {
 		return err

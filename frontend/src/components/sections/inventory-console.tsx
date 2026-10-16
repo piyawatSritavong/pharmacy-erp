@@ -584,7 +584,7 @@ export function InventoryConsole({
           />
           <Input aria-label="สาขาปัจจุบัน" disabled value={branchLabel} />
         </div>
-        <DataTable
+        <DataTable mobileCards
           columns={[
             { key: "product_name", label: "สินค้า" },
             { key: "sku", label: "SKU", className: "whitespace-nowrap" },

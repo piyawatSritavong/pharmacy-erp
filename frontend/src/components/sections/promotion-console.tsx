@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Plus, X } from "lucide-react";
 import { Trash2 } from "lucide-react";
 
 import { SectionCard } from "@/components/sections/common";
@@ -59,6 +60,9 @@ export function PromotionConsole({
   ownBranchName?: string;
 }) {
   const refresh = useRefresh();
+  // The list comes first; the long form opens on demand (always when there is
+  // nothing to list yet), so a phone is not scrolled past it to read the promos.
+  const [formOpen, setFormOpen] = useState(promotions.length === 0);
   const [promoType, setPromoType] = useState<keyof typeof TYPE_LABELS>("buy_x_get_y");
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -124,6 +128,7 @@ export function PromotionConsole({
       });
       setFeedback({ tone: "success", text: response.message || "สร้างโปรโมชั่นแล้ว" });
       resetForm();
+      setFormOpen(false);
       refresh();
     } catch (caught) {
       setFeedback({ tone: "error", text: caught instanceof Error ? caught.message : "บันทึกไม่สำเร็จ" });
@@ -149,6 +154,14 @@ export function PromotionConsole({
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <Button aria-expanded={formOpen} onClick={() => setFormOpen((open) => !open)} type="button" variant={formOpen ? "secondary" : "default"}>
+          {formOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          {formOpen ? "ปิดแบบฟอร์ม" : "สร้างโปรโมชั่นใหม่"}
+        </Button>
+      </div>
+      {deleting ? null : <FeedbackNotice feedback={feedback} />}
+      {formOpen ? (
       <SectionCard
         title="สร้างโปรโมชั่น"
         description="โปรโมชั่นที่เปิดใช้งานจะถูกคิดให้อัตโนมัติที่หน้าขาย และของแถมจะตัดสต๊อกจริงตามจำนวนที่แถม"
@@ -275,14 +288,13 @@ export function PromotionConsole({
           </Button>
         </div>
 
-        {deleting ? null : <FeedbackNotice className="mt-4" feedback={feedback} />}
-
         <div className="mt-5">
           <Button disabled={!code || !name} loading={saving} loadingText="กำลังบันทึก..." onClick={save} type="button">
             สร้างโปรโมชั่น
           </Button>
         </div>
       </SectionCard>
+      ) : null}
 
       <SectionCard title="โปรโมชั่นทั้งหมด" description="โปรที่เปิดใช้งานและอยู่ในช่วงวันที่จะถูกใช้ที่หน้าขายทันที">
         {promotions.length === 0 ? (

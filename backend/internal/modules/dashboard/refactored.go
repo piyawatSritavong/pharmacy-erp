@@ -84,6 +84,5 @@ func (s *Service) refactoredGlobalSummary(ctx context.Context, user platform.Aut
 		"metrics":          metrics,
 		"pending_requests": pending,
 		"recent_invoices":  recentInvoices,
-		"recent_items":     map[string]any{"invoices": recentInvoices},
 	}, nil
 }
