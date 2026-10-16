@@ -212,6 +212,7 @@ export function ProductCategoryConsole({ initialItems }: { initialItems: Categor
             <Field label="ชื่อหมวดสินค้า">
               <Input
                 autoFocus
+                data-autofocus
                 onChange={(event) => setEditing((current) => ({ ...current, name: event.target.value }))}
                 required
                 value={String(editing.name || "")}

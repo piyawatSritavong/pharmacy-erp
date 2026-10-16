@@ -35,6 +35,9 @@ export function ProductThumbnail({
           className="h-full w-full object-cover"
           loading="lazy"
           onError={() => setFailed(true)}
+          // An image that failed before hydration fired its error event with
+          // no listener attached yet; check once React has the element.
+          ref={(img) => { if (img?.complete && img.naturalWidth === 0) setFailed(true); }}
           src={`/api/backend/products/${productId}/image`}
         />
       ) : (

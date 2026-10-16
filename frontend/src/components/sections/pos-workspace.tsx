@@ -265,7 +265,10 @@ export function PosWorkspace({
       setGridLoading(true);
       try {
         const query = new URLSearchParams({ active: "true", page: String(page) });
-        if (branchId) query.set("branch_id", branchId);
+        if (branchId) {
+          query.set("branch_id", branchId);
+          query.set("in_stock_first", "1");
+        }
         if (promoIdsKey) {
           // A promotion covers a known, small set — ask for exactly those
           // rather than paging the catalogue looking for them.
@@ -652,6 +655,19 @@ export function PosWorkspace({
     );
   }
 
+  // The bill's pre-VAT value in points, from the last preview that priced it.
+  // Kept across a failed preview, which is exactly when the cap is needed.
+  const [billPointCap, setBillPointCap] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (!preview || !loyalty.point_value) return;
+    const beforePoints = Number(preview.summary.subtotal || 0) + Number(preview.summary.points_discount || 0);
+    // Strictly under the bill: points may not take it all the way to zero.
+    setBillPointCap(Math.max(0, Math.ceil(beforePoints / loyalty.point_value - 1e-9) - 1));
+  }, [loyalty.point_value, preview]);
+  useEffect(() => {
+    if (!cart.length) setBillPointCap(undefined);
+  }, [cart.length]);
+
   // Promotional rewards come back from the backend as extra preview lines.
   const giveawayLines = (preview?.lines || []).filter((item) => Boolean(item.is_giveaway));
 
@@ -840,7 +856,9 @@ export function PosWorkspace({
       setParkNote("");
       clearCustomer();
       setParkOpen(false);
+      setCartOpen(false);
       setMessage("พักบิลไว้แล้ว เปิดดูได้ที่เมนู พักบิล");
+      toast.success("พักบิลไว้แล้ว เปิดดูได้ที่เมนู พักบิล");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "พักบิลไม่สำเร็จ");
     } finally {
@@ -1242,6 +1260,7 @@ export function PosWorkspace({
 
           <div className="mt-3">
             <PosCustomerPanel
+              billPointCap={billPointCap}
               customer={customer}
               disabled={Boolean(remoteLock)}
               minRedeemPoints={loyalty.min_redeem_points}

@@ -472,7 +472,7 @@ export function MonthEndReconciliationConsole({ branches }: { branches: Row[] })
         <DialogContent>
           <DialogHeader title="ยืนยันการสรุปรอบ" description="ธุรกรรมนี้ซ่อนใบขายที่มีในสต๊อกผี ส่งสต๊อกจริงกลับโกดังกลาง ตัดสต๊อกผี บันทึกบิลที่ไม่มีในสต๊อกผีที่ต้นทุน + % และเรียงเลขบิลที่เหลือใหม่" />
           <div className="rounded-lg border border-warning-200 bg-warning-50 p-4 text-sm"><p className="font-semibold">ผลที่จะบันทึก</p><p className="mt-2">{selectedBranches.map((branch) => text(branch.name)).join(", ")}</p><p className="mt-1">{dateFrom} ถึง {dateTo} · ซ่อน {preview?.hidden_invoice_count || 0} ใบ · บันทึกที่ต้นทุน + {preview?.adjustment_percent ?? markup}% {preview?.repriced_invoice_count || 0} ใบ · ยอดเป้าหมาย {currency(preview?.final_revenue || 0)}</p></div>
-          <label className="mt-4 block space-y-2 text-sm"><span>พิมพ์ <strong>{closeText}</strong></span><Input autoFocus onChange={(event) => setConfirmation(event.target.value)} value={confirmation} /></label>
+          <label className="mt-4 block space-y-2 text-sm"><span>พิมพ์ <strong>{closeText}</strong></span><Input autoFocus data-autofocus onChange={(event) => setConfirmation(event.target.value)} value={confirmation} /></label>
           <div className="mt-5 flex justify-end gap-2"><Button onClick={() => setConfirmOpen(false)} variant="secondary">ยกเลิก</Button><Button disabled={confirmation !== closeText || loading} onClick={() => void finalize()}>{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}ยืนยันธุรกรรม</Button></div>
         </DialogContent>
       </Dialog>

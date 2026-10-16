@@ -50,7 +50,17 @@ export function DialogContent({
           and action buttons stayed unreachable before). Every dialog in the
           app inherits this — don't re-declare max-h/overflow at call sites. */}
       <DialogPrimitive.Content
-        onOpenAutoFocus={() => { returnFocus.current = opener?.current || document.activeElement as HTMLElement; }}
+        onOpenAutoFocus={(event) => {
+          returnFocus.current = opener?.current || document.activeElement as HTMLElement;
+          // A dialog whose whole job is one field (a search, say) opens with
+          // the keyboard already on it. Radix would otherwise move focus to
+          // the first button — the close button — and React's autoFocus loses.
+          const field = (event.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>("[data-autofocus]");
+          if (field) {
+            event.preventDefault();
+            field.focus();
+          }
+        }}
         onCloseAutoFocus={(event) => {
           // autoFocus can skip Radix's mount event entirely, so the root's
           // captured opener is also read directly on close.

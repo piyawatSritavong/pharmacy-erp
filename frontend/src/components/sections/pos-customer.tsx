@@ -59,12 +59,15 @@ export function PosCustomerPanel({
   disabled,
   onPick,
   onClear,
-  onRedeemChange
+  onRedeemChange,
+  billPointCap
 }: {
   customer: PosCustomer | null;
   redeemPoints: string;
   minRedeemPoints: number;
   pointValue: number;
+  /** The most points this bill can absorb (its pre-VAT total in points). */
+  billPointCap?: number;
   disabled?: boolean;
   onPick: () => void;
   onClear: () => void;
@@ -85,7 +88,9 @@ export function PosCustomerPanel({
     );
   }
   const canRedeem = customer.points_balance >= minRedeemPoints;
-  const maxRedeem = customer.points_balance;
+  // "Use all" means all this bill can take: a member with more points than
+  // the bill is worth would otherwise be refused at payment.
+  const maxRedeem = billPointCap != null ? Math.max(0, Math.min(customer.points_balance, billPointCap)) : customer.points_balance;
   return (
     <div className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
       <div className="flex items-start gap-2">
@@ -239,7 +244,7 @@ export function CustomerPickerDialog({
         {registering ? (
           <form className="space-y-4" onSubmit={register}>
             <Field label="ชื่อ *">
-              <Input autoFocus onChange={(event) => setName(event.target.value)} required value={name} />
+              <Input autoFocus data-autofocus onChange={(event) => setName(event.target.value)} required value={name} />
             </Field>
             <Field label="เบอร์โทร *">
               <Input inputMode="tel" onChange={(event) => setPhone(event.target.value)} required value={phone} />
@@ -257,6 +262,7 @@ export function CustomerPickerDialog({
               <Input
                 aria-label="ค้นหาสมาชิก"
                 autoFocus
+                data-autofocus
                 className="pl-9"
                 inputMode="search"
                 onChange={(event) => setQuery(event.target.value)}

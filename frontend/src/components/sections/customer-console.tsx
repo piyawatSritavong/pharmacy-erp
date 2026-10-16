@@ -339,7 +339,7 @@ export function CustomerConsole({
           {editing ? (
             <form className="grid gap-4 md:grid-cols-2" onSubmit={submit}>
               <Field label="ชื่อลูกค้า *">
-                <Input autoFocus onChange={(event) => update("name", event.target.value)} required value={String(editing.name || "")} />
+                <Input autoFocus data-autofocus onChange={(event) => update("name", event.target.value)} required value={String(editing.name || "")} />
               </Field>
               <Field hint="ใช้ค้นหาที่หน้าร้าน" label={String(editing.customer_type) === "business" ? "เบอร์โทร" : "เบอร์โทร *"}>
                 <Input
@@ -538,7 +538,7 @@ function CustomerDetailDialog({
               <TabsContent className="mt-3" value="invoices">
                 {invoices.length ? (
                   <div className="max-h-[50vh] overflow-auto rounded-xl border">
-                    <table className="w-full text-sm">
+                    <table className="mobile-card-table w-full text-sm">
                       <thead className="sticky top-0 bg-muted text-left">
                         <tr>
                           <th className="p-2">เลขที่</th>
@@ -553,17 +553,17 @@ function CustomerDetailDialog({
                           const status = PAYMENT_STATUS[String(invoice.payment_status)] || PAYMENT_STATUS.paid;
                           return (
                             <tr className="border-t" key={String(invoice.id)}>
-                              <td className="p-2">
+                              <td data-label="เลขที่" data-primary="true" className="p-2">
                                 <Link className="font-medium text-primary hover:underline" href={`/print/invoices/${String(invoice.id)}`} target="_blank">{String(invoice.invoice_number)}</Link>
                                 <span className="block text-xs text-muted-foreground">{dateTime(String(invoice.issued_at))}</span>
                               </td>
-                              <td className="p-2">{String(invoice.branch_name)}</td>
-                              <td className="p-2 text-right">{currency(Number(invoice.total_amount))}</td>
-                              <td className="p-2">
+                              <td data-label="สาขา" className="p-2">{String(invoice.branch_name)}</td>
+                              <td data-label="ยอด" className="p-2 text-right">{currency(Number(invoice.total_amount))}</td>
+                              <td data-label="สถานะ" className="p-2">
                                 <Badge tone={status.tone}>{String(invoice.sale_type) === "credit" ? `เครดิต · ${status.label}` : status.label}</Badge>
                                 {invoice.due_date && Number(invoice.outstanding || 0) > 0 ? <span className="block text-xs text-muted-foreground">ครบกำหนด {String(invoice.due_date)}</span> : null}
                               </td>
-                              <td className="p-2 text-right text-xs">
+                              <td data-label="แต้ม" className="p-2 text-right text-xs">
                                 {Number(invoice.points_earned || 0) ? <span className="block text-success-800">+{String(invoice.points_earned)}</span> : null}
                                 {Number(invoice.points_redeemed || 0) ? <span className="block text-error-800">-{String(invoice.points_redeemed)}</span> : null}
                               </td>
@@ -592,7 +592,7 @@ function CustomerDetailDialog({
                 <FeedbackNotice feedback={feedback} />
                 {ledger.length ? (
                   <div className="max-h-[45vh] overflow-auto rounded-xl border">
-                    <table className="w-full text-sm">
+                    <table className="mobile-card-table w-full text-sm">
                       <thead className="sticky top-0 bg-muted text-left">
                         <tr>
                           <th className="p-2">วันที่</th>
@@ -604,17 +604,17 @@ function CustomerDetailDialog({
                       <tbody>
                         {ledger.map((entry) => (
                           <tr className="border-t" key={String(entry.id)}>
-                            <td className="p-2 text-xs">{dateTime(String(entry.created_at))}</td>
-                            <td className="p-2">
+                            <td data-label="วันที่" data-primary="true" className="p-2 text-xs">{dateTime(String(entry.created_at))}</td>
+                            <td data-label="รายการ" className="p-2">
                               {ENTRY_LABEL[String(entry.entry_type)] || String(entry.entry_type)}
                               <span className="block text-xs text-muted-foreground">
                                 {[entry.invoice_number, entry.branch_name, entry.note].filter(Boolean).join(" · ")}
                               </span>
                             </td>
-                            <td className={cn("p-2 text-right font-semibold", Number(entry.points) > 0 ? "text-success-800" : "text-error-800")}>
+                            <td data-label="แต้ม" className={cn("p-2 text-right font-semibold", Number(entry.points) > 0 ? "text-success-800" : "text-error-800")}>
                               {Number(entry.points) > 0 ? "+" : ""}{String(entry.points)}
                             </td>
-                            <td className="p-2 text-right">{String(entry.balance_after)}</td>
+                            <td data-label="คงเหลือ" className="p-2 text-right">{String(entry.balance_after)}</td>
                           </tr>
                         ))}
                       </tbody>

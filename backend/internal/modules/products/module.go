@@ -97,9 +97,12 @@ type ListFilter struct {
 	RequiresFDAReport string
 	// IDs narrows the list to an explicit set — the till uses it to pull just
 	// the products a promotion covers instead of paging the whole catalogue.
-	IDs      []string
-	Page     int
-	PageSize int
+	IDs []string
+	// InStockFirst puts what the branch can sell now ahead of what it cannot,
+	// so a till does not open on a shelf of sold-out items. Needs a branch.
+	InStockFirst bool
+	Page         int
+	PageSize     int
 }
 
 type ListResult struct {
@@ -196,6 +199,11 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 		limitClause = fmt.Sprintf("LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	}
 
+	orderBy := "p.active DESC, p.name"
+	if branchID != "" && filter.InStockFirst {
+		orderBy = "p.active DESC, (branch_inventory.qty_real > 0) DESC, p.name"
+	}
+
 	ghostThresholdExpression := "p.low_stock_ghost_threshold"
 	if user.RoleKey != "super_admin" {
 		ghostThresholdExpression = "0"
@@ -214,9 +222,9 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 			%s
 			LEFT JOIN product_categories c ON c.id = p.category_id
 			%s
-			ORDER BY p.active DESC, p.name
+			ORDER BY %s
 			%s
-			`, ghostThresholdExpression, priceExpression, joinPrice, whereClause, limitClause), args...)
+			`, ghostThresholdExpression, priceExpression, joinPrice, whereClause, orderBy, limitClause), args...)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -1263,6 +1271,7 @@ func (h *Handler) List(c echo.Context) error {
 		Search: strings.TrimSpace(c.QueryParam("search")), CategoryID: strings.TrimSpace(c.QueryParam("category_id")),
 		Active: strings.TrimSpace(c.QueryParam("active")), IDs: productIDList(c.QueryParam("ids")), Page: page, PageSize: pageSize,
 		SalesChannel: strings.TrimSpace(c.QueryParam("sales_channel")), RequiresFDAReport: strings.TrimSpace(c.QueryParam("requires_fda_report")),
+		InStockFirst: c.QueryParam("in_stock_first") == "1",
 	})
 	if err != nil {
 		return platform.HandleHTTPError(c, platform.WrapError(http.StatusInternalServerError, "โหลดสินค้าไม่สำเร็จ", err))

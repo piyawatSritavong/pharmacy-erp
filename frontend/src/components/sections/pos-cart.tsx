@@ -27,6 +27,13 @@ export function PosCart({ children, open, onOpenChange }: PropsWithChildren<{
         aria-describedby={undefined}
         className="pos-cart fixed inset-x-2 top-2 z-40 mx-auto flex max-h-[calc(100dvh-1rem)] w-auto max-w-lg flex-col overflow-y-auto overscroll-contain rounded-2xl border bg-card p-3 shadow-2xl sm:inset-x-4 sm:top-4 sm:max-h-[calc(100dvh-2rem)] sm:p-4"
         onOpenAutoFocus={() => { returnFocus.current = document.activeElement as HTMLElement; }}
+        // The member picker, the park note and the payment step open as their
+        // own dialogs over the cart. Focus or a tap landing in one of them is
+        // not the cashier leaving the cart, so it must not close underneath.
+        onFocusOutside={(event) => event.preventDefault()}
+        onPointerDownOutside={(event) => {
+          if ((event.target as HTMLElement | null)?.closest?.("[role=dialog], [data-sonner-toaster]")) event.preventDefault();
+        }}
         onCloseAutoFocus={(event) => { event.preventDefault(); returnFocus.current?.focus(); }}
       >
         <DialogPrimitive.Title asChild><span className="sr-only">รายการขายปัจจุบัน</span></DialogPrimitive.Title>

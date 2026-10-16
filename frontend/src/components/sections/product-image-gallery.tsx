@@ -97,6 +97,9 @@ export function ProductImageSwiper({
   }
 
   const gallery = items && items.length > 1 ? items : null;
+  // The one picture that failed to load, shown as the placeholder instead of
+  // a broken-image box; moving to another picture tries again.
+  const [brokenSrc, setBrokenSrc] = useState("");
   const hasAnyImage = available || (items?.length || 0) > 0;
   const currentSrc = gallery
     ? `/api/backend${gallery[index]?.url}`
@@ -153,10 +156,17 @@ export function ProductImageSwiper({
   return (
     <div className={cn("w-full max-w-xs", className)} data-testid="product-image-swiper">
       <div className="relative aspect-square w-full touch-pan-y select-none overflow-hidden rounded-2xl border bg-surface-warm">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {brokenSrc === currentSrc ? (
+          <div className="grid h-full w-full place-items-center bg-gradient-to-br from-placeholder-from to-placeholder-to">
+            <Package aria-label={`โหลดรูปของ ${productName} ไม่สำเร็จ`} className="h-16 w-16 text-primary/30" />
+          </div>
+        ) : (
+        // eslint-disable-next-line @next/next/no-img-element
         <img
           alt={gallery?.[index]?.alt_text || productName}
           className="h-full w-full object-contain"
+          onError={() => setBrokenSrc(currentSrc)}
+          ref={(img) => { if (img?.complete && img.naturalWidth === 0) setBrokenSrc(currentSrc); }}
           onPointerDown={(event) => {
             dragStartX.current = event.clientX;
           }}
@@ -168,6 +178,7 @@ export function ProductImageSwiper({
           }}
           src={currentSrc}
         />
+        )}
         {gallery?.[index]?.branch_scoped ? (
           <span className="absolute left-2 top-2 rounded-full bg-info-50 px-2.5 py-1 text-xs font-semibold text-info-800">
             รูปของสาขา

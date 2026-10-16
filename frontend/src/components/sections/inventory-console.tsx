@@ -237,6 +237,11 @@ export function InventoryConsole({
     setSelectedInventoryId(String(item.id));
     setBranchId(String(item.branch_id));
     setProductId(String(item.product_id));
+    // On a phone the detail sits under the list and pager, out of sight:
+    // take the reader to it, or the tap looks like it did nothing.
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      window.requestAnimationFrame(() => document.getElementById("inventory-detail")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
   }
 
   function applyFilters(
@@ -738,7 +743,7 @@ export function InventoryConsole({
         </div>
       </aside>
 
-      <section className="min-w-0 p-3 sm:p-5 lg:p-7">
+      <section className="min-w-0 scroll-mt-16 p-3 sm:p-5 lg:p-7" id="inventory-detail">
         <div className="mb-6 border-b pb-5">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold tracking-tight sm:text-2xl">{String(selectedInventory?.product_name || "เลือกรายการสินค้า")}</h2>

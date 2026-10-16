@@ -356,17 +356,18 @@ export function SalesHistoryConsole({
             { key: "issued_at", label: "วันที่ขาย", type: showFullTimestamp ? "datetime" : "date", className: "whitespace-nowrap" }
           ]}
           rowActions={(invoice) => (
-            <div className="flex justify-end gap-2 whitespace-nowrap">
+            <div className="flex flex-wrap justify-end gap-2 whitespace-nowrap">
               {/* Returns are counter work; the superadmin reads this page as an
                   audit trail, so the action is not offered there. */}
               {isSuperAdmin ? null : (
-                <Button onClick={() => void openReturn(invoice)} type="button" variant="secondary">
+                <Button className="shrink-0" onClick={() => void openReturn(invoice)} type="button" variant="secondary">
                   <RotateCcw className="h-4 w-4" />
                   คืน/เปลี่ยนสินค้า
                 </Button>
               )}
               {canUpgrade(invoice) ? (
                 <Button
+                  className="shrink-0"
                   onClick={() => {
                     setFullTaxInvoice(invoice);
                     setFullTaxName(String(invoice.customer_name || ""));
@@ -380,7 +381,7 @@ export function SalesHistoryConsole({
                 </Button>
               ) : null}
               <Link
-                className="inline-flex min-h-10 items-center rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
+                className="inline-flex min-h-10 shrink-0 items-center rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-muted"
                 href={`/print/invoices/${String(invoice.id)}`}
                 target="_blank"
               >

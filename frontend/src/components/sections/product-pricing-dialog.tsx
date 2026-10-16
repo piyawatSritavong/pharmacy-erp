@@ -165,7 +165,7 @@ export function ProductPricingDialog({
                 ) : null}
               </div>
               <div className="overflow-x-auto rounded-xl border">
-                <table className="w-full min-w-[640px] text-sm">
+                <table className="mobile-card-table w-full text-sm sm:min-w-[640px]">
                   <thead className="bg-muted text-left">
                     <tr>
                       <th className="p-2">ชื่อหน่วย</th>
@@ -178,20 +178,20 @@ export function ProductPricingDialog({
                   <tbody>
                     {units.map((row, index) => (
                       <tr className="border-t" key={row.id || `new-${index}`}>
-                        <td className="p-2">
+                        <td data-label="ชื่อหน่วย" className="p-2">
                           <Input aria-label="ชื่อหน่วย" disabled={!canEditUnits} onChange={(event) => setUnits(units.map((item, i) => i === index ? { ...item, unit_name: event.target.value } : item))} value={row.unit_name} />
                           {row.is_base ? <span className="text-2xs text-muted-foreground">หน่วยฐาน (นับสต๊อก)</span> : null}
                         </td>
-                        <td className="p-2">
+                        <td data-label="จำนวนต่อหน่วย" className="p-2">
                           <Input aria-label="จำนวนต่อหน่วย" disabled={!canEditUnits || row.is_base} min={1} onChange={(event) => setUnits(units.map((item, i) => i === index ? { ...item, conversion_qty: event.target.value } : item))} type="number" value={row.is_base ? "1" : row.conversion_qty} />
                         </td>
-                        <td className="p-2">
+                        <td data-label="ราคาต่อหน่วย" className="p-2">
                           <Input aria-label="ราคาต่อหน่วย" disabled={!canEditUnits} min={0} onChange={(event) => setUnits(units.map((item, i) => i === index ? { ...item, selling_price: event.target.value } : item))} placeholder={currency(unitPrice(row))} step="0.01" type="number" value={row.selling_price} />
                         </td>
-                        <td className="p-2">
+                        <td data-label="บาร์โค้ด" className="p-2">
                           <Input aria-label="บาร์โค้ดของหน่วย" disabled={!canEditUnits} onChange={(event) => setUnits(units.map((item, i) => i === index ? { ...item, barcode: event.target.value } : item))} value={row.barcode} />
                         </td>
-                        <td className="p-2">
+                        <td data-actions="true" className="p-2">
                           {canEditUnits && !row.is_base ? (
                             <button aria-label="ลบหน่วย" className="grid h-9 w-9 place-items-center rounded-full text-muted-foreground hover:bg-muted hover:text-destructive" onClick={() => setUnits(units.filter((_, i) => i !== index))} type="button">
                               <Trash2 className="h-4 w-4" />
@@ -218,6 +218,7 @@ export function ProductPricingDialog({
                 </div>
                 {canEditTiers ? (
                   <Button
+                    className="shrink-0 whitespace-nowrap"
                     disabled={!savedUnits.length}
                     onClick={() => setTiers([...tiers, { unit_id: savedUnits[0]?.id || "", branch_id: "", customer_tier: "all", min_quantity: "10", unit_price: "" }])}
                     size="sm"
@@ -231,7 +232,7 @@ export function ProductPricingDialog({
               {!savedUnits.length ? <p className="text-sm text-muted-foreground">บันทึกหน่วยขายก่อน แล้วจึงกำหนดราคาส่งต่อหน่วยได้</p> : null}
               {tiers.length ? (
                 <div className="overflow-x-auto rounded-xl border">
-                  <table className="w-full min-w-[640px] text-sm">
+                  <table className="mobile-card-table w-full text-sm sm:min-w-[640px]">
                     <thead className="bg-muted text-left">
                       <tr>
                         <th className="p-2">หน่วย</th>
@@ -244,25 +245,25 @@ export function ProductPricingDialog({
                     <tbody>
                       {tiers.map((tier, index) => (
                         <tr className="border-t" key={`tier-${index}`}>
-                          <td className="p-2">
+                          <td data-label="หน่วย" className="p-2">
                             <Select aria-label="หน่วยของราคาส่ง" disabled={!canEditTiers} onChange={(event) => setTiers(tiers.map((item, i) => i === index ? { ...item, unit_id: event.target.value } : item))} value={tier.unit_id}>
                               {savedUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.unit_name}</option>)}
                             </Select>
                           </td>
-                          <td className="p-2">
+                          <td data-label="ใช้กับ" className="p-2">
                             <Select aria-label="กลุ่มลูกค้า" disabled={!canEditTiers} onChange={(event) => setTiers(tiers.map((item, i) => i === index ? { ...item, customer_tier: event.target.value } : item))} value={tier.customer_tier}>
                               <option value="all">ลูกค้าทุกคน</option>
                               <option value="wholesale">เฉพาะลูกค้าขายส่ง</option>
                             </Select>
                             {tier.branch_id ? <span className="text-2xs text-muted-foreground">เฉพาะบางสาขา</span> : null}
                           </td>
-                          <td className="p-2">
+                          <td data-label="ซื้อตั้งแต่ (หน่วย)" className="p-2">
                             <Input aria-label="จำนวนขั้นต่ำ" disabled={!canEditTiers} min={1} onChange={(event) => setTiers(tiers.map((item, i) => i === index ? { ...item, min_quantity: event.target.value } : item))} type="number" value={tier.min_quantity} />
                           </td>
-                          <td className="p-2">
+                          <td data-label="ราคาต่อหน่วย" className="p-2">
                             <Input aria-label="ราคาส่งต่อหน่วย" disabled={!canEditTiers} min={0.01} onChange={(event) => setTiers(tiers.map((item, i) => i === index ? { ...item, unit_price: event.target.value } : item))} required step="0.01" type="number" value={tier.unit_price} />
                           </td>
-                          <td className="p-2">
+                          <td data-actions="true" className="p-2">
                             {canEditTiers ? (
                               <button aria-label="ลบราคาส่ง" className="grid h-9 w-9 place-items-center rounded-full text-muted-foreground hover:bg-muted hover:text-destructive" onClick={() => setTiers(tiers.filter((_, i) => i !== index))} type="button">
                                 <Trash2 className="h-4 w-4" />

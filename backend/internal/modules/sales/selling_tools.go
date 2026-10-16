@@ -739,9 +739,12 @@ func (s *Service) priceCart(ctx context.Context, db platform.DBTX, user platform
 			indexes = append(indexes, index)
 			payable = platform.Round2(payable + line.LineSubtotal)
 		}
-		if value > payable {
+		// Points take a bill down, never to nothing: a bill must still carry
+		// a payment, and checkout refuses a zero total. Letting the preview
+		// price one at zero left the cashier with a bill nothing could settle.
+		if value >= payable {
 			return cartResult{}, platform.NewError(http.StatusBadRequest,
-				fmt.Sprintf("มูลค่าแต้มที่ใช้ (%.2f บาท) มากกว่ายอดที่ต้องชำระ", value))
+				fmt.Sprintf("มูลค่าแต้มที่ใช้ (%.2f บาท) ต้องน้อยกว่ายอดก่อนภาษี (%.2f บาท)", value, payable))
 		}
 		shares := map[int]float64{}
 		spread(shares, indexes, weights, value)
