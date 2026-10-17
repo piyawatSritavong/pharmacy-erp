@@ -254,11 +254,12 @@ test.describe("สิทธิ์และการนำทางสองบ�
     }
     // The Pro gate is off for now (DECISION_LOG 2026-10-09): รพ.สต. says it is
     // not ready yet, and ใบขาย opens its V2 pilot.
-    for (const [path, heading] of [["/government-sales", "รพ.สต."], ["/sales-management", "ใบขาย"]]) {
-      await session.page.goto(path);
-      await session.page.waitForURL(new RegExp(`${path}$`));
-      await expect(session.page.getByRole("heading", { level: 1, name: heading, exact: true })).toBeVisible();
-    }
+    await session.page.goto("/government-sales");
+    await session.page.waitForURL(/\/government-sales$/);
+    await expect(session.page.getByRole("heading", { level: 1, name: "รพ.สต.", exact: true })).toBeVisible();
+    // ใบขาย is the V2 pilot, which the superadmin enters directly.
+    await session.page.goto("/sales-management");
+    await session.page.waitForURL(/\/v2$/);
     // The new customer pages open from the sidebar too.
     for (const [path, heading] of [["/customers", "ลูกค้าและสมาชิก"], ["/receivables", "ลูกหนี้ค้างชำระ"]]) {
       await session.page.goto(path);

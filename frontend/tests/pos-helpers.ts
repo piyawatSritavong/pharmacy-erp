@@ -7,7 +7,7 @@ import { expect, type Locator, type Page } from "@playwright/test";
 export async function addProductToCart(page: Page, button: Locator) {
   await button.click();
   const lotDialog = page.getByRole("dialog", { name: /^เลือก Lot/ });
-  const added = page.getByText(/^เพิ่ม .* แล้ว$/).first();
+  const added = page.getByRole("status").filter({ hasText: /^เพิ่ม .* แล้ว$/ }).first();
   await expect(lotDialog.or(added).first()).toBeVisible();
   if (await lotDialog.isVisible()) {
     await lotDialog.getByRole("button", { name: /^Lot / }).first().click();

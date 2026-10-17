@@ -163,6 +163,9 @@ test.describe("สมาชิก แต้มสะสม และขายเ
     await dialog.getByRole("button", { name: "บันทึกหน่วยขาย" }).click();
     await expect(dialog.getByText("บันทึกหน่วยขายแล้ว")).toBeVisible();
     await dialog.getByRole("button", { name: "เพิ่มราคา" }).click();
+    // A minimum quantity of its own, so a rerun on the same data is not a
+    // duplicate of the tier the last run saved.
+    await dialog.getByLabel("จำนวนขั้นต่ำ").last().fill(String(100 + (Number(stamp) % 9000)));
     await dialog.getByLabel("ราคาส่งต่อหน่วย").last().fill("1");
     await dialog.getByRole("button", { name: "บันทึกราคาส่ง" }).click();
     await expect(dialog.getByText(/บันทึกราคาส่งแล้ว/)).toBeVisible();

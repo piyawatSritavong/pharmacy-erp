@@ -590,6 +590,9 @@ export function PosWorkspace({
 
   // Which product's lots are being looked up, so its button can say so.
   const [pendingProductId, setPendingProductId] = useState("");
+  // What the last add put in the cart, announced to screen readers.
+  const [addedNotice, setAddedNotice] = useState("");
+  const [barFlash, setBarFlash] = useState(false);
 
   async function chooseProductLot(product: Option) {
     setMessage("");
@@ -639,8 +642,11 @@ export function PosWorkspace({
       return [...current, { product, lot, quantity: 1, unitId: "", discount: "" }];
     });
     // The cart stays shut: a phone keeps the shelf in view so the next item is
-    // one tap away, and the bar at the bottom shows the running bill.
-    toast.success(`เพิ่ม ${String(product.name)} แล้ว`, { duration: 1200 });
+    // one tap away, and the bar at the bottom shows the running bill. The bar
+    // flashes rather than a toast, which sat over the header's cart button.
+    setAddedNotice(`เพิ่ม ${String(product.name)} แล้ว`);
+    setBarFlash(true);
+    window.setTimeout(() => setBarFlash(false), 600);
   }
 
   function addSelectedLot(lot: Option) {
@@ -1222,10 +1228,17 @@ export function PosWorkspace({
             {/* Scrolling this into view asks for the next page. */}
             <div aria-hidden className="h-6" ref={sentinelRef} />
           </div>
+          <p aria-live="polite" className="sr-only" role="status">{addedNotice}</p>
           {cart.length ? (
             // The running bill, always in reach on a phone or tablet; the
             // desktop shows the whole cart beside the shelf instead.
-            <div className="flex shrink-0 items-center gap-2 rounded-2xl border bg-card p-2 shadow-card xl:hidden" data-testid="pos-checkout-bar">
+            <div
+              className={cn(
+                "flex shrink-0 items-center gap-2 rounded-2xl border bg-card p-2 shadow-card transition-shadow duration-300 xl:hidden",
+                barFlash && "ring-2 ring-primary"
+              )}
+              data-testid="pos-checkout-bar"
+            >
               <button
                 className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl px-2 text-left hover:bg-muted"
                 onClick={() => setCartOpen(true)}

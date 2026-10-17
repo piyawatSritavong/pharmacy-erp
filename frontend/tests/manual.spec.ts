@@ -63,8 +63,9 @@ test.describe("refactored operational workflows", () => {
     // The Pro gate is switched off for now (DECISION_LOG 2026-10-09): ใบขาย
     // leads to the owner-only V2 pilot, and รพ.สต. says plainly that it is
     // not ready rather than offering a form that does nothing.
+    // The superadmin goes straight in, rather than to a page that only links on.
     await page.goto("/sales-management");
-    await expect(page.getByRole("link", { name: "เปิดใบเสนอราคาและใบขาย V2" })).toBeVisible();
+    await page.waitForURL(/\/v2$/);
     await page.goto("/government-sales");
     await expect(page.getByText("งานส่วนนี้อยู่ในแผนพัฒนาลำดับถัดไป ยังไม่พร้อมทำรายการ")).toBeVisible();
     // No price, trial or subscribe button for billing that doesn't exist.
