@@ -201,6 +201,8 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.POST("/customers/:customerID/points", customerHandler.AdjustPoints, appMiddleware.RequireAnyPermission("customer.credit.manage"))
 	protected.GET("/loyalty-settings", customerHandler.GetLoyaltySettings, appMiddleware.RequireAnyPermission("customer.view"))
 	protected.PUT("/loyalty-settings", customerHandler.SaveLoyaltySettings, appMiddleware.RequireAnyPermission("customer.credit.manage"))
+	protected.GET("/sales-settings", salesHandler.GetSalesSettings)
+	protected.PUT("/sales-settings", salesHandler.SaveSalesSettings, appMiddleware.RequireAnyPermission("settings.manage"))
 	protected.GET("/member-levels", customerHandler.GetLevelSettings, appMiddleware.RequireAnyPermission("customer.view", "products.view"))
 	protected.PUT("/member-levels", customerHandler.SaveLevelSettings, appMiddleware.RequireAnyPermission("customer.level.manage"))
 	protected.GET("/receivables", customerHandler.ListReceivables, appMiddleware.RequireAnyPermission("receivable.view"))

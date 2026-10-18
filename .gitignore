@@ -25,3 +25,4 @@ backups/
 backend/uploads/
 frontend/.env.local
 scripts/qa/multi_branch_report.json
+scripts/qa/ocha_out/

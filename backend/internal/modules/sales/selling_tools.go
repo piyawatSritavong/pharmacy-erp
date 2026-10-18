@@ -563,6 +563,13 @@ type cartResult struct {
 	PointsRedeemed int
 	PointsDiscount float64
 	Loyalty        loyaltyRules
+	// PricesIncludeVAT says the shop's prices were VAT-inclusive; amounts in
+	// the lines are before-VAT all the same.
+	PricesIncludeVAT bool
+	// ShownDiscount and ShownPointsDiscount are the discounts as the customer
+	// sees them on a VAT-inclusive bill: what came off the prices they paid.
+	ShownDiscount       float64
+	ShownPointsDiscount float64
 }
 
 // cartOptions are the parts of a sale that depend on who is buying.
@@ -838,6 +845,19 @@ func (s *Service) priceCart(ctx context.Context, db platform.DBTX, user platform
 		result.PointsDiscount = value
 	}
 
+	inclusive, err := pricesIncludeVAT(ctx, db)
+	if err != nil {
+		return cartResult{}, err
+	}
+	for index := range result.Lines {
+		result.Lines[index].ShelfUnitPrice = result.Lines[index].SoldUnitPrice
+	}
+	if inclusive {
+		result.PricesIncludeVAT = true
+		extractIncludedVAT(&result)
+		return result, nil
+	}
+
 	// Final VAT and totals from the net line values.
 	result.Subtotal, result.TaxAmount, result.TotalAmount = 0, 0, 0
 	for index, line := range result.Lines {
@@ -849,6 +869,67 @@ func (s *Service) priceCart(ctx context.Context, db platform.DBTX, user platform
 	}
 	result.TotalAmount = platform.Round2(result.Subtotal + result.TaxAmount)
 	return result, nil
+}
+
+// pricesIncludeVAT reads the shop's setting: are shelf prices what the
+// customer pays, VAT included?
+func pricesIncludeVAT(ctx context.Context, db platform.DBTX) (bool, error) {
+	raw, err := platform.GetSettingString(ctx, db, "prices_include_vat", "false")
+	if err != nil {
+		return false, err
+	}
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "1", "yes", "on":
+		return true, nil
+	}
+	return false, nil
+}
+
+// extractIncludedVAT finishes a cart whose prices include VAT. Up to here every
+// amount — prices, discounts, points — was what the customer pays. Each line's
+// VAT is taken out of its own paid amount, so the bill total is exactly the sum
+// of the shelf prices less discounts, satang for satang. Every stored amount is
+// then moved to its before-VAT value, so an invoice reads the same whichever way
+// the shop prices.
+func extractIncludedVAT(result *cartResult) {
+	result.Subtotal, result.TaxAmount, result.TotalAmount = 0, 0, 0
+	ratioSum, paidSum := 0.0, 0.0
+	for index, line := range result.Lines {
+		paid := platform.Round2(line.LineSubtotal)
+		// What the cashier typed and sees, before the amounts go before-VAT.
+		result.ShownDiscount = platform.Round2(result.ShownDiscount + line.DiscountAmount + line.BillDiscountShare)
+		result.ShownPointsDiscount = platform.Round2(result.ShownPointsDiscount + line.PointsDiscountShare)
+		line.TaxAmount = platform.Round2(paid * line.TaxRate / (100 + line.TaxRate))
+		line.LineSubtotal = platform.Round2(paid - line.TaxAmount)
+		line.LineTotal = paid
+		net := func(value float64) float64 { return platform.Round2(value * 100 / (100 + line.TaxRate)) }
+		line.UnitPrice = net(line.UnitPrice)
+		line.SoldUnitPrice = net(line.SoldUnitPrice)
+		line.GrossSubtotal = net(line.GrossSubtotal)
+		line.DiscountAmount = net(line.DiscountAmount)
+		// ManualDiscount stays as typed: only a quotation keeps it, to type it
+		// again when the quotation becomes a sale.
+		line.BillDiscountShare = net(line.BillDiscountShare)
+		line.PointsDiscountShare = net(line.PointsDiscountShare)
+		line.DiscountCeilingRemaining = net(line.DiscountCeilingRemaining)
+		result.Lines[index] = line
+		result.Subtotal = platform.Round2(result.Subtotal + line.LineSubtotal)
+		result.TaxAmount = platform.Round2(result.TaxAmount + line.TaxAmount)
+		result.TotalAmount = platform.Round2(result.TotalAmount + paid)
+		if paid > 0 {
+			ratioSum += line.LineSubtotal
+			paidSum += paid
+		}
+	}
+	// The bill's own discount figures follow the lines to before-VAT values.
+	ratio := 1.0
+	if paidSum > 0 {
+		ratio = ratioSum / paidSum
+	}
+	result.LineDiscount = platform.Round2(result.LineDiscount * ratio)
+	result.BillDiscount = platform.Round2(result.BillDiscount * ratio)
+	result.PromotionDiscount = platform.Round2(result.PromotionDiscount * ratio)
+	result.PointsDiscount = platform.Round2(result.PointsDiscount * ratio)
 }
 
 // lineConversion guards against a zero multiplier reaching the CHECK constraint

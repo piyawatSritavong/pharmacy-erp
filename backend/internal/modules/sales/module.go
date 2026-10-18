@@ -174,6 +174,9 @@ type pricedLine struct {
 	IsGiveaway          bool
 	PromotionID         string
 	PromotionName       string
+	// ShelfUnitPrice is the price per selling unit as the shop priced it —
+	// VAT-inclusive when the shop prices that way — for the till to show.
+	ShelfUnitPrice float64
 	// Discount headroom left on this line after the cashier's own discount,
 	// used to cap the bill-level discount.
 	DiscountCeilingRemaining float64
@@ -265,6 +268,7 @@ func addCartSummary(preview map[string]any, cart cartResult) {
 		summary = map[string]any{}
 		preview["summary"] = summary
 	}
+	summary["prices_include_vat"] = cart.PricesIncludeVAT
 	summary["line_discount_total"] = cart.LineDiscount
 	summary["bill_discount_amount"] = cart.BillDiscount
 	summary["promotion_discount_total"] = cart.PromotionDiscount
@@ -272,6 +276,11 @@ func addCartSummary(preview map[string]any, cart cartResult) {
 	summary["giveaway_cost_total"] = cart.GiveawayCost
 	summary["points_redeemed"] = cart.PointsRedeemed
 	summary["points_discount"] = cart.PointsDiscount
+	if cart.PricesIncludeVAT {
+		// The till shows the discount the cashier typed, not its before-VAT part.
+		summary["discount_total"] = cart.ShownDiscount
+		summary["points_discount"] = cart.ShownPointsDiscount
+	}
 	preview["applied_promotions"] = cart.AppliedPromotions
 	if len(cart.GiveawayShortages) > 0 {
 		preview["giveaway_shortages"] = cart.GiveawayShortages
@@ -318,6 +327,7 @@ func buildPreview(lines []pricedLine, subtotal, taxAmount, totalAmount, vatRate 
 			"conversion_qty":        line.ConversionQty,
 			"sold_quantity":         line.SoldQuantity,
 			"sold_unit_price":       line.SoldUnitPrice,
+			"shelf_unit_price":      line.ShelfUnitPrice,
 			"discount_amount":       platform.Round2(line.DiscountAmount + line.BillDiscountShare + line.PointsDiscountShare),
 			"points_discount_share": line.PointsDiscountShare,
 			"is_giveaway":           line.IsGiveaway,
@@ -1621,6 +1631,24 @@ func (s *Service) ConvertQuotation(ctx context.Context, user platform.AuthUser, 
 	if len(input.Allocations) == 0 {
 		return "", platform.NewError(http.StatusBadRequest, "กรุณาเลือก lot สำหรับสินค้าทุกรายการก่อนออกใบขาย")
 	}
+	// A quotation keeps before-VAT prices. When the shop prices VAT-inclusive,
+	// the checkout reads a typed price as VAT-inclusive, so the quoted prices
+	// and bill discount go back to what the customer was quoted.
+	inclusive, err := pricesIncludeVAT(ctx, s.db)
+	if err != nil {
+		return "", err
+	}
+	vatRate, err := platform.GetSettingFloat(ctx, s.db, "vat_rate", 7)
+	if err != nil {
+		return "", err
+	}
+	gross := func(value float64) float64 {
+		if !inclusive {
+			return value
+		}
+		return platform.Round2(value * (100 + vatRate) / 100)
+	}
+	billDiscount = gross(billDiscount)
 	allocated := map[string]int{}
 	discountGiven := map[string]float64{}
 	items := []LineInput{}
@@ -1633,12 +1661,12 @@ func (s *Service) ConvertQuotation(ctx context.Context, user platform.AuthUser, 
 		// Lots are allocated in base units. A slice that is a whole number of
 		// the quoted unit keeps that unit and its price; otherwise it is sold in
 		// base units at the quoted price spread per base unit.
-		unitID, quantity, price := line.UnitID, allocation.Quantity, line.SoldUnitPrice
+		unitID, quantity, price := line.UnitID, allocation.Quantity, gross(line.SoldUnitPrice)
 		if line.Conversion > 1 {
 			if allocation.Quantity%line.Conversion == 0 {
 				quantity = allocation.Quantity / line.Conversion
 			} else {
-				unitID, price = "", platform.Round2(line.SoldUnitPrice/float64(line.Conversion))
+				unitID, price = "", platform.Round2(gross(line.SoldUnitPrice)/float64(line.Conversion))
 			}
 		}
 		// The cashier's discount follows the quantity; the last slice of a line

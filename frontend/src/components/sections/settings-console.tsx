@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { DataTable, SectionCard } from "@/components/sections/common";
 import { MarketplaceConsole } from "@/components/sections/marketplace-console";
+import { SalesSettingsCard } from "@/components/sections/sales-settings-card";
 import { Field } from "@/components/ui/field";
 import { AutoResizeTextarea, Badge, Button, Checkbox, CheckboxField, Dialog, DialogContent, DialogFooter, DialogHeader, EmptyState, FeedbackNotice, Input, Pagination, Select, Switch, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/primitives";
 import type { Feedback } from "@/components/ui/primitives";
@@ -399,7 +400,12 @@ export function SettingsConsole({
           <TabsTrigger value="role-permissions">บทบาทและสิทธิ์</TabsTrigger>
           <TabsTrigger value="sequences">เลขที่เอกสาร</TabsTrigger>
           <TabsTrigger value="marketplace">ตลาดออนไลน์</TabsTrigger>
+          <TabsTrigger value="sales">การขายและ VAT</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="sales">
+          <SalesSettingsCard />
+        </TabsContent>
 
         <TabsContent className="space-y-6" value="branches">
           <SectionCard

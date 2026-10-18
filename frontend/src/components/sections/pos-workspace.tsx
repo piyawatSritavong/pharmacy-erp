@@ -47,6 +47,7 @@ type Preview = {
     points_redeemed?: number;
     points_discount?: number;
     points_to_earn?: number;
+    prices_include_vat?: boolean;
     due_date?: string;
     credit_available_after?: number;
   };
@@ -1343,7 +1344,7 @@ export function PosWorkspace({
                       </p>
                       {priceSourceLabel(priced?.price_source) ? (
                         <span className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-2xs font-semibold text-primary">
-                          {priceSourceLabel(priced?.price_source)} · {currency(Number(priced?.sold_unit_price || 0))}/{String(priced?.unit_name || "หน่วย")}
+                          {priceSourceLabel(priced?.price_source)} · {currency(Number(priced?.shelf_unit_price ?? priced?.sold_unit_price ?? 0))}/{String(priced?.unit_name || "หน่วย")}
                         </span>
                       ) : null}
                     </div>
@@ -1355,7 +1356,8 @@ export function PosWorkspace({
                       {currency(
                         priced?.line_subtotal == null
                           ? Number(line.product.effective_price || 0) * line.quantity - Number(line.discount || 0)
-                          : Number(priced.line_subtotal)
+                          // VAT-inclusive shops read each line at what the customer pays.
+                          : Number(preview?.summary.prices_include_vat ? priced.line_total : priced.line_subtotal)
                       )}
                     </p>
                   </div>
@@ -1474,7 +1476,7 @@ export function PosWorkspace({
               </div>
             ) : null}
             <div className="flex justify-between"><span>ยอดก่อนภาษี</span><span>{currency(Number(preview?.summary.subtotal || 0))}</span></div>
-            <div className="flex justify-between"><span>ภาษีมูลค่าเพิ่ม</span><span>{currency(Number(preview?.summary.tax_amount || 0))}</span></div>
+            <div className="flex justify-between"><span>{preview?.summary.prices_include_vat ? "ภาษีมูลค่าเพิ่ม (รวมในราคาแล้ว)" : "ภาษีมูลค่าเพิ่ม"}</span><span>{currency(Number(preview?.summary.tax_amount || 0))}</span></div>
             <div className="flex flex-wrap justify-between gap-1 pt-2 text-lg font-bold sm:text-xl"><span>ยอดรวม</span><span>{currency(Number(preview?.summary.total_amount || 0))}</span></div>
             {customer && preview ? (
               <p className="text-right text-xs text-primary">บิลนี้ได้ {Number(preview.summary.points_to_earn || 0).toLocaleString("th-TH")} แต้ม</p>
