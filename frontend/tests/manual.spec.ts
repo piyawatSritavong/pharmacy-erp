@@ -57,17 +57,17 @@ test.describe("refactored operational workflows", () => {
     await expect(page.getByText("ราคาขาย", { exact: true })).toHaveCount(0);
   });
 
-  test("ใบขายเปิดหน้าใบเสนอราคา/ใบขาย และ รพ.สต. บอกตามจริงว่ายังไม่พร้อม", async ({ page }) => {
+  test("ใบขายเปิดหน้าใบเสนอราคา/ใบขาย ส่วน รพ.สต. และ อย. เป็น Pro", async ({ page }) => {
     await signIn(page, "superadmin@erp.local", "/dashboard");
 
-    // The Pro gate is switched off for now (DECISION_LOG 2026-10-09): ใบขาย
-    // is the V1 quotation and invoice desk, and รพ.สต. says plainly that it is
-    // not ready rather than offering a form that does nothing.
-    // ใบขาย is the V1 quotation and invoice desk.
+    // ใบขาย is the V1 quotation and invoice desk; รพ.สต. and อย. stay Pro.
     await page.goto("/sales-management");
     await expect(page.getByRole("heading", { level: 1, name: "ใบขาย", exact: true })).toBeVisible();
+    // รพ.สต. and อย. stay Pro-only until their requirements are settled.
     await page.goto("/government-sales");
-    await expect(page.getByText("งานส่วนนี้อยู่ในแผนพัฒนาลำดับถัดไป ยังไม่พร้อมทำรายการ")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "เอกสาร รพ.สต. อยู่ในแพ็กเกจ Pro" })).toBeVisible();
+    await page.goto("/fda-reports");
+    await expect(page.getByRole("heading", { name: "เอกสารนำส่ง อย. อยู่ในแพ็กเกจ Pro" })).toBeVisible();
     // No price, trial or subscribe button for billing that doesn't exist.
     await expect(page.getByText("฿990")).toHaveCount(0);
   });

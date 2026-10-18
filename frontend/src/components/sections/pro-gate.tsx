@@ -2,17 +2,35 @@ import type { ReactNode } from "react";
 import { LockKeyhole } from "lucide-react";
 
 import { PageIntro } from "@/components/sections/common";
-import { PRO_GATE_ENABLED } from "@/lib/pro-access";
+import { isProGated } from "@/lib/pro-access";
 
 /** A neutral skeleton to sit behind the blur, so a locked page still reads as a
  *  real screen without running its real (and now pointless) queries. */
-export function LockedPreview({ title, description }: { title: string; description: string }) {
+export function LockedPreview({ title, description, notice = false }: { title: string; description: string; notice?: boolean }) {
   return (
     <div className="space-y-6">
       <PageIntro description={description} title={title} />
-      <div className="rounded-2xl border bg-card p-6">
-        <p className="text-sm text-muted-foreground">งานส่วนนี้อยู่ในแผนพัฒนาลำดับถัดไป ยังไม่พร้อมทำรายการ</p>
-      </div>
+      {notice ? (
+        <div className="rounded-2xl border bg-card p-6">
+          <p className="text-sm text-muted-foreground">งานส่วนนี้อยู่ในแผนพัฒนาลำดับถัดไป ยังไม่พร้อมทำรายการ</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div className="h-24 rounded-2xl border bg-muted/40" key={index} />
+            ))}
+          </div>
+          <div className="rounded-2xl border bg-card p-6">
+            <div className="h-6 w-48 rounded bg-muted" />
+            <div className="mt-4 space-y-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div className="h-10 rounded-lg bg-muted/50" key={index} />
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -26,8 +44,8 @@ export function LockedPreview({ title, description }: { title: string; descripti
  * trial and offer a "subscribe" button whose toast promised a call back — but
  * billing was never wired up and nothing was sent anywhere.
  */
-export function ProGate({ feature, children }: { feature: string; children: ReactNode }) {
-  if (!PRO_GATE_ENABLED) return <>{children}</>;
+export function ProGate({ feature, href, children }: { feature: string; href?: string; children: ReactNode }) {
+  if (!isProGated(href)) return <>{children}</>;
   return (
     <div className="relative min-h-[70vh]">
       <div aria-hidden className="pointer-events-none select-none blur-[6px]">
@@ -38,9 +56,10 @@ export function ProGate({ feature, children }: { feature: string; children: Reac
           <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-primary/10 text-primary">
             <LockKeyhole className="h-7 w-7" />
           </span>
-          <h2 className="mt-5 text-xl font-semibold tracking-tight sm:text-2xl">{feature} ยังไม่เปิดใช้งาน</h2>
+          <p className="mt-5 text-xs font-semibold uppercase tracking-wide text-primary">PharmaPOS Pro</p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">{feature} อยู่ในแพ็กเกจ Pro</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            ฟีเจอร์นี้ยังไม่เปิดในระบบของร้าน หากต้องการใช้งาน ติดต่อผู้ดูแลระบบ
+            ฟีเจอร์นี้เปิดใช้ได้เฉพาะแพ็กเกจ Pro หากต้องการใช้งาน ติดต่อผู้ดูแลระบบ
           </p>
         </div>
       </div>

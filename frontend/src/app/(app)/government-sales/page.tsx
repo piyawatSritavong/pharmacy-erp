@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "รพ.สต." };
 export default async function GovernmentSalesPage() {
   await requireSession();
   return (
-    <ProGate feature="เอกสาร รพ.สต.">
+    <ProGate href="/government-sales" feature="เอกสาร รพ.สต.">
       <LockedPreview title="รพ.สต." description="ใบเสนอราคาและใบขายสำหรับหน่วยงานราชการโดยเฉพาะ" />
     </ProGate>
   );

@@ -256,7 +256,7 @@ test.describe("สิทธิ์และการนำทางสองบ�
     // not ready yet, and ใบขาย opens its V2 pilot.
     await session.page.goto("/government-sales");
     await session.page.waitForURL(/\/government-sales$/);
-    await expect(session.page.getByRole("heading", { level: 1, name: "รพ.สต.", exact: true })).toBeVisible();
+    await expect(session.page.getByRole("heading", { name: "เอกสาร รพ.สต. อยู่ในแพ็กเกจ Pro" })).toBeVisible();
     // ใบขาย is the V1 quotation and invoice desk.
     await session.page.goto("/sales-management");
     await expect(session.page.getByRole("heading", { level: 1, name: "ใบขาย", exact: true })).toBeVisible();
