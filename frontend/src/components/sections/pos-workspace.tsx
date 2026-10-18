@@ -96,6 +96,16 @@ function parseMoneyCents(value: string) {
   return Math.round(amount * 100);
 }
 
+/** Why a line is cheaper than the shelf price, in the cashier's words. */
+function priceSourceLabel(source: unknown) {
+  const value = String(source || "");
+  const level = /^price_level_(\d)$/.exec(value);
+  if (level) return `ราคาสมาชิก L${level[1]}`;
+  if (value === "wholesale_tier") return "ราคาส่ง";
+  if (value === "quantity_tier") return "ราคาตามจำนวน";
+  return "";
+}
+
 /** Exact change, then the banknotes a customer is likely to hand over. */
 function quickCash(totalCents: number): number[] {
   if (totalCents <= 0) return [];
@@ -1331,6 +1341,11 @@ export function PosWorkspace({
                         {String(line.product.sku || "")} · Lot {String(line.lot.lot_number)} × {line.quantity}
                         {line.lot.expires_on ? ` · หมดอายุ ${new Date(String(line.lot.expires_on)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })}` : ""}
                       </p>
+                      {priceSourceLabel(priced?.price_source) ? (
+                        <span className="mt-1 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-2xs font-semibold text-primary">
+                          {priceSourceLabel(priced?.price_source)} · {currency(Number(priced?.sold_unit_price || 0))}/{String(priced?.unit_name || "หน่วย")}
+                        </span>
+                      ) : null}
                     </div>
                     {/* Bigger, bolder line price — the number a cashier scans down the cart to check. */}
                     {/* Before tax: ราคาต่อหน่วย × จำนวน (less any line discount),

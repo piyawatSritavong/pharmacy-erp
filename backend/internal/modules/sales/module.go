@@ -286,6 +286,7 @@ func addCartSummary(preview map[string]any, cart cartResult) {
 			"id": customer.ID, "customer_code": customer.Code, "name": customer.Name, "phone": customer.Phone,
 			"price_tier": customer.PriceTier, "points_balance": customer.PointsBalance,
 			"credit_limit": customer.CreditLimit, "credit_days": customer.CreditDays,
+			"member_level": customer.MemberLevel, "member_level_name": customer.LevelName, "price_level": customer.PriceLevel,
 		}
 	}
 }
@@ -2025,7 +2026,7 @@ func nextDocumentNumber(ctx context.Context, tx *sql.Tx, branchID string, docTyp
 	return number, nil
 }
 
-func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platform.AuthUser, branchID string, isGovernment bool, items []LineInput, vatRate float64, requireLot bool, wholesale bool) ([]pricedLine, float64, float64, float64, error) {
+func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platform.AuthUser, branchID string, isGovernment bool, items []LineInput, vatRate float64, requireLot bool, pricing customerPricing) ([]pricedLine, float64, float64, float64, error) {
 	if len(items) == 0 {
 		return nil, 0, 0, 0, platform.NewError(http.StatusBadRequest, "at least one line is required")
 	}
@@ -2089,7 +2090,8 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 		// when it is lower. Government sales keep their own alias pricing.
 		tierSource := ""
 		if !isGovernment {
-			price, customerTier, ok, err := tierPrice(ctx, db, productID, unit, branchID, wholesale, soldQuantity)
+			shelf := unit.Price
+			price, customerTier, ok, err := tierPrice(ctx, db, productID, unit, branchID, pricing.Wholesale, soldQuantity)
 			if err != nil {
 				return nil, 0, 0, 0, err
 			}
@@ -2099,6 +2101,15 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 				if customerTier == "wholesale" {
 					tierSource = "wholesale_tier"
 				}
+			}
+			// A member's level price, when it beats both the shelf and any tier.
+			levelPrice, level, ok, err := memberLevelPrice(ctx, db, productID, unit, shelf, pricing.PriceLevel)
+			if err != nil {
+				return nil, 0, 0, 0, err
+			}
+			if ok && levelPrice < unit.Price {
+				unit.Price = levelPrice
+				tierSource = fmt.Sprintf("price_level_%d", level)
 			}
 		}
 

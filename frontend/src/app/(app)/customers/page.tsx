@@ -21,6 +21,7 @@ export default async function CustomersPage() {
         canCollect={permissions.includes("payment.collect")}
         canManage={permissions.includes("customer.manage")}
         canTerms={permissions.includes("customer.credit.manage")}
+        canLevels={permissions.includes("customer.level.manage")}
         loyalty={loyalty}
       />
     </div>

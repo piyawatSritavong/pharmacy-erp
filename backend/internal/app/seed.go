@@ -202,7 +202,7 @@ func Seed(ctx context.Context, db *sql.DB, cfg config.Config) error {
 			"suppliers.view.global", "suppliers.manage.global", "purchase_orders.view.global", "purchase_orders.manage.global",
 			"promotion.manage", "promotion.view", "sales.discount.line",
 			"returns.manage", "fda.manage",
-			"customer.view", "customer.manage", "customer.credit.manage", "receivable.view", "price_tier.manage",
+			"customer.view", "customer.manage", "customer.credit.manage", "receivable.view", "price_tier.manage", "customer.level.manage",
 			// Superadmin also opens the two branch-operations pages.
 			"dashboard.view.self", "inventory.view.branch",
 		},

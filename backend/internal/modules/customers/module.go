@@ -29,6 +29,7 @@ type Input struct {
 	Address      string   `json:"address"`
 	Note         string   `json:"note"`
 	PriceTier    string   `json:"price_tier"`
+	MemberLevel  *int     `json:"member_level"`
 	CreditLimit  *float64 `json:"credit_limit"`
 	CreditDays   *int     `json:"credit_days"`
 	HomeBranchID string   `json:"home_branch_id"`
@@ -100,6 +101,9 @@ func validate(user platform.AuthUser, input Input, creating bool) (Input, error)
 	if input.PriceTier != "" && input.PriceTier != "retail" && input.PriceTier != "wholesale" {
 		return input, platform.NewError(http.StatusBadRequest, "ระดับราคาต้องเป็นขายปลีกหรือขายส่ง")
 	}
+	if input.MemberLevel != nil && (*input.MemberLevel < 1 || *input.MemberLevel > 5) {
+		return input, platform.NewError(http.StatusBadRequest, "ระดับสมาชิกต้องอยู่ระหว่าง 1-5")
+	}
 	if input.CreditLimit != nil && (*input.CreditLimit < 0 || *input.CreditLimit > 100_000_000) {
 		return input, platform.NewError(http.StatusBadRequest, "วงเงินเครดิตไม่ถูกต้อง")
 	}
@@ -113,6 +117,11 @@ func validate(user platform.AuthUser, input Input, creating bool) (Input, error)
 		(input.CreditDays != nil && *input.CreditDays > 0)
 	if touchesTerms && !platform.HasPermission(user, "customer.credit.manage") {
 		return input, platform.NewError(http.StatusForbidden, "การกำหนดวงเงินเครดิตหรือราคาส่งต้องทำโดยสำนักงานใหญ่")
+	}
+	// A new member starts at level 1; anything higher is a cheaper price, and
+	// head office decides who gets one.
+	if creating && input.MemberLevel != nil && *input.MemberLevel > 1 && !platform.HasPermission(user, "customer.level.manage") {
+		return input, platform.NewError(http.StatusForbidden, "การกำหนดระดับสมาชิกสูงกว่าระดับ 1 ต้องทำโดยสำนักงานใหญ่")
 	}
 	return input, nil
 }
@@ -129,6 +138,10 @@ func (s *Service) Create(ctx context.Context, user platform.AuthUser, meta audit
 	priceTier := input.PriceTier
 	if priceTier == "" {
 		priceTier = "retail"
+	}
+	memberLevel := 1
+	if input.MemberLevel != nil {
+		memberLevel = *input.MemberLevel
 	}
 	creditLimit, creditDays := 0.0, 0
 	if input.CreditLimit != nil {
@@ -147,17 +160,17 @@ func (s *Service) Create(ctx context.Context, user platform.AuthUser, meta audit
 		code = fmt.Sprintf("C%06d", next)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO customers (id, customer_code, customer_type, name, phone, tax_id, address, note,
-				price_tier, credit_limit, credit_days, home_branch_id, active, created_by, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,TRUE,$13,NOW(),NOW())
+				price_tier, credit_limit, credit_days, home_branch_id, active, created_by, created_at, updated_at, member_level)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,TRUE,$13,NOW(),NOW(),$14)
 		`, id, code, input.CustomerType, input.Name, input.Phone, input.TaxID, input.Address, input.Note,
-			priceTier, creditLimit, creditDays, platform.NullUUID(&homeBranch), user.ID); err != nil {
+			priceTier, creditLimit, creditDays, platform.NullUUID(&homeBranch), user.ID, memberLevel); err != nil {
 			return platform.MapUniqueViolation(err, "เบอร์โทรนี้เป็นสมาชิกอยู่แล้ว")
 		}
 		meta.EntityType = "customer"
 		meta.EntityID = &id
 		meta.Action = "customer.create"
 		meta.After = map[string]any{"customer_code": code, "name": input.Name, "price_tier": priceTier,
-			"credit_limit": creditLimit, "credit_days": creditDays}
+			"credit_limit": creditLimit, "credit_days": creditDays, "member_level": memberLevel}
 		return s.audit.Log(ctx, tx, meta)
 	})
 	if err != nil {
@@ -177,16 +190,23 @@ func (s *Service) Update(ctx context.Context, user platform.AuthUser, meta audit
 			Limit             float64
 			Days              int
 			Active            bool
+			Level             int
 		}
 		if err := tx.QueryRowContext(ctx, `
-			SELECT name, phone, price_tier, credit_limit, credit_days, active FROM customers WHERE id=$1 FOR UPDATE
-		`, id).Scan(&before.Name, &before.Phone, &before.Tier, &before.Limit, &before.Days, &before.Active); err != nil {
+			SELECT name, phone, price_tier, credit_limit, credit_days, active, member_level FROM customers WHERE id=$1 FOR UPDATE
+		`, id).Scan(&before.Name, &before.Phone, &before.Tier, &before.Limit, &before.Days, &before.Active, &before.Level); err != nil {
 			if err == sql.ErrNoRows {
 				return platform.NewError(http.StatusNotFound, "ไม่พบลูกค้า")
 			}
 			return err
 		}
-		tier, limit, days, active := before.Tier, before.Limit, before.Days, before.Active
+		tier, limit, days, active, level := before.Tier, before.Limit, before.Days, before.Active, before.Level
+		if input.MemberLevel != nil && *input.MemberLevel != before.Level {
+			if !platform.HasPermission(user, "customer.level.manage") {
+				return platform.NewError(http.StatusForbidden, "การเปลี่ยนระดับสมาชิกต้องทำโดยสำนักงานใหญ่")
+			}
+			level = *input.MemberLevel
+		}
 		canTerms := platform.HasPermission(user, "customer.credit.manage")
 		if canTerms {
 			if input.PriceTier != "" {
@@ -205,19 +225,19 @@ func (s *Service) Update(ctx context.Context, user platform.AuthUser, meta audit
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE customers
 			SET customer_type=$2, name=$3, phone=$4, tax_id=$5, address=$6, note=$7,
-			    price_tier=$8, credit_limit=$9, credit_days=$10, active=$11, updated_at=NOW()
+			    price_tier=$8, credit_limit=$9, credit_days=$10, active=$11, member_level=$12, updated_at=NOW()
 			WHERE id=$1
 		`, id, input.CustomerType, input.Name, input.Phone, input.TaxID, input.Address, input.Note,
-			tier, limit, days, active); err != nil {
+			tier, limit, days, active, level); err != nil {
 			return platform.MapUniqueViolation(err, "เบอร์โทรนี้เป็นสมาชิกอยู่แล้ว")
 		}
 		meta.EntityType = "customer"
 		meta.EntityID = &id
 		meta.Action = "customer.update"
 		meta.Before = map[string]any{"name": before.Name, "phone": before.Phone, "price_tier": before.Tier,
-			"credit_limit": before.Limit, "credit_days": before.Days, "active": before.Active}
+			"credit_limit": before.Limit, "credit_days": before.Days, "active": before.Active, "member_level": before.Level}
 		meta.After = map[string]any{"name": input.Name, "phone": input.Phone, "price_tier": tier,
-			"credit_limit": limit, "credit_days": days, "active": active}
+			"credit_limit": limit, "credit_days": days, "active": active, "member_level": level}
 		return s.audit.Log(ctx, tx, meta)
 	})
 }
@@ -277,6 +297,7 @@ func InsertPointEntry(ctx context.Context, tx *sql.Tx, customerID, branchID, inv
 type ListFilter struct {
 	Search     string
 	Tier       string
+	Level      int
 	CreditOnly bool
 	Active     string
 	Page       int
@@ -300,6 +321,10 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, filter ListF
 	if filter.Tier == "retail" || filter.Tier == "wholesale" {
 		args = append(args, filter.Tier)
 		conditions = append(conditions, fmt.Sprintf("c.price_tier = $%d", len(args)))
+	}
+	if filter.Level >= 1 && filter.Level <= 5 {
+		args = append(args, filter.Level)
+		conditions = append(conditions, fmt.Sprintf("c.member_level = $%d", len(args)))
 	}
 	if filter.CreditOnly {
 		conditions = append(conditions, "c.credit_limit > 0")
@@ -330,12 +355,13 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, filter ListF
 		       c.credit_limit, c.credit_days, c.points_balance, c.active, COALESCE(b.name, ''),
 		       COALESCE(SUM(o.outstanding), 0),
 		       COALESCE(SUM(o.outstanding) FILTER (WHERE o.due_date < `+bangkokToday+`), 0),
-		       c.created_at
+		       c.created_at, c.member_level, COALESCE(ml.name, ''), COALESCE(ml.price_level, 1)
 		FROM customers c
 		LEFT JOIN branches b ON b.id = c.home_branch_id
+		LEFT JOIN member_levels ml ON ml.level = c.member_level
 		LEFT JOIN open o ON o.customer_id = c.id
 		WHERE `+where+`
-		GROUP BY c.id, b.name
+		GROUP BY c.id, b.name, ml.level
 		ORDER BY c.created_at DESC, c.id
 		LIMIT $`+strconv.Itoa(len(args)-1)+` OFFSET $`+strconv.Itoa(len(args)), args...)
 	if err != nil {
@@ -346,20 +372,30 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, filter ListF
 	for rows.Next() {
 		var id, code, kind, name, phone, taxID, tier, branch string
 		var limit, outstanding, overdue float64
-		var days, points int
+		var days, points, level, priceLevel int
+		var levelName string
 		var active bool
 		var createdAt time.Time
 		if err := rows.Scan(&id, &code, &kind, &name, &phone, &taxID, &tier, &limit, &days, &points, &active,
-			&branch, &outstanding, &overdue, &createdAt); err != nil {
+			&branch, &outstanding, &overdue, &createdAt, &level, &levelName, &priceLevel); err != nil {
 			return nil, err
 		}
-		items = append(items, customerSummary(id, code, kind, name, phone, taxID, tier, limit, days, points, active,
-			branch, outstanding, overdue, createdAt))
+		item := customerSummary(id, code, kind, name, phone, taxID, tier, limit, days, points, active,
+			branch, outstanding, overdue, createdAt)
+		withLevel(item, level, levelName, priceLevel)
+		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return map[string]any{"items": items, "total": total, "page": page, "page_size": pageSize}, nil
+}
+
+// withLevel adds a member's level and the price level it buys at.
+func withLevel(item map[string]any, level int, name string, priceLevel int) {
+	item["member_level"] = level
+	item["member_level_name"] = name
+	item["price_level"] = priceLevel
 }
 
 func customerSummary(id, code, kind, name, phone, taxID, tier string, limit float64, days, points int, active bool,
@@ -475,17 +511,20 @@ func (s *Service) listOne(ctx context.Context, id string) (map[string]any, error
 		       c.credit_limit, c.credit_days, c.points_balance, c.active, COALESCE(b.name, ''),
 		       COALESCE((SELECT SUM(outstanding) FROM open), 0),
 		       COALESCE((SELECT SUM(outstanding) FROM open WHERE due_date < `+bangkokToday+`), 0),
-		       c.created_at, c.address, c.note, COALESCE(c.home_branch_id::text, '')
+		       c.created_at, c.address, c.note, COALESCE(c.home_branch_id::text, ''),
+		       c.member_level, COALESCE(ml.name, ''), COALESCE(ml.price_level, 1)
 		FROM customers c LEFT JOIN branches b ON b.id = c.home_branch_id
+		LEFT JOIN member_levels ml ON ml.level = c.member_level
 		WHERE c.id = $1
 	`, id)
 	var code, kind, name, phone, taxID, tier, branch, address, note, homeBranchID string
 	var limit, outstanding, overdue float64
-	var days, points int
+	var days, points, level, priceLevel int
+	var levelName string
 	var active bool
 	var createdAt time.Time
 	if err := row.Scan(&id, &code, &kind, &name, &phone, &taxID, &tier, &limit, &days, &points, &active, &branch,
-		&outstanding, &overdue, &createdAt, &address, &note, &homeBranchID); err != nil {
+		&outstanding, &overdue, &createdAt, &address, &note, &homeBranchID, &level, &levelName, &priceLevel); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, platform.NewError(http.StatusNotFound, "ไม่พบลูกค้า")
 		}
@@ -493,6 +532,7 @@ func (s *Service) listOne(ctx context.Context, id string) (map[string]any, error
 	}
 	item := customerSummary(id, code, kind, name, phone, taxID, tier, limit, days, points, active, branch,
 		outstanding, overdue, createdAt)
+	withLevel(item, level, levelName, priceLevel)
 	item["address"] = address
 	item["note"] = note
 	item["home_branch_id"] = homeBranchID
@@ -542,7 +582,7 @@ func (h *Handler) List(c echo.Context) error {
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	pageSize, _ := strconv.Atoi(c.QueryParam("page_size"))
 	result, err := h.service.List(c.Request().Context(), platform.CurrentUser(c), ListFilter{
-		Search: c.QueryParam("search"), Tier: c.QueryParam("price_tier"),
+		Search: c.QueryParam("search"), Tier: c.QueryParam("price_tier"), Level: atoiOrZero(c.QueryParam("member_level")),
 		CreditOnly: c.QueryParam("credit_only") == "true", Active: c.QueryParam("active"),
 		Page: page, PageSize: pageSize,
 	})
@@ -683,4 +723,136 @@ func (h *Handler) SaveLoyaltySettings(c echo.Context) error {
 		return platform.HandleHTTPError(c, err)
 	}
 	return platform.JSONMessage(c, http.StatusOK, "บันทึกเงื่อนไขแต้มสะสมแล้ว")
+}
+
+func atoiOrZero(value string) int {
+	number, _ := strconv.Atoi(strings.TrimSpace(value))
+	return number
+}
+
+// MemberLevel is one of the five member levels and the price level it buys at.
+type MemberLevel struct {
+	Level      int    `json:"level"`
+	Name       string `json:"name"`
+	PriceLevel int    `json:"price_level"`
+}
+
+// PriceLevel is one of the five price levels. Level 1 is the shelf price; a
+// default discount fills in for products that carry no price of their own.
+type PriceLevel struct {
+	Level                  int     `json:"level"`
+	Name                   string  `json:"name"`
+	DefaultDiscountPercent float64 `json:"default_discount_percent"`
+}
+
+type LevelSettings struct {
+	MemberLevels []MemberLevel `json:"member_levels"`
+	PriceLevels  []PriceLevel  `json:"price_levels"`
+}
+
+func (s *Service) GetLevelSettings(ctx context.Context) (LevelSettings, error) {
+	settings := LevelSettings{MemberLevels: []MemberLevel{}, PriceLevels: []PriceLevel{}}
+	rows, err := s.db.QueryContext(ctx, `SELECT level, name, default_discount_percent FROM price_levels ORDER BY level`)
+	if err != nil {
+		return settings, err
+	}
+	for rows.Next() {
+		var level PriceLevel
+		if err := rows.Scan(&level.Level, &level.Name, &level.DefaultDiscountPercent); err != nil {
+			rows.Close()
+			return settings, err
+		}
+		settings.PriceLevels = append(settings.PriceLevels, level)
+	}
+	rows.Close()
+	rows, err = s.db.QueryContext(ctx, `SELECT level, name, price_level FROM member_levels ORDER BY level`)
+	if err != nil {
+		return settings, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var level MemberLevel
+		if err := rows.Scan(&level.Level, &level.Name, &level.PriceLevel); err != nil {
+			return settings, err
+		}
+		settings.MemberLevels = append(settings.MemberLevels, level)
+	}
+	return settings, rows.Err()
+}
+
+func (s *Service) SaveLevelSettings(ctx context.Context, user platform.AuthUser, meta audit.LogEntry, input LevelSettings) error {
+	if len(input.MemberLevels) != 5 || len(input.PriceLevels) != 5 {
+		return platform.NewError(http.StatusBadRequest, "ต้องกำหนดครบ 5 ระดับสมาชิกและ 5 ระดับราคา")
+	}
+	seen := map[string]bool{}
+	for _, level := range input.PriceLevels {
+		key := fmt.Sprintf("p%d", level.Level)
+		if level.Level < 1 || level.Level > 5 || seen[key] {
+			return platform.NewError(http.StatusBadRequest, "ระดับราคาไม่ถูกต้อง")
+		}
+		seen[key] = true
+		if strings.TrimSpace(level.Name) == "" {
+			return platform.NewError(http.StatusBadRequest, "กรุณาตั้งชื่อระดับราคาให้ครบ")
+		}
+		if level.DefaultDiscountPercent < 0 || level.DefaultDiscountPercent >= 100 || (level.Level == 1 && level.DefaultDiscountPercent != 0) {
+			return platform.NewError(http.StatusBadRequest, "ส่วนลดตั้งต้นต้องอยู่ระหว่าง 0-99.99% และระดับ 1 คือราคาปกติ ไม่มีส่วนลด")
+		}
+	}
+	for _, level := range input.MemberLevels {
+		key := fmt.Sprintf("m%d", level.Level)
+		if level.Level < 1 || level.Level > 5 || seen[key] {
+			return platform.NewError(http.StatusBadRequest, "ระดับสมาชิกไม่ถูกต้อง")
+		}
+		seen[key] = true
+		if strings.TrimSpace(level.Name) == "" {
+			return platform.NewError(http.StatusBadRequest, "กรุณาตั้งชื่อระดับสมาชิกให้ครบ")
+		}
+		if level.PriceLevel < 1 || level.PriceLevel > 5 {
+			return platform.NewError(http.StatusBadRequest, "ระดับราคาของสมาชิกต้องอยู่ระหว่าง 1-5")
+		}
+	}
+	return platform.WithTx(ctx, s.db, func(tx *sql.Tx) error {
+		before, err := s.GetLevelSettings(ctx)
+		if err != nil {
+			return err
+		}
+		for _, level := range input.PriceLevels {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE price_levels SET name=$2, default_discount_percent=$3, updated_by=$4, updated_at=NOW() WHERE level=$1
+			`, level.Level, strings.TrimSpace(level.Name), platform.Round2(level.DefaultDiscountPercent), platform.NullUUID(&user.ID)); err != nil {
+				return err
+			}
+		}
+		for _, level := range input.MemberLevels {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE member_levels SET name=$2, price_level=$3, updated_by=$4, updated_at=NOW() WHERE level=$1
+			`, level.Level, strings.TrimSpace(level.Name), level.PriceLevel, platform.NullUUID(&user.ID)); err != nil {
+				return err
+			}
+		}
+		meta.EntityType = "settings"
+		meta.Action = "member_levels.update"
+		meta.Before = map[string]any{"member_levels": before.MemberLevels, "price_levels": before.PriceLevels}
+		meta.After = map[string]any{"member_levels": input.MemberLevels, "price_levels": input.PriceLevels}
+		return s.audit.Log(ctx, tx, meta)
+	})
+}
+
+func (h *Handler) GetLevelSettings(c echo.Context) error {
+	settings, err := h.service.GetLevelSettings(c.Request().Context())
+	if err != nil {
+		return platform.HandleHTTPError(c, platform.WrapError(http.StatusInternalServerError, "โหลดระดับสมาชิกไม่สำเร็จ", err))
+	}
+	return platform.JSON(c, http.StatusOK, settings)
+}
+
+func (h *Handler) SaveLevelSettings(c echo.Context) error {
+	var input LevelSettings
+	if err := c.Bind(&input); err != nil {
+		return platform.HandleHTTPError(c, platform.NewError(http.StatusBadRequest, "รูปแบบข้อมูลไม่ถูกต้อง"))
+	}
+	if err := h.service.SaveLevelSettings(c.Request().Context(), platform.CurrentUser(c), audit.MetaFromContext(c), input); err != nil {
+		return platform.HandleHTTPError(c, err)
+	}
+	return platform.JSONMessage(c, http.StatusOK, "บันทึกระดับสมาชิกและระดับราคาแล้ว")
 }

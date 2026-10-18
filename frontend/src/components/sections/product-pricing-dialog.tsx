@@ -41,6 +41,9 @@ export function ProductPricingDialog({
 }) {
   const [units, setUnits] = useState<UnitRow[]>([]);
   const [tiers, setTiers] = useState<TierRow[]>([]);
+  // Price levels 2-5 per selling unit, keyed by unit id ("" = the base unit).
+  const [levelPrices, setLevelPrices] = useState<Record<string, Record<number, string>>>({});
+  const [priceLevels, setPriceLevels] = useState<Array<{ level: number; name: string; default_discount_percent: number }>>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -53,9 +56,18 @@ export function ProductPricingDialog({
     setLoading(true);
     void Promise.all([
       proxyClient<{ items: Option[] }>(`/products/${productId}/units`),
-      proxyClient<{ items: Option[] }>(`/products/${productId}/price-tiers`)
+      proxyClient<{ items: Option[] }>(`/products/${productId}/price-tiers`),
+      proxyClient<{ items: Option[] }>(`/products/${productId}/level-prices`).catch(() => ({ items: [] as Option[] })),
+      proxyClient<{ price_levels: Array<{ level: number; name: string; default_discount_percent: number }> }>("/member-levels").catch(() => ({ price_levels: [] }))
     ])
-      .then(([unitResponse, tierResponse]) => {
+      .then(([unitResponse, tierResponse, levelResponse, levelSettings]) => {
+        const loadedLevels: Record<string, Record<number, string>> = {};
+        for (const item of levelResponse.items || []) {
+          const key = String(item.unit_id || "");
+          loadedLevels[key] = { ...(loadedLevels[key] || {}), [Number(item.price_level)]: String(item.unit_price) };
+        }
+        setLevelPrices(loadedLevels);
+        setPriceLevels(levelSettings.price_levels || []);
         const loadedUnits = (unitResponse.items || []).filter((unit) => unit.active !== false).map((unit) => ({
           id: String(unit.id),
           unit_name: String(unit.unit_name),
@@ -143,6 +155,46 @@ export function ProductPricingDialog({
     }
   }
 
+  async function saveLevelPrices() {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const prices: Array<{ unit_id: string; price_level: number; unit_price: number }> = [];
+      for (const [unitKey, byLevel] of Object.entries(levelPrices)) {
+        for (const [level, value] of Object.entries(byLevel)) {
+          if (value.trim() === "") continue;
+          prices.push({ unit_id: unitKey, price_level: Number(level), unit_price: Number(value) });
+        }
+      }
+      await proxyClient(`/products/${productId}/level-prices`, { method: "PUT", body: JSON.stringify({ prices }) });
+      setFeedback({ tone: "success", text: "บันทึกราคาตามระดับแล้ว มีผลกับการขายหน้าร้านทันที" });
+    } catch (error) {
+      setFeedback({ tone: "error", text: error instanceof Error ? error.message : "บันทึกราคาตามระดับไม่สำเร็จ" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** What a level pays for one unit when nothing is typed: the lowest of the
+   *  levels below it (typed or default discount), or the shelf price. */
+  function fallbackPrice(row: UnitRow, level: number) {
+    const shelf = unitPrice(row);
+    const key = row.is_base ? "" : row.id;
+    let best = shelf;
+    for (let lower = 2; lower <= level; lower += 1) {
+      const typed = levelPrices[key]?.[lower] ?? (row.is_base ? undefined : levelPrices[""]?.[lower] ? String(Number(levelPrices[""][lower]) * Number(row.conversion_qty || 1)) : undefined);
+      const candidates = [] as number[];
+      if (typed && lower < level) candidates.push(Number(typed));
+      const percent = priceLevels.find((item) => item.level === lower)?.default_discount_percent || 0;
+      if (percent > 0) candidates.push(shelf * (1 - percent / 100));
+      for (const value of candidates) if (value > 0 && value < best) best = value;
+    }
+    return Math.round(best * 100) / 100;
+  }
+
+  const levelName = (level: number) => priceLevels.find((item) => item.level === level)?.name || `ราคา L${level}`;
+  const costPrice = Number(product?.cost_price || 0);
+
   const savedUnits = units.filter((unit) => unit.id);
   const baseUnit = units.find((unit) => unit.is_base);
 
@@ -151,7 +203,7 @@ export function ProductPricingDialog({
       <DialogContent className="max-w-4xl">
         <DialogHeader
           description={`ราคาขายตั้งต้น ${currency(basePrice)} ต่อ${baseUnit?.unit_name || "หน่วย"} (ก่อนภาษี) · หน่วยที่ไม่ใส่ราคาจะคิดจากราคาตั้งต้น × จำนวนต่อหน่วย`}
-          title={`หน่วยขายและราคาส่ง · ${String(product?.name || "")}`}
+          title={`หน่วยขาย ราคาตามระดับ และราคาส่ง · ${String(product?.name || "")}`}
         />
         {loading ? <LoadingState label="กำลังโหลด" /> : (
           <div className="space-y-6">
@@ -210,6 +262,65 @@ export function ProductPricingDialog({
               ) : null}
             </section>
 
+            <section className="space-y-3">
+              <div>
+                <h3 className="font-semibold">ราคาตามระดับสมาชิก</h3>
+                <p className="text-xs text-muted-foreground">
+                  L1 คือราคาขายปกติ (ลูกค้าทั่วไป) · L2–L5 ใช้กับสมาชิกตามระดับที่ตั้งไว้ในหน้า ลูกค้าและสมาชิก · ช่องว่าง = ใช้ราคาที่แสดงจาง (ระดับก่อนหน้าหรือส่วนลดตั้งต้น)
+                  {costPrice > 0 ? ` · ต้นทุน ${currency(costPrice)} ต่อ${baseUnit?.unit_name || "หน่วย"}` : ""}
+                </p>
+              </div>
+              {savedUnits.length || units.some((unit) => unit.is_base) ? (
+                <div className="overflow-x-auto rounded-xl border">
+                  <table className="mobile-card-table w-full text-sm sm:min-w-[640px]">
+                    <thead className="bg-muted text-left">
+                      <tr>
+                        <th className="p-2">หน่วย</th>
+                        <th className="p-2">L1 {levelName(1)}</th>
+                        {[2, 3, 4, 5].map((level) => <th className="p-2" key={level}>L{level} {levelName(level)}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {units.filter((row) => row.is_base || row.id).map((row) => {
+                        const key = row.is_base ? "" : row.id;
+                        const unitCost = costPrice * Number(row.is_base ? 1 : row.conversion_qty || 1);
+                        return (
+                          <tr className="border-t" key={key || "base"}>
+                            <td className="p-2 font-medium" data-label="หน่วย" data-primary="true">{row.unit_name || "หน่วยฐาน"}</td>
+                            <td className="p-2 tabular-nums" data-label={`L1 ${levelName(1)}`}>{currency(unitPrice(row))}</td>
+                            {[2, 3, 4, 5].map((level) => {
+                              const value = levelPrices[key]?.[level] ?? "";
+                              const below = value !== "" && unitCost > 0 && Number(value) < unitCost;
+                              return (
+                                <td className="p-2" data-label={`L${level} ${levelName(level)}`} key={level}>
+                                  <Input
+                                    aria-label={`ราคา L${level} ของ${row.unit_name || "หน่วยฐาน"}`}
+                                    className={below ? "border-error text-error-800" : undefined}
+                                    disabled={!canEditTiers}
+                                    min={0.01}
+                                    onChange={(event) => setLevelPrices((current) => ({ ...current, [key]: { ...(current[key] || {}), [level]: event.target.value } }))}
+                                    placeholder={currency(fallbackPrice(row, level))}
+                                    step="0.01"
+                                    type="number"
+                                    value={value}
+                                  />
+                                  {below ? <span className="mt-1 block text-xs text-error-800">ต่ำกว่าต้นทุน {currency(unitCost)}</span> : null}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+              {canEditTiers ? (
+                <div className="flex justify-end">
+                  <Button loading={busy} onClick={() => void saveLevelPrices()} type="button">บันทึกราคาตามระดับ</Button>
+                </div>
+              ) : null}
+            </section>
             <section className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <div>

@@ -155,7 +155,7 @@ test.describe("สมาชิก แต้มสะสม และขายเ
     const { context, page } = await open(browser, "superadmin@erp.local", /\/dashboard$/);
     await page.goto("/product-catalog");
     await page.getByRole("button", { name: "หน่วย/ราคาส่ง" }).first().click();
-    const dialog = page.getByRole("dialog", { name: /^หน่วยขายและราคาส่ง/ });
+    const dialog = page.getByRole("dialog", { name: /^หน่วยขาย/ });
     await expect(dialog.getByText("หน่วยขาย (แตกขายปลีก–ส่ง)")).toBeVisible();
     await dialog.getByRole("button", { name: "เพิ่มหน่วย" }).click();
     await dialog.getByLabel("ชื่อหน่วย").last().fill(`แพ็ค ${stamp}`);

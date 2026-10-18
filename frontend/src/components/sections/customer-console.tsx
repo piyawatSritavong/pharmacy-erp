@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Coins, CreditCard, Eye, Pencil, Plus, Search, Settings2, UserRound } from "lucide-react";
+import { Coins, CreditCard, Crown, Eye, Pencil, Plus, Search, Settings2, UserRound } from "lucide-react";
 
 import { Field } from "@/components/ui/field";
 import {
@@ -61,6 +61,24 @@ const PAYMENT_STATUS: Record<string, { label: string; tone: "success" | "warning
   unpaid: { label: "ค้างชำระ", tone: "error" }
 };
 
+export type MemberLevel = { level: number; name: string; price_level: number };
+export type PriceLevel = { level: number; name: string; default_discount_percent: number };
+export type LevelSettings = { member_levels: MemberLevel[]; price_levels: PriceLevel[] };
+
+/** A member's level, and the price level it buys at. */
+export function LevelBadge({ level, name, priceLevel }: { level: unknown; name?: unknown; priceLevel?: unknown }) {
+  const value = Number(level || 1);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <Badge tone={value >= 3 ? "primary" : value === 2 ? "info" : "neutral"}>
+        <Crown className="mr-1 h-3 w-3" />
+        Lv.{value}{name ? ` ${String(name)}` : ""}
+      </Badge>
+      {priceLevel ? <span className="text-xs text-muted-foreground">ราคา L{String(priceLevel)}</span> : null}
+    </span>
+  );
+}
+
 export function TierBadge({ tier }: { tier: unknown }) {
   return String(tier) === "wholesale" ? <Badge tone="info">ขายส่ง</Badge> : <Badge tone="neutral">ขายปลีก</Badge>;
 }
@@ -68,10 +86,13 @@ export function TierBadge({ tier }: { tier: unknown }) {
 export function CustomerConsole({
   canManage,
   canTerms,
+  canLevels = false,
   canCollect,
   loyalty
 }: {
   canManage: boolean;
+  /** Head office: a member's level, and what each level is called and pays. */
+  canLevels?: boolean;
   /** Head office: credit lines, wholesale tier, points adjustments, loyalty rules. */
   canTerms: boolean;
   canCollect: boolean;
@@ -93,6 +114,16 @@ export function CustomerConsole({
   const [detailId, setDetailId] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [rules, setRules] = useState(loyalty);
+  const [levels, setLevels] = useState<LevelSettings>({ member_levels: [], price_levels: [] });
+  const [levelDraft, setLevelDraft] = useState<LevelSettings | null>(null);
+  const [memberLevel, setMemberLevel] = useState("");
+
+  useEffect(() => {
+    void proxyClient<LevelSettings>("/member-levels").then(setLevels).catch(() => undefined);
+  }, []);
+
+  const levelName = (level: number) => levels.member_levels.find((item) => item.level === level)?.name || "";
+  const priceLevelName = (level: number) => levels.price_levels.find((item) => item.level === level)?.name || `ราคา L${level}`;
   const pageSize = 50;
 
   useEffect(() => {
@@ -108,6 +139,7 @@ export function CustomerConsole({
       if (debounced) query.set("search", debounced);
       if (tier) query.set("price_tier", tier);
       if (creditOnly) query.set("credit_only", "true");
+      if (memberLevel) query.set("member_level", memberLevel);
       const response = await proxyClient<{ items: Item[]; total: number }>(`/customers?${query.toString()}`);
       setItems(response.items || []);
       setTotal(response.total || 0);
@@ -116,7 +148,7 @@ export function CustomerConsole({
     } finally {
       setLoading(false);
     }
-  }, [creditOnly, debounced, page, tier]);
+  }, [creditOnly, debounced, memberLevel, page, tier]);
 
   useEffect(() => {
     void load();
@@ -154,6 +186,7 @@ export function CustomerConsole({
         tax_id: editing.tax_id,
         address: editing.address,
         note: editing.note,
+        ...(canLevels ? { member_level: Number(editing.member_level || 1) } : {}),
         ...(canTerms
           ? {
               price_tier: editing.price_tier,
@@ -192,7 +225,25 @@ export function CustomerConsole({
     }
   }
 
-  const filtered = Boolean(debounced || tier || creditOnly);
+  async function saveLevels(event: FormEvent) {
+    event.preventDefault();
+    if (!levelDraft) return;
+    setBusy(true);
+    setDialogError("");
+    try {
+      await proxyClient("/member-levels", { method: "PUT", body: JSON.stringify(levelDraft) });
+      setLevels(levelDraft);
+      setLevelDraft(null);
+      setFeedback({ tone: "success", text: "บันทึกระดับสมาชิกและระดับราคาแล้ว" });
+      void load();
+    } catch (error) {
+      setDialogError(error instanceof Error ? error.message : "บันทึกระดับสมาชิกไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const filtered = Boolean(debounced || tier || creditOnly || memberLevel);
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
@@ -211,6 +262,24 @@ export function CustomerConsole({
             </Button>
           ) : null}
         </div>
+        {levels.member_levels.length ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3 text-sm">
+            <Crown className="h-5 w-5 text-primary" />
+            <span className="font-semibold">ระดับสมาชิก:</span>
+            <span className="text-muted-foreground">ลูกค้าทั่วไปจ่าย {priceLevelName(1)}</span>
+            {levels.member_levels.map((item) => (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs" key={item.level}>
+                Lv.{item.level} {item.name} → {priceLevelName(item.price_level)}
+              </span>
+            ))}
+            {canLevels ? (
+              <Button className="ml-auto" onClick={() => { setDialogError(""); setLevelDraft(JSON.parse(JSON.stringify(levels))); }} size="sm" type="button" variant="secondary">
+                <Settings2 className="h-4 w-4" />
+                ตั้งค่าระดับ
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="overflow-hidden rounded-2xl border bg-card shadow-card">
@@ -231,6 +300,12 @@ export function CustomerConsole({
               <option value="retail">ขายปลีก</option>
               <option value="wholesale">ขายส่ง</option>
             </Select>
+            <Select aria-label="กรองระดับสมาชิก" className="min-w-0 flex-1 sm:w-44 sm:flex-none" onChange={(event) => { setMemberLevel(event.target.value); setPage(1); }} value={memberLevel}>
+              <option value="">ทุกระดับสมาชิก</option>
+              {[1, 2, 3, 4, 5].map((level) => (
+                <option key={level} value={level}>Lv.{level} {levelName(level)}</option>
+              ))}
+            </Select>
             <CheckboxField checked={creditOnly} label="เฉพาะที่มีเครดิต" onChange={(event) => { setCreditOnly(event.target.checked); setPage(1); }} />
           </div>
           {canManage ? (
@@ -249,7 +324,8 @@ export function CustomerConsole({
               <thead className="bg-muted text-left" role="rowgroup">
                 <tr role="row">
                   <th className="p-3" role="columnheader" scope="col">ลูกค้า</th>
-                  <th className="p-3" role="columnheader" scope="col">ระดับราคา</th>
+                  <th className="p-3" role="columnheader" scope="col">ระดับสมาชิก</th>
+                  <th className="p-3" role="columnheader" scope="col">ปลีก/ส่ง</th>
                   <th className="p-3 text-right" role="columnheader" scope="col">แต้มคงเหลือ</th>
                   <th className="p-3 text-right" role="columnheader" scope="col">วงเงินเครดิต</th>
                   <th className="p-3 text-right" role="columnheader" scope="col">ค้างชำระ</th>
@@ -268,7 +344,8 @@ export function CustomerConsole({
                           {item.active ? "" : " · ปิดใช้งาน"}
                         </span>
                       </td>
-                      <td className="p-3" data-label="ระดับราคา" role="cell"><TierBadge tier={item.price_tier} /></td>
+                      <td className="p-3" data-label="ระดับสมาชิก" role="cell"><LevelBadge level={item.member_level} name={item.member_level_name} priceLevel={item.price_level} /></td>
+                      <td className="p-3" data-label="ปลีก/ส่ง" role="cell"><TierBadge tier={item.price_tier} /></td>
                       <td className="p-3 text-right font-semibold" data-label="แต้มคงเหลือ" role="cell">{Number(item.points_balance || 0).toLocaleString("th-TH")}</td>
                       <td className="p-3 text-right" data-label="วงเงินเครดิต" role="cell">
                         {item.credit_enabled ? (
@@ -361,6 +438,27 @@ export function CustomerConsole({
               <Field className="md:col-span-2" label="ที่อยู่ (สำหรับใบกำกับภาษี)">
                 <Input onChange={(event) => update("address", event.target.value)} value={String(editing.address || "")} />
               </Field>
+              <Field
+                className="md:col-span-2"
+                hint={canLevels ? "ระดับสูงขึ้นได้ราคาถูกลงตามที่ตั้งไว้ในแต่ละสินค้า" : "สมัครใหม่เริ่มที่ระดับ 1 · การเลื่อนระดับทำโดยสำนักงานใหญ่"}
+                label="ระดับสมาชิก"
+              >
+                <Select
+                  aria-label="ระดับสมาชิก"
+                  disabled={!canLevels}
+                  onChange={(event) => update("member_level", Number(event.target.value))}
+                  value={String(editing.member_level || 1)}
+                >
+                  {[1, 2, 3, 4, 5].map((level) => {
+                    const item = levels.member_levels.find((entry) => entry.level === level);
+                    return (
+                      <option key={level} value={level}>
+                        Lv.{level} {item?.name || ""}{item ? ` → ${priceLevelName(item.price_level)}` : ""}
+                      </option>
+                    );
+                  })}
+                </Select>
+              </Field>
               {canTerms ? (
                 <>
                   <Field label="ระดับราคา">
@@ -414,6 +512,80 @@ export function CustomerConsole({
               <Button loading={busy} type="submit">บันทึก</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog onOpenChange={(open) => { if (!open) setLevelDraft(null); }} open={Boolean(levelDraft)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader
+            description="ลูกค้าทั่วไป (ไม่เลือกสมาชิก) จ่ายราคาระดับ 1 เสมอ · สมาชิกจ่ายราคาที่ถูกที่สุดระหว่างระดับของตัวเองกับระดับที่ต่ำกว่า"
+            title="ตั้งค่าระดับสมาชิกและระดับราคา"
+          />
+          {levelDraft ? (
+            <form className="space-y-5" onSubmit={saveLevels}>
+              <div>
+                <h3 className="mb-2 text-sm font-semibold">ระดับราคา</h3>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  ราคาของแต่ละระดับตั้งได้ในหน้า รายการสินค้า → หน่วย/ราคาส่ง · ส่วนลดตั้งต้นใช้กับสินค้าที่ยังไม่ได้ตั้งราคาระดับนั้นไว้ (0 = ไม่ลด)
+                </p>
+                <div className="space-y-2">
+                  {levelDraft.price_levels.map((item, index) => (
+                    <div className="grid grid-cols-[3rem_minmax(0,1fr)_8rem] items-center gap-2" key={item.level}>
+                      <span className="text-sm font-semibold">L{item.level}</span>
+                      <Input
+                        aria-label={`ชื่อราคาระดับ ${item.level}`}
+                        onChange={(event) => setLevelDraft({ ...levelDraft, price_levels: levelDraft.price_levels.map((entry, at) => (at === index ? { ...entry, name: event.target.value } : entry)) })}
+                        value={item.name}
+                      />
+                      {item.level === 1 ? (
+                        <span className="text-xs text-muted-foreground">ราคาขายปกติ</span>
+                      ) : (
+                        <Input
+                          aria-label={`ส่วนลดตั้งต้นราคาระดับ ${item.level} (%)`}
+                          max={99.99}
+                          min={0}
+                          onChange={(event) => setLevelDraft({ ...levelDraft, price_levels: levelDraft.price_levels.map((entry, at) => (at === index ? { ...entry, default_discount_percent: Number(event.target.value) } : entry)) })}
+                          placeholder="% ลด"
+                          step="0.01"
+                          type="number"
+                          value={item.default_discount_percent}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h3 className="mb-2 text-sm font-semibold">ระดับสมาชิก</h3>
+                <div className="space-y-2">
+                  {levelDraft.member_levels.map((item, index) => (
+                    <div className="grid grid-cols-[3rem_minmax(0,1fr)_10rem] items-center gap-2" key={item.level}>
+                      <span className="text-sm font-semibold">Lv.{item.level}</span>
+                      <Input
+                        aria-label={`ชื่อระดับสมาชิก ${item.level}`}
+                        onChange={(event) => setLevelDraft({ ...levelDraft, member_levels: levelDraft.member_levels.map((entry, at) => (at === index ? { ...entry, name: event.target.value } : entry)) })}
+                        value={item.name}
+                      />
+                      <Select
+                        aria-label={`ระดับราคาของสมาชิกระดับ ${item.level}`}
+                        onChange={(event) => setLevelDraft({ ...levelDraft, member_levels: levelDraft.member_levels.map((entry, at) => (at === index ? { ...entry, price_level: Number(event.target.value) } : entry)) })}
+                        value={String(item.price_level)}
+                      >
+                        {levelDraft.price_levels.map((price) => (
+                          <option key={price.level} value={price.level}>L{price.level} {price.name}</option>
+                        ))}
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {dialogError ? <FeedbackNotice feedback={{ tone: "error", text: dialogError }} /> : null}
+              <DialogFooter>
+                <Button disabled={busy} onClick={() => setLevelDraft(null)} type="button" variant="secondary">ยกเลิก</Button>
+                <Button loading={busy} type="submit">บันทึก</Button>
+              </DialogFooter>
+            </form>
+          ) : null}
         </DialogContent>
       </Dialog>
 
@@ -516,6 +688,7 @@ function CustomerDetailDialog({
               ))}
             </div>
             <div className="flex flex-wrap items-center gap-2 text-sm">
+              <LevelBadge level={detail.member_level} name={detail.member_level_name} priceLevel={detail.price_level} />
               <TierBadge tier={detail.price_tier} />
               {detail.credit_enabled ? (
                 <Badge tone="primary">

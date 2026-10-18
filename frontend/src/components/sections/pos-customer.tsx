@@ -28,6 +28,9 @@ export type PosCustomer = {
   customer_code: string;
   phone: string;
   price_tier: string;
+  member_level: number;
+  member_level_name: string;
+  price_level: number;
   points_balance: number;
   credit_limit: number;
   credit_available: number;
@@ -42,6 +45,9 @@ export function toPosCustomer(item: Option): PosCustomer {
     customer_code: String(item.customer_code || ""),
     phone: String(item.phone || ""),
     price_tier: String(item.price_tier || "retail"),
+    member_level: Number(item.member_level || 1),
+    member_level_name: String(item.member_level_name || ""),
+    price_level: Number(item.price_level || 1),
     points_balance: Number(item.points_balance || 0),
     credit_limit: Number(item.credit_limit || 0),
     credit_available: Number(item.credit_available || 0),
@@ -99,6 +105,9 @@ export function PosCustomerPanel({
           <p className="truncate text-sm font-semibold">
             {customer.name}
             {customer.price_tier === "wholesale" ? <Badge className="ml-2" tone="info">ขายส่ง</Badge> : null}
+          </p>
+          <p className="text-xs font-semibold text-primary">
+            Lv.{customer.member_level}{customer.member_level_name ? ` ${customer.member_level_name}` : ""} · ได้ราคา L{customer.price_level}
           </p>
           <p className="text-2xs text-muted-foreground">
             {customer.customer_code} · {customer.phone || "ไม่มีเบอร์"}
@@ -282,6 +291,7 @@ export function CustomerPickerDialog({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <strong className="truncate">{String(item.name)}</strong>
+                    <Badge tone={Number(item.member_level || 1) >= 2 ? "primary" : "neutral"}>Lv.{String(item.member_level || 1)}</Badge>
                     {String(item.price_tier) === "wholesale" ? <Badge tone="info">ขายส่ง</Badge> : null}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">

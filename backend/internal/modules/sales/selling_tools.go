@@ -94,6 +94,78 @@ func tierPrice(ctx context.Context, db platform.DBTX, productID string, unit uni
 	return platform.Round2(price), customerTier, true, nil
 }
 
+// customerPricing is what the customer on the bill is entitled to: the
+// wholesale tier and the price level their member level buys at (1 = shelf).
+type customerPricing struct {
+	Wholesale  bool
+	PriceLevel int
+}
+
+// memberLevelPrice is the lowest price a member at priceLevel pays for one
+// selling unit: the lowest of their level and every level below it, so moving
+// a member up never makes anything dearer. A level price comes from the
+// product's own price for that unit, from its base-unit price times the
+// unit's size, or from the level's default discount off the shelf price.
+// ok is false when no level price applies.
+func memberLevelPrice(ctx context.Context, db platform.DBTX, productID string, unit unitInfo, shelf float64, priceLevel int) (float64, int, bool, error) {
+	if priceLevel <= 1 {
+		return 0, 0, false, nil
+	}
+	best, bestLevel := 0.0, 0
+	consider := func(price float64, level int) {
+		price = platform.Round2(price)
+		if price > 0 && (bestLevel == 0 || price < best || (price == best && level < bestLevel)) {
+			best, bestLevel = price, level
+		}
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT price_level, unit_price, unit_id IS NULL
+		FROM product_level_prices
+		WHERE product_id = $1 AND price_level <= $2
+		  AND (unit_id IS NULL OR ($3 <> '' AND unit_id::text = $3))
+	`, productID, priceLevel, unit.ID)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	for rows.Next() {
+		var level int
+		var price float64
+		var baseRow bool
+		if err := rows.Scan(&level, &price, &baseRow); err != nil {
+			rows.Close()
+			return 0, 0, false, err
+		}
+		if baseRow && !unit.IsBase {
+			price *= float64(unit.Conversion)
+		}
+		consider(price, level)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, 0, false, err
+	}
+	rows, err = db.QueryContext(ctx, `
+		SELECT level, default_discount_percent FROM price_levels
+		WHERE level BETWEEN 2 AND $1 AND default_discount_percent > 0
+	`, priceLevel)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var level int
+		var percent float64
+		if err := rows.Scan(&level, &percent); err != nil {
+			return 0, 0, false, err
+		}
+		consider(shelf*(1-percent/100), level)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, false, err
+	}
+	return best, bestLevel, bestLevel > 0, nil
+}
+
 // lotAllocation is one FEFO slice of stock reserved for a promotional giveaway.
 type lotAllocation struct {
 	LotID      string
@@ -511,6 +583,9 @@ type cartCustomer struct {
 	TaxID         string
 	Address       string
 	PriceTier     string
+	MemberLevel   int
+	LevelName     string
+	PriceLevel    int
 	CreditLimit   float64
 	CreditDays    int
 	PointsBalance int
@@ -552,15 +627,17 @@ func loadCartCustomer(ctx context.Context, db platform.DBTX, customerID string, 
 		return nil, nil
 	}
 	query := `
-		SELECT id::text, customer_code, name, phone, tax_id, address, price_tier, credit_limit, credit_days, points_balance
-		FROM customers WHERE id = $1 AND active`
+		SELECT c.id::text, c.customer_code, c.name, c.phone, c.tax_id, c.address, c.price_tier, c.credit_limit, c.credit_days,
+		       c.points_balance, c.member_level, COALESCE(ml.name, ''), COALESCE(ml.price_level, 1)
+		FROM customers c LEFT JOIN member_levels ml ON ml.level = c.member_level
+		WHERE c.id = $1 AND c.active`
 	if lock {
-		query += " FOR UPDATE"
+		query += " FOR UPDATE OF c"
 	}
 	var customer cartCustomer
 	if err := db.QueryRowContext(ctx, query, customerID).Scan(&customer.ID, &customer.Code, &customer.Name,
 		&customer.Phone, &customer.TaxID, &customer.Address, &customer.PriceTier, &customer.CreditLimit,
-		&customer.CreditDays, &customer.PointsBalance); err != nil {
+		&customer.CreditDays, &customer.PointsBalance, &customer.MemberLevel, &customer.LevelName, &customer.PriceLevel); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, platform.NewError(http.StatusBadRequest, "ไม่พบลูกค้าที่เลือก หรือลูกค้าถูกปิดใช้งาน")
 		}
@@ -583,8 +660,11 @@ func (s *Service) priceCart(ctx context.Context, db platform.DBTX, user platform
 	if err != nil {
 		return cartResult{}, err
 	}
-	wholesale := customer != nil && customer.PriceTier == "wholesale"
-	lines, _, _, _, err := s.priceLines(ctx, db, user, branchID, isGovernment, items, vatRate, requireLot, wholesale)
+	pricing := customerPricing{PriceLevel: 1}
+	if customer != nil {
+		pricing = customerPricing{Wholesale: customer.PriceTier == "wholesale", PriceLevel: customer.PriceLevel}
+	}
+	lines, _, _, _, err := s.priceLines(ctx, db, user, branchID, isGovernment, items, vatRate, requireLot, pricing)
 	if err != nil {
 		return cartResult{}, err
 	}
