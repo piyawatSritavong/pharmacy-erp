@@ -57,15 +57,15 @@ test.describe("refactored operational workflows", () => {
     await expect(page.getByText("ราคาขาย", { exact: true })).toHaveCount(0);
   });
 
-  test("ใบขายพาไปพื้นที่ V2 และ รพ.สต. บอกตามจริงว่ายังไม่พร้อม", async ({ page }) => {
+  test("ใบขายเปิดหน้าใบเสนอราคา/ใบขาย และ รพ.สต. บอกตามจริงว่ายังไม่พร้อม", async ({ page }) => {
     await signIn(page, "superadmin@erp.local", "/dashboard");
 
     // The Pro gate is switched off for now (DECISION_LOG 2026-10-09): ใบขาย
-    // leads to the owner-only V2 pilot, and รพ.สต. says plainly that it is
+    // is the V1 quotation and invoice desk, and รพ.สต. says plainly that it is
     // not ready rather than offering a form that does nothing.
-    // The superadmin goes straight in, rather than to a page that only links on.
+    // ใบขาย is the V1 quotation and invoice desk.
     await page.goto("/sales-management");
-    await page.waitForURL(/\/v2$/);
+    await expect(page.getByRole("heading", { level: 1, name: "ใบขาย", exact: true })).toBeVisible();
     await page.goto("/government-sales");
     await expect(page.getByText("งานส่วนนี้อยู่ในแผนพัฒนาลำดับถัดไป ยังไม่พร้อมทำรายการ")).toBeVisible();
     // No price, trial or subscribe button for billing that doesn't exist.

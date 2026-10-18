@@ -257,9 +257,9 @@ test.describe("สิทธิ์และการนำทางสองบ�
     await session.page.goto("/government-sales");
     await session.page.waitForURL(/\/government-sales$/);
     await expect(session.page.getByRole("heading", { level: 1, name: "รพ.สต.", exact: true })).toBeVisible();
-    // ใบขาย is the V2 pilot, which the superadmin enters directly.
+    // ใบขาย is the V1 quotation and invoice desk.
     await session.page.goto("/sales-management");
-    await session.page.waitForURL(/\/v2$/);
+    await expect(session.page.getByRole("heading", { level: 1, name: "ใบขาย", exact: true })).toBeVisible();
     // The new customer pages open from the sidebar too.
     for (const [path, heading] of [["/customers", "ลูกค้าและสมาชิก"], ["/receivables", "ลูกหนี้ค้างชำระ"]]) {
       await session.page.goto(path);
