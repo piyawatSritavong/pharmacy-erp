@@ -372,7 +372,7 @@ export function DocumentComposer({
                     <option value="">เลือก Lot</option>
                     {lineLotOptions.map((lot) => (
                       <option key={String(lot.id)} value={String(lot.id)}>
-                        {`${String(lot.lot_number)} · คงเหลือ ${Number(lot.remaining_quantity || 0).toLocaleString("th-TH")} · ต้นทุน ${Number(lot.unit_cost || 0).toLocaleString("th-TH")} บาท`}
+                        {`${String(lot.lot_number)} · คงเหลือ ${Number(lot.remaining_quantity || 0).toLocaleString("th-TH")}${lot.unit_cost != null ? ` · ต้นทุน ${Number(lot.unit_cost).toLocaleString("th-TH")} บาท` : ""}`}
                       </option>
                     ))}
                   </Select>

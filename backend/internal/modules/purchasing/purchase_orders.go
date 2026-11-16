@@ -730,7 +730,13 @@ func (s *Service) ProductOptions(ctx context.Context, user platform.AuthUser, br
 		if err := rows.Scan(&id, &sku, &barcode, &name, &unit, &cost, &base, &effective, &maxDiscount, &threshold, &tracks, &warning, &sellable, &expired, &expiry, &category, &imageKey, &imageCount); err != nil {
 			return CursorResult{}, err
 		}
-		items = append(items, map[string]any{"id": id, "sku": sku, "barcode": barcode, "name": name, "unit_name": unit, "cost_price": cost, "base_selling_price": base, "effective_price": effective, "max_discount_amount": maxDiscount, "low_stock_threshold": threshold, "tracks_expiry": tracks, "expiry_warning_days": warning, "sellable_quantity": sellable, "expired_quantity": expired, "nearest_expiry": nullableTime(expiry), "category_name": category, "stock_bucket": bucket, "image_available": imageKey != "", "image_count": imageCount})
+		item := map[string]any{"id": id, "sku": sku, "barcode": barcode, "name": name, "unit_name": unit, "base_selling_price": base, "effective_price": effective, "max_discount_amount": maxDiscount, "low_stock_threshold": threshold, "tracks_expiry": tracks, "expiry_warning_days": warning, "sellable_quantity": sellable, "expired_quantity": expired, "nearest_expiry": nullableTime(expiry), "category_name": category, "stock_bucket": bucket, "image_available": imageKey != "", "image_count": imageCount}
+		// The last cost is the owner's number; whoever keys a purchase types
+		// the cost from the supplier's bill.
+		if platform.CanViewCost(user) {
+			item["cost_price"] = cost
+		}
+		items = append(items, item)
 	}
 	hasMore := len(items) > limit
 	if hasMore {

@@ -118,7 +118,7 @@ func (s *Service) loadSalesSummary(ctx context.Context, user platform.AuthUser, 
 			COALESCE(SUM(CASE WHEN payment_type = 'bank_transfer' THEN amount ELSE 0 END), 0)
 		FROM invoice_payments ip
 		INNER JOIN invoices i ON i.id=ip.invoice_id AND i.deleted_at IS NULL
-		WHERE ($4 OR i.branch_id::text = $1) AND ip.created_at >= $2 AND ip.created_at < $3
+		WHERE ($4 OR i.branch_id::text = $1) AND ip.received_at >= $2 AND ip.received_at < $3
 		`, branchID, start, end, everyone).Scan(&result.CashReceived, &result.BankReceived); err != nil {
 		return salesSummaryResult{}, err
 	}

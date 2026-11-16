@@ -62,10 +62,19 @@ type CategoryInput struct {
 }
 
 type BranchSettingsInput struct {
-	SellingPrice           OptionalFloat `json:"selling_price"`
-	MaxDiscountAmount      *float64      `json:"max_discount_amount"`
-	LowStockRealThreshold  *int          `json:"low_stock_real_threshold"`
-	LowStockGhostThreshold *int          `json:"low_stock_ghost_threshold"`
+	SellingPrice OptionalFloat `json:"selling_price"`
+	// LevelPrices, when sent, replaces this branch's own prices for levels
+	// 2-5 of the base unit. A level left out (or null) uses the catalog's.
+	LevelPrices            *[]BranchLevelPrice `json:"level_prices"`
+	MaxDiscountAmount      *float64            `json:"max_discount_amount"`
+	LowStockRealThreshold  *int                `json:"low_stock_real_threshold"`
+	LowStockGhostThreshold *int                `json:"low_stock_ghost_threshold"`
+}
+
+// BranchLevelPrice is one branch's price for one price level of the base unit.
+type BranchLevelPrice struct {
+	PriceLevel int      `json:"price_level"`
+	UnitPrice  *float64 `json:"unit_price"`
 }
 
 // OptionalFloat distinguishes an omitted property from an explicit JSON null.
@@ -286,9 +295,11 @@ func scanProducts(rows *sql.Rows, user platform.AuthUser) ([]map[string]any, err
 			"fda_registration_no": fdaRegistrationNo,
 		}
 		if user.Portal != "pos" && user.RoleKey != "branch_pos" {
-			item["cost_price"] = costPrice
 			item["base_selling_price"] = baseSellingPrice
 			item["max_discount_amount"] = maxDiscountAmount
+		}
+		if platform.CanViewCost(user) {
+			item["cost_price"] = costPrice
 		}
 		if user.RoleKey == "super_admin" {
 			item["low_stock_ghost_threshold"] = lowStockGhostThreshold
@@ -490,7 +501,7 @@ func (s *Service) UpdateProduct(ctx context.Context, productID string, user plat
 		_, err := tx.ExecContext(ctx, `
 			UPDATE products
 			SET sku = $2, barcode = $3, category_id = $4, name = $5, description = $6,
-			    cost_price = $7, base_selling_price = $8,
+			    cost_price = CASE WHEN $21 THEN $7 ELSE cost_price END, base_selling_price = $8,
 			    unit_name = $9, max_discount_amount = $10,
 			    low_stock_real_threshold = $11,
 			    low_stock_ghost_threshold = CASE WHEN $20 THEN $12 ELSE low_stock_ghost_threshold END,
@@ -506,7 +517,8 @@ func (s *Service) UpdateProduct(ctx context.Context, productID string, user plat
 			platform.Round2(input.MaxDiscountAmount), input.LowStockRealThreshold,
 			input.LowStockGhostThreshold, input.TracksExpiry, normalizedExpiryWarningDays(input.ExpiryWarningDays),
 			input.TaxExempt, active,
-			normalizedSalesChannel(input.SalesChannel), input.RequiresFDAReport, platform.NullString(input.FDARegistrationNo), user.RoleKey == "super_admin")
+			normalizedSalesChannel(input.SalesChannel), input.RequiresFDAReport, platform.NullString(input.FDARegistrationNo), user.RoleKey == "super_admin",
+			platform.CanViewCost(user))
 		if err != nil {
 			return platform.MapUniqueViolation(err, "SKU หรือบาร์โค้ดนี้มีอยู่แล้ว")
 		}
@@ -514,6 +526,10 @@ func (s *Service) UpdateProduct(ctx context.Context, productID string, user plat
 		meta.EntityID = &productID
 		meta.Action = "product.update"
 		meta.Before = beforeJSON
+		if !platform.CanViewCost(user) {
+			// A role that cannot read cost does not change it either.
+			input.CostPrice = 0
+		}
 		meta.After = input
 		return s.audit.Log(ctx, tx, meta)
 	})
@@ -556,6 +572,34 @@ func (s *Service) GetBranchSettings(ctx context.Context, user platform.AuthUser,
 	if user.RoleKey == "super_admin" {
 		result["low_stock_ghost_threshold"] = nullableInt(ghostThreshold)
 	}
+	// Levels 1-5 of the base unit (level 1 carries only its name: its price is
+	// selling_price above): this branch's own price, and the catalog's
+	// price it falls back to.
+	levels := []map[string]any{}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT pl.level, pl.name,
+		       (SELECT unit_price FROM product_level_prices WHERE product_id=$1 AND branch_id=$2 AND unit_id IS NULL AND price_level=pl.level),
+		       (SELECT unit_price FROM product_level_prices WHERE product_id=$1 AND branch_id IS NULL AND unit_id IS NULL AND price_level=pl.level)
+		FROM price_levels pl WHERE pl.level BETWEEN 1 AND 5 ORDER BY pl.level
+	`, productID, branchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var level int
+		var name string
+		var branchPrice, catalogPrice sql.NullFloat64
+		if err := rows.Scan(&level, &name, &branchPrice, &catalogPrice); err != nil {
+			return nil, err
+		}
+		levels = append(levels, map[string]any{"price_level": level, "name": name,
+			"unit_price": nullableFloat(branchPrice), "catalog_price": nullableFloat(catalogPrice)})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	result["level_prices"] = levels
 	return result, nil
 }
 
@@ -598,6 +642,18 @@ func (s *Service) UpdateBranchSettings(ctx context.Context, user platform.AuthUs
 	if input.MaxDiscountAmount != nil && *input.MaxDiscountAmount < 0 {
 		return platform.NewError(http.StatusBadRequest, "ส่วนลดสูงสุดต้องไม่ติดลบ")
 	}
+	if input.LevelPrices != nil {
+		seen := map[int]bool{}
+		for _, price := range *input.LevelPrices {
+			if price.PriceLevel < 2 || price.PriceLevel > 5 || seen[price.PriceLevel] {
+				return platform.NewError(http.StatusBadRequest, "ระดับราคาของสาขาต้องเป็นระดับ 2-5 และไม่ซ้ำกัน")
+			}
+			seen[price.PriceLevel] = true
+			if price.UnitPrice != nil && *price.UnitPrice <= 0 {
+				return platform.NewError(http.StatusBadRequest, "ราคาตามระดับต้องมากกว่าศูนย์")
+			}
+		}
+	}
 	if (input.LowStockRealThreshold != nil && *input.LowStockRealThreshold < 0) || (input.LowStockGhostThreshold != nil && *input.LowStockGhostThreshold < 0) {
 		return platform.NewError(http.StatusBadRequest, "จุดแจ้งเตือนต้องไม่ติดลบ")
 	}
@@ -615,8 +671,24 @@ func (s *Service) UpdateBranchSettings(ctx context.Context, user platform.AuthUs
 		if !exists || branchType == "" {
 			return platform.NewError(http.StatusNotFound, "ไม่พบสินค้าหรือสาขา")
 		}
-		if branchType == "main_warehouse" && input.SellingPrice.Present {
+		if branchType == "main_warehouse" && (input.SellingPrice.Present || input.LevelPrices != nil) {
 			return platform.NewError(http.StatusBadRequest, "ราคาโกดังต้องแก้จากข้อมูลกลางของสินค้า")
+		}
+		if input.LevelPrices != nil {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM product_level_prices WHERE product_id=$1 AND branch_id=$2 AND unit_id IS NULL`, productID, branchID); err != nil {
+				return err
+			}
+			for _, price := range *input.LevelPrices {
+				if price.UnitPrice == nil {
+					continue
+				}
+				if _, err := tx.ExecContext(ctx, `
+					INSERT INTO product_level_prices (id, product_id, branch_id, unit_id, price_level, unit_price, updated_by, created_at, updated_at)
+					VALUES ($1,$2,$3,NULL,$4,$5,$6,NOW(),NOW())
+				`, platform.MustUUID(), productID, branchID, price.PriceLevel, platform.Round2(*price.UnitPrice), user.ID); err != nil {
+					return err
+				}
+			}
 		}
 		if input.SellingPrice.Present {
 			if input.SellingPrice.Value == nil {

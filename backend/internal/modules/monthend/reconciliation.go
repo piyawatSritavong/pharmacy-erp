@@ -275,9 +275,9 @@ func (s *Service) loadReconciliationSource(ctx context.Context, db platform.DBTX
 		WHERE i.deleted_at IS NULL
 		  AND i.invoice_status='issued'
 		  AND i.payment_status='paid'
-		  AND i.created_at >= $1 AND i.created_at < $2
+		  AND i.issued_at >= $1 AND i.issued_at < $2
 		  AND i.branch_id=ANY($3::uuid[])
-		ORDER BY i.created_at,i.invoice_number,i.id
+		ORDER BY i.issued_at,i.invoice_number,i.id
 	`, periodStart, periodEnd, pq.Array(branchIDs))
 	if err != nil {
 		return reconciliationSource{}, err
@@ -1204,7 +1204,7 @@ func snapshotReconciliationState(ctx context.Context, tx *sql.Tx, reconciliation
 		LEFT JOIN payments ON payments.invoice_id=i.id
 		WHERE i.deleted_at IS NULL
 		  AND i.invoice_status='issued'
-		  AND i.created_at >= $2 AND i.created_at < $3
+		  AND i.issued_at >= $2 AND i.issued_at < $3
 		  AND i.branch_id=ANY($4::uuid[])
 		ON CONFLICT DO NOTHING
 	`, reconciliationID, periodStart, periodEnd, pq.Array(branchIDs)); err != nil {
@@ -1268,7 +1268,7 @@ func (s *Service) FinalizeReconciliation(ctx context.Context, user platform.Auth
 		}
 		if _, err := tx.ExecContext(ctx, `
 			SELECT id FROM invoices
-			WHERE deleted_at IS NULL AND created_at >= $1 AND created_at < $2
+			WHERE deleted_at IS NULL AND issued_at >= $1 AND issued_at < $2
 			  AND branch_id=ANY($3::uuid[])
 			ORDER BY id FOR UPDATE
 		`, periodStart, periodEnd, pq.Array(branchIDs)); err != nil {
@@ -1409,7 +1409,7 @@ func (s *Service) FinalizeReconciliation(ctx context.Context, user platform.Auth
 		// branch. A temporary value avoids unique-index collisions while numbers
 		// move into gaps left by hidden invoices.
 		type numberRow struct{ id, branchID, oldNumber string }
-		numberRows, err := tx.QueryContext(ctx, `SELECT id::text,branch_id::text,invoice_number FROM invoices WHERE deleted_at IS NULL AND invoice_status='issued' AND created_at >= $1 AND created_at < $2 AND branch_id=ANY($3::uuid[]) ORDER BY branch_id,created_at,id FOR UPDATE`, periodStart, periodEnd, pq.Array(branchIDs))
+		numberRows, err := tx.QueryContext(ctx, `SELECT id::text,branch_id::text,invoice_number FROM invoices WHERE deleted_at IS NULL AND invoice_status='issued' AND issued_at >= $1 AND issued_at < $2 AND branch_id=ANY($3::uuid[]) ORDER BY branch_id,issued_at,id FOR UPDATE`, periodStart, periodEnd, pq.Array(branchIDs))
 		if err != nil {
 			return err
 		}

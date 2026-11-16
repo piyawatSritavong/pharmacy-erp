@@ -68,6 +68,45 @@ func redactAuditValue(value any) any {
 	return redactAuditNode(decoded)
 }
 
+// hideCostFields masks cost and profit figures in a stored audit payload for
+// a reader who may not see cost. The stored row is left as it was written.
+func hideCostFields(payload string) string {
+	trimmed := strings.TrimSpace(payload)
+	if trimmed == "" || trimmed == "null" {
+		return payload
+	}
+	var decoded any
+	decoder := json.NewDecoder(strings.NewReader(trimmed))
+	decoder.UseNumber()
+	if decoder.Decode(&decoded) != nil {
+		return payload
+	}
+	encoded, err := json.Marshal(hideCostNode(decoded))
+	if err != nil {
+		return payload
+	}
+	return string(encoded)
+}
+
+func hideCostNode(value any) any {
+	switch node := value.(type) {
+	case map[string]any:
+		for key, child := range node {
+			lower := strings.ToLower(key)
+			if strings.Contains(lower, "cost") || strings.Contains(lower, "profit") || strings.Contains(lower, "margin") {
+				node[key] = "[ซ่อน]"
+				continue
+			}
+			node[key] = hideCostNode(child)
+		}
+	case []any:
+		for index := range node {
+			node[index] = hideCostNode(node[index])
+		}
+	}
+	return value
+}
+
 func redactAuditNode(value any) any {
 	switch node := value.(type) {
 	case map[string]any:
@@ -200,6 +239,10 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 		var branchName string
 		if err := rows.Scan(&row.ID, &row.EntityType, &row.EntityID, &row.Action, &row.SourceIP, &row.UserAgent, &row.CreatedAt, &actorName, &branchName, &row.BeforeData, &row.AfterData); err != nil {
 			return nil, err
+		}
+		if !platform.CanViewCost(user) {
+			row.BeforeData = hideCostFields(row.BeforeData)
+			row.AfterData = hideCostFields(row.AfterData)
 		}
 		results = append(results, map[string]any{
 			"id":          row.ID,

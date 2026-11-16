@@ -29,20 +29,23 @@ import (
 // what head office rang up.
 
 type RemoteCartLine struct {
-	ProductID      string           `json:"product_id"`
-	ProductName    string           `json:"product_name"`
-	SKU            string           `json:"sku"`
-	InventoryLotID string           `json:"inventory_lot_id"`
-	LotNumber      string           `json:"lot_number"`
-	StockBucket    string           `json:"stock_bucket"`
-	Quantity       int              `json:"quantity"`
-	UnitID         string           `json:"unit_id,omitempty"`
-	UnitName       string           `json:"unit_name,omitempty"`
-	ConversionQty  int              `json:"conversion_qty,omitempty"`
-	SoldQuantity   int              `json:"sold_quantity,omitempty"`
-	UnitPrice      float64          `json:"unit_price"`
-	DiscountAmount float64          `json:"discount_amount"`
-	Units          []map[string]any `json:"units,omitempty"`
+	ProductID      string  `json:"product_id"`
+	ProductName    string  `json:"product_name"`
+	SKU            string  `json:"sku"`
+	InventoryLotID string  `json:"inventory_lot_id"`
+	LotNumber      string  `json:"lot_number"`
+	StockBucket    string  `json:"stock_bucket"`
+	Quantity       int     `json:"quantity"`
+	UnitID         string  `json:"unit_id,omitempty"`
+	UnitName       string  `json:"unit_name,omitempty"`
+	ConversionQty  int     `json:"conversion_qty,omitempty"`
+	SoldQuantity   int     `json:"sold_quantity,omitempty"`
+	UnitPrice      float64 `json:"unit_price"`
+	DiscountAmount float64 `json:"discount_amount"`
+	// A price the cashier set for the line, and why.
+	OverrideUnitPrice *float64         `json:"override_unit_price,omitempty"`
+	OverrideReason    string           `json:"override_reason,omitempty"`
+	Units             []map[string]any `json:"units,omitempty"`
 }
 
 type RemoteCart struct {

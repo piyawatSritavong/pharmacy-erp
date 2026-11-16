@@ -28,7 +28,26 @@ type CartLine = {
   // Selling unit chosen by the cashier; empty means the product's base unit.
   unitId: string;
   discount: string;
+  // A price the cashier set for this line (per selling unit, as the shelf
+  // reads it) and why — the owner phoned, sold by size. Empty: shelf price.
+  priceOverride?: string;
+  priceReason?: string;
 };
+
+const PRICE_REASONS = ["เจ้าของ/ผู้จัดการอนุมัติทางโทรศัพท์", "ราคาตามขนาด/ไซซ์", "คละไซซ์/แยกชิ้น", "ลูกค้าคนสนิท"];
+
+/** The override fields a cart line adds to a sale, preview or parked bill. */
+function overrideFields(line: CartLine) {
+  const price = (line.priceOverride || "").trim();
+  if (price === "") return {};
+  return { override_unit_price: Number(price), override_reason: (line.priceReason || "").trim() };
+}
+
+/** A line's override as stored on a parked or remote cart, back on the line. */
+function restoreOverride(item: Record<string, unknown>) {
+  if (item.override_unit_price == null || item.override_unit_price === "") return {};
+  return { priceOverride: String(item.override_unit_price), priceReason: String(item.override_reason || "") };
+}
 
 type Preview = {
   lines: Option[];
@@ -104,6 +123,7 @@ function priceSourceLabel(source: unknown) {
   if (level) return `ราคาสมาชิก L${level[1]}`;
   if (value === "wholesale_tier") return "ราคาส่ง";
   if (value === "quantity_tier") return "ราคาตามจำนวน";
+  if (value === "override") return "แก้ราคาแล้ว";
   return "";
 }
 
@@ -154,6 +174,7 @@ export function PosWorkspace({
   const [cancellingRemote, setCancellingRemote] = useState(false);
   const [brokenImages, setBrokenImages] = useState<Set<string>>(() => new Set());
   const [lotProduct, setLotProduct] = useState<Option | null>(null);
+  const [priceEdit, setPriceEdit] = useState<{ key: string; name: string; unitName: string; shelf: number; price: string; reason: string } | null>(null);
   const [lotOptions, setLotOptions] = useState<Option[]>([]);
   const [lotsLoading, setLotsLoading] = useState(false);
   const [fullTaxInvoice, setFullTaxInvoice] = useState(false);
@@ -351,6 +372,7 @@ export function PosWorkspace({
                 sold_quantity: Number(pricedLine?.sold_quantity || line.quantity),
                 unit_price: Number(pricedLine?.sold_unit_price || line.product.effective_price || 0),
                 discount_amount: Number(line.discount || 0),
+                ...overrideFields(line),
                 units: (line.product.units as Option[]) || []
               };
             }),
@@ -401,7 +423,8 @@ export function PosWorkspace({
                 lot: { id: String(line.inventory_lot_id), lot_number: String(line.lot_number || "") },
                 quantity: Number(line.quantity || 0),
                 unitId: String(line.unit_id || ""),
-                discount: Number(line.discount_amount || 0) ? String(line.discount_amount) : ""
+                discount: Number(line.discount_amount || 0) ? String(line.discount_amount) : "",
+                ...restoreOverride(line)
               })));
               setBillDiscount(Number(cartData.bill_discount_amount || 0) ? String(cartData.bill_discount_amount) : "");
               setFullTaxInvoice(Boolean(cartData.full_tax_invoice));
@@ -477,7 +500,8 @@ export function PosWorkspace({
               lot: { id: String(line.inventory_lot_id), lot_number: String(line.lot_number || "") },
               quantity: Number(line.quantity || 0),
               unitId: String(line.unit_id || ""),
-              discount: Number(line.discount_amount || 0) ? String(line.discount_amount) : ""
+              discount: Number(line.discount_amount || 0) ? String(line.discount_amount) : "",
+              ...restoreOverride(line)
             }))
           );
           setBillDiscount(Number(cartData.bill_discount_amount || 0) ? String(cartData.bill_discount_amount) : "");
@@ -520,6 +544,7 @@ export function PosWorkspace({
         quantity: line.quantity,
         unit_id: line.unitId,
         discount_amount: Number(line.discount || 0),
+        ...overrideFields(line),
         stock_bucket: "real"
       }))
     };
@@ -804,7 +829,8 @@ export function PosWorkspace({
         lot: { id: String(item.inventory_lot_id), lot_number: String(item.lot_number || "") },
         quantity: Number(item.quantity || 1),
         unitId: String(item.unit_id || ""),
-        discount: item.discount_amount ? String(item.discount_amount) : ""
+        discount: item.discount_amount ? String(item.discount_amount) : "",
+        ...restoreOverride(item)
       }));
       if (!restored.length) return;
       setCart(restored);
@@ -858,6 +884,7 @@ export function PosWorkspace({
             sold_quantity: Number(priced(line)?.sold_quantity || line.quantity),
             unit_price: Number(priced(line)?.sold_unit_price || line.product.price || 0),
             discount_amount: Number(line.discount || 0),
+            ...overrideFields(line),
             product_name: String(line.product.name || ""),
             sku: String(line.product.sku || ""),
             lot_number: String(line.lot.lot_number || ""),
@@ -1365,7 +1392,7 @@ export function PosWorkspace({
                     <Select
                       aria-label={`หน่วยขาย ${String(line.product.name)}`}
                       className="mt-2 h-11 text-xs xl:h-9"
-                      onChange={(event) => updateLine(key, { unitId: event.target.value })}
+                      onChange={(event) => updateLine(key, { unitId: event.target.value, priceOverride: "", priceReason: "" })}
                       value={line.unitId}
                     >
                       {units.map((unit) => (
@@ -1387,6 +1414,23 @@ export function PosWorkspace({
                       placeholder="ส่วนลด ฿"
                       value={line.discount}
                     />
+                    <Button
+                      aria-label={`แก้ราคา ${String(line.product.name)}`}
+                      className="h-11 shrink-0 px-3 text-xs xl:h-9"
+                      disabled={Boolean(remoteLock)}
+                      onClick={() => setPriceEdit({
+                        key,
+                        name: String(line.product.name),
+                        unitName: String(priced?.unit_name || line.product.unit_name || "หน่วย"),
+                        shelf: Number(priced?.price_source === "override" ? 0 : priced?.shelf_unit_price ?? priced?.sold_unit_price ?? line.product.effective_price ?? 0),
+                        price: line.priceOverride || "",
+                        reason: line.priceReason || ""
+                      })}
+                      type="button"
+                      variant={line.priceOverride ? "default" : "secondary"}
+                    >
+                      {line.priceOverride ? `฿${Number(line.priceOverride).toLocaleString("th-TH")}` : "แก้ราคา"}
+                    </Button>
                     <div className="flex shrink-0 items-center rounded-full bg-card">
                       <button
                         aria-label={`ลดจำนวน ${String(line.product.name)}`}
@@ -1595,6 +1639,80 @@ export function PosWorkspace({
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog onOpenChange={(open) => { if (!open) setPriceEdit(null); }} open={Boolean(priceEdit)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader
+            description={priceEdit?.shelf ? `ราคาหน้าร้าน ${currency(priceEdit.shelf)} ต่อ${priceEdit.unitName}` : `ราคาต่อ${priceEdit?.unitName || "หน่วย"}`}
+            title={`แก้ราคา · ${priceEdit?.name || ""}`}
+          />
+          {priceEdit ? (
+            <form
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const price = Number(priceEdit.price);
+                if (priceEdit.price.trim() === "" || !Number.isFinite(price) || price < 0) {
+                  toast.error("กรุณาใส่ราคาที่ถูกต้อง");
+                  return;
+                }
+                if (!priceEdit.reason.trim()) {
+                  toast.error("กรุณาระบุเหตุผลที่เปลี่ยนราคา");
+                  return;
+                }
+                updateLine(priceEdit.key, { priceOverride: String(price), priceReason: priceEdit.reason.trim() });
+                setPriceEdit(null);
+              }}
+            >
+              <Field label={`ราคาใหม่ต่อ${priceEdit.unitName}`}>
+                <Input
+                  aria-label="ราคาใหม่"
+                  data-autofocus
+                  inputMode="decimal"
+                  onChange={(event) => setPriceEdit({ ...priceEdit, price: event.target.value })}
+                  placeholder="เช่น 399"
+                  value={priceEdit.price}
+                />
+              </Field>
+              <Field hint="บันทึกไว้ในบิล ฝ่ายบริหารตรวจย้อนหลังได้" label="เหตุผล">
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {PRICE_REASONS.map((reason) => (
+                    <button
+                      className={cn("rounded-full border px-3 py-1.5 text-xs", priceEdit.reason === reason ? "border-primary bg-primary/10 font-semibold text-primary" : "bg-card")}
+                      key={reason}
+                      onClick={() => setPriceEdit({ ...priceEdit, reason })}
+                      type="button"
+                    >
+                      {reason}
+                    </button>
+                  ))}
+                </div>
+                <Input
+                  aria-label="เหตุผลที่เปลี่ยนราคา"
+                  onChange={(event) => setPriceEdit({ ...priceEdit, reason: event.target.value })}
+                  placeholder="เช่น คุณ... โทรสั่งให้ขาย 399"
+                  value={priceEdit.reason}
+                />
+              </Field>
+              <div className="flex flex-wrap justify-end gap-2">
+                {cart.some((line) => cartLineKey(line) === priceEdit.key && line.priceOverride) ? (
+                  <Button
+                    onClick={() => {
+                      updateLine(priceEdit.key, { priceOverride: "", priceReason: "" });
+                      setPriceEdit(null);
+                    }}
+                    type="button"
+                    variant="secondary"
+                  >
+                    กลับราคาเดิม
+                  </Button>
+                ) : null}
+                <Button type="submit">ใช้ราคานี้</Button>
+              </div>
+            </form>
+          ) : null}
         </DialogContent>
       </Dialog>
 

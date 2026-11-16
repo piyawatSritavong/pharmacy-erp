@@ -23,20 +23,23 @@ const lifetime = 24 * time.Hour
 const claimLifetime = 15 * time.Minute
 
 type Item struct {
-	ProductID      string           `json:"product_id"`
-	InventoryLotID string           `json:"inventory_lot_id"`
-	AliasID        string           `json:"alias_id,omitempty"`
-	Quantity       int              `json:"quantity"`
-	UnitID         string           `json:"unit_id,omitempty"`
-	UnitName       string           `json:"unit_name,omitempty"`
-	ConversionQty  int              `json:"conversion_qty,omitempty"`
-	SoldQuantity   int              `json:"sold_quantity,omitempty"`
-	UnitPrice      float64          `json:"unit_price"`
-	DiscountAmount float64          `json:"discount_amount"`
-	ProductName    string           `json:"product_name"`
-	SKU            string           `json:"sku"`
-	LotNumber      string           `json:"lot_number"`
-	Units          []map[string]any `json:"units,omitempty"`
+	ProductID      string  `json:"product_id"`
+	InventoryLotID string  `json:"inventory_lot_id"`
+	AliasID        string  `json:"alias_id,omitempty"`
+	Quantity       int     `json:"quantity"`
+	UnitID         string  `json:"unit_id,omitempty"`
+	UnitName       string  `json:"unit_name,omitempty"`
+	ConversionQty  int     `json:"conversion_qty,omitempty"`
+	SoldQuantity   int     `json:"sold_quantity,omitempty"`
+	UnitPrice      float64 `json:"unit_price"`
+	DiscountAmount float64 `json:"discount_amount"`
+	// A price the cashier set for the line, and why.
+	OverrideUnitPrice *float64         `json:"override_unit_price,omitempty"`
+	OverrideReason    string           `json:"override_reason,omitempty"`
+	ProductName       string           `json:"product_name"`
+	SKU               string           `json:"sku"`
+	LotNumber         string           `json:"lot_number"`
+	Units             []map[string]any `json:"units,omitempty"`
 }
 
 type Input struct {

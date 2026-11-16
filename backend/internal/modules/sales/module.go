@@ -94,6 +94,10 @@ type CheckoutRequest struct {
 	PaymentNote      string `json:"payment_note"`
 	ParkedBillID     string `json:"parked_bill_id"`
 	ParkedClaimToken string `json:"parked_claim_token"`
+	// SoldAt brings in a sale made in the shop's previous system on its own
+	// day (RFC 3339). Superadmin only. The bill's date and the payment's
+	// received time take it; created_at stays the moment the row is written.
+	SoldAt string `json:"sold_at"`
 }
 
 type checkoutSettlement struct {
@@ -649,7 +653,21 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 	if paymentNote == "" && input.DocumentNote == "" {
 		paymentNote = strings.TrimSpace(input.Notes)
 	}
-	issuedAt := time.Now().UTC()
+	recordedAt := time.Now().UTC()
+	issuedAt := recordedAt
+	if soldAt := strings.TrimSpace(input.SoldAt); soldAt != "" {
+		if user.RoleKey != "super_admin" {
+			return nil, platform.NewError(http.StatusForbidden, "การนำเข้าบิลย้อนหลังทำได้เฉพาะ superadmin")
+		}
+		parsed, err := time.Parse(time.RFC3339, soldAt)
+		if err != nil {
+			return nil, platform.NewError(http.StatusBadRequest, "วันเวลาขายต้องเป็นรูปแบบ RFC 3339")
+		}
+		if parsed.After(recordedAt) || parsed.Before(recordedAt.AddDate(-1, 0, 0)) {
+			return nil, platform.NewError(http.StatusBadRequest, "วันเวลาขายย้อนหลังต้องอยู่ในช่วง 1 ปีที่ผ่านมา")
+		}
+		issuedAt = parsed.UTC()
+	}
 	vatRate, err := platform.GetSettingFloat(ctx, tx, "vat_rate", 7)
 	if err != nil {
 		return nil, err
@@ -695,13 +713,13 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 				request_full_tax_invoice, notes, bill_discount_amount, line_discount_total,
 				promotion_discount_total, giveaway_cost_total,
 				customer_id, sale_type, due_date, points_redeemed, points_discount
-			) VALUES ($1, $2, $3, $4, $5, $20, 'issued', $6, $7, $8, $9, $10, $11, $12, $13, $13, $13, $14, $15, $16, $17, $18, $19,
+			) VALUES ($1, $2, $3, $4, $5, $20, 'issued', $6, $7, $8, $9, $10, $11, $12, $13, $26, $26, $14, $15, $16, $17, $18, $19,
 				$21, $22, $23, $24, $25)
 	`, invoiceID, input.BranchID, invoiceNumber, customerName,
 		platform.NullString(customerTaxID), input.IsGovernment, taxInvoiceType(input.FullTaxInvoice), subtotal,
 		vatRate, taxAmount, totalAmount, user.ID, issuedAt, input.FullTaxInvoice,
 		documentNote, cart.BillDiscount, cart.LineDiscount, cart.PromotionDiscount, cart.GiveawayCost,
-		paymentStatus, customerIDOf(cart.Customer), saleType, dueDate, cart.PointsRedeemed, cart.PointsDiscount); err != nil {
+		paymentStatus, customerIDOf(cart.Customer), saleType, dueDate, cart.PointsRedeemed, cart.PointsDiscount, recordedAt); err != nil {
 		return nil, err
 	}
 	for _, line := range lines {
@@ -734,10 +752,10 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 		}
 		if _, err := tx.ExecContext(ctx, `
 				INSERT INTO invoice_payments (
-					id, invoice_id, payment_type, amount, reference_code, notes, created_by, created_at, received_branch_id
-				) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)
+					id, invoice_id, payment_type, amount, reference_code, notes, created_by, created_at, received_branch_id, received_at
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9)
 		`, platform.MustUUID(), invoiceID, payment.PaymentType, payment.Amount,
-			payment.ReferenceCode, paymentNote, user.ID, input.BranchID); err != nil {
+			payment.ReferenceCode, paymentNote, user.ID, input.BranchID, issuedAt); err != nil {
 			return nil, err
 		}
 	}
@@ -748,7 +766,11 @@ func (s *Service) checkoutInTx(ctx context.Context, tx *sql.Tx, user platform.Au
 	meta.EntityType = "invoice"
 	meta.EntityID = &invoiceID
 	meta.Action = "pos.checkout"
+	if !issuedAt.Equal(recordedAt) {
+		meta.Action = "pos.checkout.import"
+	}
 	meta.After = map[string]any{
+		"sold_at":         issuedAt,
 		"invoice_number":  invoiceNumber,
 		"total_amount":    totalAmount,
 		"payment_type":    input.PaymentType,
@@ -2079,6 +2101,7 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 		var (
 			productID         string
 			productName       string
+			baseUnitName      string
 			costPrice         float64
 			basePrice         float64
 			taxExempt         bool
@@ -2088,7 +2111,7 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 			maxDiscountAmount float64
 		)
 		if err := db.QueryRowContext(ctx, `
-			SELECT p.id::text, p.name, p.cost_price, COALESCE(bpp.selling_price, p.base_selling_price), p.tax_exempt,
+			SELECT p.id::text, p.name, COALESCE(NULLIF(p.unit_name, ''), p.name), p.cost_price, COALESCE(bpp.selling_price, p.base_selling_price), p.tax_exempt,
 			       COALESCE(bps.max_discount_amount,p.max_discount_amount),
 			       a.id::text, a.alias_name, a.default_government_price
 			FROM products p
@@ -2097,7 +2120,7 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 			LEFT JOIN product_aliases a ON a.id = $3 AND a.product_id = p.id AND a.active = TRUE AND (a.branch_id IS NULL OR a.branch_id = $2)
 			WHERE p.id = $1 AND p.active = TRUE
 		`, item.ProductID, branchID, platform.NullUUID(item.AliasID)).Scan(
-			&productID, &productName, &costPrice, &basePrice, &taxExempt, &maxDiscountAmount, &aliasID, &aliasName, &aliasDefaultPrice,
+			&productID, &productName, &baseUnitName, &costPrice, &basePrice, &taxExempt, &maxDiscountAmount, &aliasID, &aliasName, &aliasDefaultPrice,
 		); err != nil {
 			if err == sql.ErrNoRows {
 				return nil, 0, 0, 0, platform.NewError(http.StatusNotFound, "product not found")
@@ -2108,7 +2131,8 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 			return nil, 0, 0, 0, err
 		}
 
-		unit, err := resolveUnit(ctx, db, productID, item.UnitID, basePrice, productName)
+		// A product with no unit table sells in its own unit (ชิ้น, กล่อง).
+		unit, err := resolveUnit(ctx, db, productID, item.UnitID, basePrice, baseUnitName)
 		if err != nil {
 			return nil, 0, 0, 0, err
 		}
@@ -2131,7 +2155,7 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 				}
 			}
 			// A member's level price, when it beats both the shelf and any tier.
-			levelPrice, level, ok, err := memberLevelPrice(ctx, db, productID, unit, shelf, pricing.PriceLevel)
+			levelPrice, level, ok, err := memberLevelPrice(ctx, db, productID, branchID, unit, shelf, pricing.PriceLevel)
 			if err != nil {
 				return nil, 0, 0, 0, err
 			}
@@ -2183,8 +2207,20 @@ func (s *Service) priceLines(ctx context.Context, db platform.DBTX, user platfor
 			unitFloor = 0
 		}
 		hasGlobalOverride := (platform.HasPermission(user, "price.override.global") && strings.TrimSpace(item.OverrideReason) != "") || item.quoted
+		if item.OverrideUnitPrice != nil && !item.quoted {
+			if *item.OverrideUnitPrice < 0 {
+				return nil, 0, 0, 0, platform.NewError(http.StatusBadRequest, fmt.Sprintf("ราคาของ %s ต้องไม่ติดลบ", productName))
+			}
+		}
+		// A price changed with a reason by someone allowed to change prices is
+		// the price, even below the branch's discount floor — "the owner
+		// phoned", "sold by size". The reason stays on the bill line.
+		approvedOverride := item.OverrideUnitPrice != nil && canOverride(user) && strings.TrimSpace(item.OverrideReason) != ""
 		if item.OverrideUnitPrice != nil {
-			if soldUnitPrice < unitFloor && !hasGlobalOverride {
+			if soldUnitPrice < unitFloor && !hasGlobalOverride && !approvedOverride {
+				if canOverride(user) {
+					return nil, 0, 0, 0, platform.NewError(http.StatusBadRequest, fmt.Sprintf("ราคาของ %s ต่ำกว่าราคาต่ำสุด %.2f บาท กรุณาระบุเหตุผลที่เปลี่ยนราคา", productName, unitFloor))
+				}
 				return nil, 0, 0, 0, platform.NewError(http.StatusForbidden, fmt.Sprintf("ราคาของ %s ต่ำกว่าราคาต่ำสุด %.2f บาท", productName, unitFloor))
 			}
 		}

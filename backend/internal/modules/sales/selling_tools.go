@@ -107,7 +107,7 @@ type customerPricing struct {
 // product's own price for that unit, from its base-unit price times the
 // unit's size, or from the level's default discount off the shelf price.
 // ok is false when no level price applies.
-func memberLevelPrice(ctx context.Context, db platform.DBTX, productID string, unit unitInfo, shelf float64, priceLevel int) (float64, int, bool, error) {
+func memberLevelPrice(ctx context.Context, db platform.DBTX, productID, branchID string, unit unitInfo, shelf float64, priceLevel int) (float64, int, bool, error) {
 	if priceLevel <= 1 {
 		return 0, 0, false, nil
 	}
@@ -118,12 +118,15 @@ func memberLevelPrice(ctx context.Context, db platform.DBTX, productID string, u
 			best, bestLevel = price, level
 		}
 	}
+	// A branch's own price for a level wins over the catalog's price for it.
 	rows, err := db.QueryContext(ctx, `
-		SELECT price_level, unit_price, unit_id IS NULL
+		SELECT DISTINCT ON (price_level, unit_id IS NULL) price_level, unit_price, unit_id IS NULL
 		FROM product_level_prices
 		WHERE product_id = $1 AND price_level <= $2
 		  AND (unit_id IS NULL OR ($3 <> '' AND unit_id::text = $3))
-	`, productID, priceLevel, unit.ID)
+		  AND (branch_id IS NULL OR branch_id::text = $4)
+		ORDER BY price_level, unit_id IS NULL, branch_id IS NULL
+	`, productID, priceLevel, unit.ID, branchID)
 	if err != nil {
 		return 0, 0, false, err
 	}

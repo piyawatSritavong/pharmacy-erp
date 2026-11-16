@@ -45,6 +45,7 @@ export default async function ProductCatalogPage({
         pagination={products.pagination}
         canEditUnits={session.user.permissions.includes("products.manage")}
         canEditTiers={session.user.permissions.includes("price_tier.manage")}
+        canViewCost={session.user.role_key === "super_admin"}
       />
     </div>
   );

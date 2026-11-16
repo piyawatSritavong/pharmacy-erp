@@ -55,3 +55,11 @@ func HasPermission(user AuthUser, permission string) bool {
 	}
 	return false
 }
+
+// CanViewCost reports whether the user may read purchase cost. Cost is the
+// owner's number: only superadmin reads it. Other back-office roles may still
+// key a cost on a purchase they receive, but never read it back from the
+// catalog, stock lots, or reports.
+func CanViewCost(user AuthUser) bool {
+	return user.RoleKey == "super_admin"
+}

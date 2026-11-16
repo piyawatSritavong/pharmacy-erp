@@ -85,11 +85,11 @@ test.describe("ระดับสมาชิกและระดับรา�
     const hq = await open(browser, "admin.central@erp.local", /\/dashboard$/);
     await hq.page.goto("/customers");
     await hq.page.getByRole("button", { name: "ตั้งค่าระดับ" }).click();
-    const settings = hq.page.getByRole("dialog", { name: "ตั้งค่าระดับสมาชิกและระดับราคา" });
+    const settings = hq.page.getByRole("dialog", { name: "ตั้งค่าระดับสมาชิก" });
     await expect(settings.getByLabel(/^ชื่อระดับสมาชิก/)).toHaveCount(5);
-    await expect(settings.getByLabel(/^ชื่อราคาระดับ/)).toHaveCount(5);
+    await expect(settings.getByLabel(/^ระดับราคาของสมาชิกระดับ/)).toHaveCount(5);
     await settings.getByRole("button", { name: "บันทึก", exact: true }).click();
-    await expect(hq.page.getByText("บันทึกระดับสมาชิกและระดับราคาแล้ว")).toBeVisible();
+    await expect(hq.page.getByText("บันทึกระดับสมาชิกแล้ว")).toBeVisible();
     await hq.context.close();
   });
 });

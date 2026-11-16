@@ -158,6 +158,23 @@ def search_product(name):
     return items[0] if len(items) == 1 else None
 
 
+def variant_name(base, label):
+    return f"{base} ({label})"
+
+
+def line_name(line, index):
+    """The mapping name an order line sells under: its own size when the size
+    is a product of its own, else the base product."""
+    name, label = line["item_name"].strip(), (line.get("price_name") or "").strip()
+    if label and norm(variant_name(name, label)) in index:
+        return variant_name(name, label)
+    return name
+
+
+def sold_of(orders, row, index):
+    return sum(line["quantity"] for order in orders for line in order["items"] if norm(line_name(line, index)) == norm(row["ocha_name"]))
+
+
 def build_mapping(orders, stock):
     products = catalog()
     by_name = {norm(p["name"]): p for p in products}
@@ -178,7 +195,8 @@ def build_mapping(orders, stock):
     def entry(base):
         if base not in items:
             items[base] = {"ocha_name": base, "labels": [], "opening": 0.0, "ocha_sold": 0.0, "prices": [],
-                           "categories": set(), "lines": 0}
+                           "categories": set(), "lines": 0,
+                           "by_label": collections.defaultdict(lambda: {"opening": 0.0, "sold": 0.0, "prices": [], "lines": 0})}
         return items[base]
 
     for row in stock:
@@ -187,6 +205,8 @@ def build_mapping(orders, stock):
         item["labels"].append(label)
         item["opening"] += row["opening"]
         item["ocha_sold"] += row["sold"]
+        item["by_label"][label]["opening"] += row["opening"]
+        item["by_label"][label]["sold"] += row["sold"]
     for order in orders:
         for line in order["items"]:
             item = entry(line["item_name"].strip())
@@ -197,9 +217,39 @@ def build_mapping(orders, stock):
             item["prices"].append(unit)
             item["categories"].add(line.get("category_name") or "")
             item["lines"] += 1
+            item["by_label"][label]["prices"].append(unit)
+            item["by_label"][label]["lines"] += 1
+
+    def is_split(item):
+        # Sizes or colours that sell at prices of their own are products of
+        # their own; price labels ("ราคาปกติ", "ระดับ1") stay one product.
+        labels = [label for label in item["by_label"] if label and not PLAIN_LABEL.match(label)]
+        priced = {collections.Counter(item["by_label"][label]["prices"]).most_common(1)[0][0]
+                  for label in labels if item["by_label"][label]["prices"]}
+        return len(labels) > 1 and len(priced) > 1
 
     mapping = []
     for base, item in items.items():
+        if is_split(item):
+            fallback = collections.Counter(item["prices"]).most_common(1)[0][0]
+            for label, part in item["by_label"].items():
+                if not label:
+                    continue
+                name = variant_name(base, label)
+                product = by_name.get(norm(name))
+                prices = collections.Counter(part["prices"])
+                mapping.append({
+                    "ocha_name": name, "labels": [label], "variant_of": base,
+                    "match": "exact" if product else "missing",
+                    "product_id": product["id"] if product else None,
+                    "product_name": product["name"] if product else None,
+                    "system_price": money(product.get("base_selling_price")) if product else None,
+                    "ocha_price": prices.most_common(1)[0][0] if prices else fallback,
+                    "ocha_prices": sorted(prices),
+                    "opening": part["opening"], "ocha_sold": part["sold"], "sold_lines": part["lines"],
+                    "category": sorted(item["categories"] - {""})[0] if item["categories"] - {""} else "",
+                })
+            continue
         product, how = resolve(base)
         prices = collections.Counter(item["prices"])
         mapping.append({
@@ -279,13 +329,15 @@ def seed(args, orders, stock, sales):
         row["product_id"] = resp.body.get("id") or search_product(row["ocha_name"])["id"]
         row["product_name"], row["system_price"], row["created"] = row["ocha_name"], price, True
 
+    index = mapping_index(mapping)
     discounts = collections.defaultdict(float)
     for order in orders:
         for discount in order.get("discounts", []):
             for share in discount.get("item_discounts", []):
                 for line in order["items"]:
                     if line["client_id"] == share["order_item_cid"]:
-                        discounts[norm(line["item_name"])] = max(discounts[norm(line["item_name"])], money(share["discounted_value"]))
+                        key = norm(line_name(line, index))
+                        discounts[key] = max(discounts[key], money(share["discounted_value"]))
 
     for row in mapping:
         if not row["product_id"] or not row["sold_lines"]:
@@ -304,7 +356,7 @@ def seed(args, orders, stock, sales):
         if not row["product_id"]:
             continue
         need = int(round(row["opening"]))
-        sold_here = sum(line["quantity"] for order in orders for line in order["items"] if norm(line["item_name"]) == norm(row["ocha_name"]))
+        sold_here = sold_of(orders, row, index)
         if sold_here > need:
             issues.append(f"เติมสต๊อก {row['ocha_name']}: Ocha เริ่ม {need} แต่ขาย {sold_here}")
             need = sold_here
@@ -345,7 +397,7 @@ def seed(args, orders, stock, sales):
 def lines_for(order, index):
     lines = []
     for line in order["items"]:
-        row = index.get(norm(line["item_name"]))
+        row = index.get(norm(line_name(line, index)))
         unit = money((line.get("item_price") or {}).get("unit_price")) or money(line["money_nominal"]) / max(1, line["quantity"])
         lines.append({"row": row, "name": line["item_name"], "label": (line.get("price_name") or "").strip(),
                       "quantity": int(line["quantity"]), "unit": unit, "nominal": money(line["money_nominal"])})
@@ -407,6 +459,9 @@ def replay(args, orders, stock, sales):
             record["status"] = "skipped"
             results.append(record)
             continue
+        # The bill keeps the day Ocha sold it on, so each day's figures can be
+        # held against Ocha's. Only superadmin may bring in a past sale.
+        sold_at = dt.datetime.fromtimestamp(order["order"]["client_time"], BANGKOK).isoformat()
         body = {"branch_id": branch_id, "items": items, "notes": f"Ocha {receipt} · {when}"}
         discount = bill_discount(order)
         if discount:
@@ -425,7 +480,7 @@ def replay(args, orders, stock, sales):
             body.update(payment_type="bank_transfer")
         else:
             body.update(payment_type="cash", tendered_amount=total)
-        resp = api(BRANCH_ACCOUNT, "POST", "/pos/checkout", body)
+        resp = api("super", "POST", "/admin/pos/checkout", dict(body, sold_at=sold_at))
         if not resp.ok():
             record.update(status="checkout-failed", error=str(resp), actual=total)
         else:
@@ -441,6 +496,7 @@ def replay(args, orders, stock, sales):
 def report(args, orders, stock, sales):
     results = load_json("replay.json") or []
     mapping = load_json("mapping.json") or []
+    index = mapping_index(mapping)
     branch_id = me(BRANCH_ACCOUNT)["user"]["branch_id"]
     ok = [r for r in results if r.get("status") == "ok"]
     matched = [r for r in ok if r.get("match")]
@@ -470,7 +526,7 @@ def report(args, orders, stock, sales):
     for row in mapping:
         if not row.get("product_id") or not row.get("target_opening") and not row.get("sold_lines"):
             continue
-        sold = sum(l["quantity"] for o in orders for l in o["items"] if norm(l["item_name"]) == norm(row["ocha_name"]))
+        sold = sold_of(orders, row, index)
         resp = api("central", "GET", "/inventory", query={"branch_id": branch_id, "search": row["product_name"], "page_size": 5, "stock_bucket": "real"})
         qty = next((int(i.get("qty_real") or 0) for i in (resp.body.get("items", []) if resp.ok() else []) if str(i["product_id"]) == row["product_id"]), None)
         expected_left = int(row.get("target_opening", row["opening"])) - sold
@@ -488,6 +544,42 @@ def report(args, orders, stock, sales):
         "| --- | ---: | ---: |",
     ]
     lines += [f"| {k} | {v[0]:,.2f} | {v[1]:,.2f} |" for k, v in by_method.items()]
+    lines += ["", "## กระทบยอดรายวัน", "",
+              "Ocha = ไฟล์ JSON · xlsx = ประวัติการขาย.xlsx · ระบบ = หน้า สรุปยอดขาย ของสาขา · แดชบอร์ด = ยอดรวมทั้งวันในแดชบอร์ด superadmin", "",
+              "| วันที่ | บิล Ocha | ยอด Ocha | บิล xlsx | ยอด xlsx | บิลระบบ | ยอดระบบ | แดชบอร์ด | เงินสด Ocha | เงินสดระบบ | โอน Ocha | โอนระบบ | ผล |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |"]
+    days = collections.OrderedDict()
+    for order in orders:
+        day = dt.datetime.fromtimestamp(order["order"]["client_time"], BANGKOK).strftime("%Y-%m-%d")
+        entry = days.setdefault(day, {"bills": 0, "total": 0.0, "cash": 0.0, "transfer": 0.0, "xbills": 0, "xtotal": 0.0})
+        methods = order_payment(order)
+        entry["bills"] += 1
+        entry["total"] += money(order["order"]["money_payable"])
+        entry["cash"] += methods.get(CASH, 0)
+        entry["transfer"] += methods.get(TRANSFER, 0)
+    for row in sales:
+        day = dt.datetime.strptime(row["time"].strip(), "%d/%m/%Y %H:%M").strftime("%Y-%m-%d")
+        entry = days.setdefault(day, {"bills": 0, "total": 0.0, "cash": 0.0, "transfer": 0.0, "xbills": 0, "xtotal": 0.0})
+        entry["xbills"] += 1
+        entry["xtotal"] += row["total"]
+    all_days = 0
+    first = min(days) if days else None
+    last = max(days) if days else None
+    span = [] if not days else [(dt.date.fromisoformat(first) + dt.timedelta(days=n)).isoformat()
+                                for n in range((dt.date.fromisoformat(last) - dt.date.fromisoformat(first)).days + 1)]
+    for day in span:
+        entry = days.get(day) or {"bills": 0, "total": 0.0, "cash": 0.0, "transfer": 0.0, "xbills": 0, "xtotal": 0.0}
+        resp = api(BRANCH_ACCOUNT, "GET", "/dashboard/daily-sales", query={"date": day})
+        metrics = {m["key"]: m["value"] for m in (resp.body.get("metrics", []) if resp.ok() else [])}
+        got = (int(metrics.get("invoice_count", 0)), money(metrics.get("sales_total")), money(metrics.get("cash_received")), money(metrics.get("bank_received")))
+        want = (entry["bills"], money(entry["total"]), money(entry["cash"]), money(entry["transfer"]))
+        board = api("super", "GET", "/dashboard/daily-breakdown", query={"date_from": day, "date_to": day})
+        board_total = (board.body.get("overall", {}).get("day_total") or {}) if board.ok() else {}
+        board_got = (int(board_total.get("invoice_count", 0)), money(board_total.get("amount")))
+        same = got == want and board_got == want[:2] and (not sales or (entry["xbills"], money(entry["xtotal"])) == want[:2])
+        all_days += same
+        lines.append(f"| {day} | {want[0]} | {want[1]:,.2f} | {entry['xbills']} | {money(entry['xtotal']):,.2f} | {got[0]} | {got[1]:,.2f} | {board_got[0]} · {board_got[1]:,.2f} | {want[2]:,.2f} | {got[2]:,.2f} | {want[3]:,.2f} | {got[3]:,.2f} | {'ตรง' if same else '**ไม่ตรง**'} |")
+    lines.insert(4, f"- **กระทบยอดรายวันตรง {all_days}/{len(span)} วัน** ({first} ถึง {last} · จำนวนบิล ยอดขาย เงินสด เงินโอน และแดชบอร์ด)")
     lines += ["", "## บิลที่ไม่ตรงหรือมีหมายเหตุ", "", "| เลขที่ Ocha | เวลา | Ocha | ระบบใหม่ | สถานะ | หมายเหตุ |", "| --- | --- | ---: | ---: | --- | --- |"]
     for r in results:
         if r.get("match") and not r.get("issues"):

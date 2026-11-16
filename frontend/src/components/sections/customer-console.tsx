@@ -234,7 +234,7 @@ export function CustomerConsole({
       await proxyClient("/member-levels", { method: "PUT", body: JSON.stringify(levelDraft) });
       setLevels(levelDraft);
       setLevelDraft(null);
-      setFeedback({ tone: "success", text: "บันทึกระดับสมาชิกและระดับราคาแล้ว" });
+      setFeedback({ tone: "success", text: "บันทึกระดับสมาชิกแล้ว" });
       void load();
     } catch (error) {
       setDialogError(error instanceof Error ? error.message : "บันทึกระดับสมาชิกไม่สำเร็จ");
@@ -519,42 +519,13 @@ export function CustomerConsole({
         <DialogContent className="max-w-2xl">
           <DialogHeader
             description="ลูกค้าทั่วไป (ไม่เลือกสมาชิก) จ่ายราคาระดับ 1 เสมอ · สมาชิกจ่ายราคาที่ถูกที่สุดระหว่างระดับของตัวเองกับระดับที่ต่ำกว่า"
-            title="ตั้งค่าระดับสมาชิกและระดับราคา"
+            title="ตั้งค่าระดับสมาชิก"
           />
           {levelDraft ? (
             <form className="space-y-5" onSubmit={saveLevels}>
-              <div>
-                <h3 className="mb-2 text-sm font-semibold">ระดับราคา</h3>
-                <p className="mb-2 text-xs text-muted-foreground">
-                  ราคาของแต่ละระดับตั้งได้ในหน้า รายการสินค้า → หน่วย/ราคาส่ง · ส่วนลดตั้งต้นใช้กับสินค้าที่ยังไม่ได้ตั้งราคาระดับนั้นไว้ (0 = ไม่ลด)
-                </p>
-                <div className="space-y-2">
-                  {levelDraft.price_levels.map((item, index) => (
-                    <div className="grid grid-cols-[3rem_minmax(0,1fr)_8rem] items-center gap-2" key={item.level}>
-                      <span className="text-sm font-semibold">L{item.level}</span>
-                      <Input
-                        aria-label={`ชื่อราคาระดับ ${item.level}`}
-                        onChange={(event) => setLevelDraft({ ...levelDraft, price_levels: levelDraft.price_levels.map((entry, at) => (at === index ? { ...entry, name: event.target.value } : entry)) })}
-                        value={item.name}
-                      />
-                      {item.level === 1 ? (
-                        <span className="text-xs text-muted-foreground">ราคาขายปกติ</span>
-                      ) : (
-                        <Input
-                          aria-label={`ส่วนลดตั้งต้นราคาระดับ ${item.level} (%)`}
-                          max={99.99}
-                          min={0}
-                          onChange={(event) => setLevelDraft({ ...levelDraft, price_levels: levelDraft.price_levels.map((entry, at) => (at === index ? { ...entry, default_discount_percent: Number(event.target.value) } : entry)) })}
-                          placeholder="% ลด"
-                          step="0.01"
-                          type="number"
-                          value={item.default_discount_percent}
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <p className="rounded-xl bg-muted p-3 text-xs text-muted-foreground">
+                ราคาของแต่ละระดับ (L1–L5) ตั้งที่สินค้าแต่ละรายการ: ราคาของสาขาตั้งที่ สต๊อก → ตั้งค่าเฉพาะสาขา และราคากลางตั้งที่ รายการสินค้า → หน่วย/ราคาส่ง
+              </p>
               <div>
                 <h3 className="mb-2 text-sm font-semibold">ระดับสมาชิก</h3>
                 <div className="space-y-2">

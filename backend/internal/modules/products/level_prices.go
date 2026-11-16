@@ -26,7 +26,7 @@ func (s *Service) ListLevelPrices(ctx context.Context, productID string) ([]map[
 		SELECT COALESCE(lp.unit_id::text, ''), COALESCE(u.unit_name, ''), lp.price_level, lp.unit_price
 		FROM product_level_prices lp
 		LEFT JOIN product_units u ON u.id = lp.unit_id
-		WHERE lp.product_id = $1
+		WHERE lp.product_id = $1 AND lp.branch_id IS NULL
 		ORDER BY COALESCE(u.conversion_qty, 1), lp.price_level
 	`, productID)
 	if err != nil {
@@ -81,7 +81,7 @@ func (s *Service) SaveLevelPrices(ctx context.Context, user platform.AuthUser, p
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM product_level_prices WHERE product_id=$1`, productID); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM product_level_prices WHERE product_id=$1 AND branch_id IS NULL`, productID); err != nil {
 			return err
 		}
 		for _, price := range prices {

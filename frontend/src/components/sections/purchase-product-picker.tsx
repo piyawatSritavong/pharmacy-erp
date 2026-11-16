@@ -135,9 +135,11 @@ export function PurchaseProductPicker({
               <strong className="block">
                 คงเหลือ {Number(item.sellable_quantity || 0)}
               </strong>
-              <span className="text-muted-foreground">
-                ทุน {currency(Number(item.cost_price || 0))}
-              </span>
+              {item.cost_price != null ? (
+                <span className="text-muted-foreground">
+                  ทุน {currency(Number(item.cost_price || 0))}
+                </span>
+              ) : null}
             </span>
           </button>
         ))}

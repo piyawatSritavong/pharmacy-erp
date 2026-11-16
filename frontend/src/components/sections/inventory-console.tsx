@@ -114,6 +114,9 @@ export function InventoryConsole({
     selling_price: "",
     warehouse_price: "",
     selling_price_source: "warehouse",
+    // L1 is selling_price; L2-L5 are this branch's own price for each level,
+    // falling back to the catalog's price when left empty.
+    level_prices: [] as { price_level: number; name: string; unit_price: string; catalog_price: number | null }[],
     max_discount_amount: "",
     low_stock_real_threshold: "",
     low_stock_ghost_threshold: "",
@@ -496,6 +499,12 @@ export function InventoryConsole({
           settings.selling_price == null ? "" : String(settings.selling_price),
         warehouse_price: String(settings.warehouse_price ?? 0),
         selling_price_source: String(settings.selling_price_source || "warehouse"),
+        level_prices: ((settings.level_prices as Option[]) || []).map((level) => ({
+          price_level: Number(level.price_level),
+          name: String(level.name || ""),
+          unit_price: level.unit_price == null ? "" : String(level.unit_price),
+          catalog_price: level.catalog_price == null ? null : Number(level.catalog_price),
+        })),
         max_discount_amount:
           settings.max_discount_amount == null
             ? ""
@@ -531,7 +540,14 @@ export function InventoryConsole({
         {
           method: "PUT",
           body: JSON.stringify({
-            ...(String(selectedBranch?.branch_type) === "main_warehouse" ? {} : { selling_price: optionalNumber(branchSettings.selling_price) }),
+            ...(String(selectedBranch?.branch_type) === "main_warehouse"
+              ? {}
+              : {
+                  selling_price: optionalNumber(branchSettings.selling_price),
+                  level_prices: branchSettings.level_prices
+                    .filter((level) => level.price_level > 1)
+                    .map((level) => ({ price_level: level.price_level, unit_price: optionalNumber(level.unit_price) })),
+                }),
             max_discount_amount: optionalNumber(
               branchSettings.max_discount_amount,
             ),
@@ -878,7 +894,7 @@ export function InventoryConsole({
                     <th className="p-3">Lot/Batch</th>
                     <th className="p-3">รับเข้า</th>
                     <th className="p-3">คงเหลือ</th>
-                    <th className="p-3">ต้นทุน</th>
+                    {lots.some((lot) => lot.unit_cost != null) ? <th className="p-3">ต้นทุน</th> : null}
                     <th className="p-3">วันหมดอายุ</th>
                     <th className="p-3">สถานะ</th>
                     <th className="p-3">ต้นทาง</th>
@@ -896,9 +912,11 @@ export function InventoryConsole({
                       <td className="p-3 font-bold">
                         {Number(lot.remaining_quantity).toLocaleString("th-TH")}
                       </td>
-                      <td className="p-3">
-                        {currency(Number(lot.unit_cost || 0))}
-                      </td>
+                      {lot.unit_cost != null ? (
+                        <td className="p-3">
+                          {currency(Number(lot.unit_cost || 0))}
+                        </td>
+                      ) : null}
                       <td className="p-3">
                         {lot.expires_on
                           ? new Date(String(lot.expires_on)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })
@@ -927,7 +945,7 @@ export function InventoryConsole({
       <Dialog onOpenChange={setBranchSettingsOpen} open={branchSettingsOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader
-            description="ราคาขายเว้นว่างเพื่อสืบทอดราคาตั้งต้นจากโกดังแบบอัตโนมัติ ค่าอื่นมีผลเฉพาะสินค้าและสาขาที่เลือก"
+            description="ราคาแต่ละระดับเว้นว่างเพื่อใช้ราคากลางของสินค้า สมาชิกจ่ายราคาตามระดับที่ผูกไว้ในหน้าสมาชิก ค่าอื่นมีผลเฉพาะสินค้าและสาขาที่เลือก"
             title={`ตั้งค่าเฉพาะสาขา ${String(selectedInventory?.branch_name || "")}`}
           />
           <div className="grid gap-4">
@@ -936,27 +954,65 @@ export function InventoryConsole({
               <strong className="ml-2">{currency(Number(branchSettings.warehouse_price || 0))}</strong>
               <span className="ml-2 text-muted-foreground">· {branchSettings.selling_price_source === "branch_override" ? "กำลังใช้ราคาสาขา" : "กำลังสืบทอดราคาโกดัง"}</span>
             </div>
-            <Field label="ราคาขายเฉพาะสาขา (บาท)">
-              <div className="flex gap-2">
-                <Input
-                  disabled={String(selectedBranch?.branch_type) === "main_warehouse"}
-                  min="0"
-                  onChange={(event) => setBranchSettings({ ...branchSettings, selling_price: event.target.value })}
-                  placeholder="ใช้ราคาตั้งต้นจากโกดัง"
-                  step="0.01"
-                  type="number"
-                  value={branchSettings.selling_price}
-                />
+            <div className="grid gap-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="text-sm font-semibold">ระดับราคาเฉพาะสาขา (บาท/{String(selectedInventory?.unit_name || "หน่วย")})</span>
+                <span className="text-xs text-muted-foreground">เว้นว่าง = ใช้ราคากลาง</span>
+              </div>
+              {(branchSettings.level_prices.length ? branchSettings.level_prices : [{ price_level: 1, name: "ราคาทั่วไป", unit_price: "", catalog_price: null }]).map((level) => {
+                const isShelf = level.price_level === 1;
+                const warehouse = String(selectedBranch?.branch_type) === "main_warehouse";
+                return (
+                  <div className="grid grid-cols-[2.5rem_minmax(0,7rem)_minmax(0,1fr)] items-center gap-2" key={level.price_level}>
+                    <span className="text-sm font-semibold">L{level.price_level}</span>
+                    <span className="truncate text-xs text-muted-foreground" title={level.name}>{level.name}</span>
+                    <Input
+                      aria-label={`ราคา L${level.price_level} ${level.name} ของสาขา`}
+                      disabled={warehouse}
+                      inputMode="decimal"
+                      min="0"
+                      onChange={(event) =>
+                        isShelf
+                          ? setBranchSettings({ ...branchSettings, selling_price: event.target.value })
+                          : setBranchSettings({
+                              ...branchSettings,
+                              level_prices: branchSettings.level_prices.map((entry) =>
+                                entry.price_level === level.price_level ? { ...entry, unit_price: event.target.value } : entry,
+                              ),
+                            })
+                      }
+                      placeholder={
+                        isShelf
+                          ? `ใช้ราคาโกดัง ${currency(Number(branchSettings.warehouse_price || 0))}`
+                          : level.catalog_price != null
+                            ? `ใช้ราคากลาง ${currency(level.catalog_price)}`
+                            : "ไม่ตั้ง (จ่ายราคาระดับล่าง)"
+                      }
+                      step="0.01"
+                      type="number"
+                      value={isShelf ? branchSettings.selling_price : level.unit_price}
+                    />
+                  </div>
+                );
+              })}
+              <div className="flex justify-end">
                 <Button
                   disabled={String(selectedBranch?.branch_type) === "main_warehouse"}
-                  onClick={() => setBranchSettings({ ...branchSettings, selling_price: "", selling_price_source: "warehouse" })}
+                  onClick={() =>
+                    setBranchSettings({
+                      ...branchSettings,
+                      selling_price: "",
+                      selling_price_source: "warehouse",
+                      level_prices: branchSettings.level_prices.map((entry) => ({ ...entry, unit_price: "" })),
+                    })
+                  }
                   type="button"
                   variant="secondary"
                 >
-                  กลับมาใช้ราคาโกดัง
+                  กลับมาใช้ราคากลางทั้งหมด
                 </Button>
               </div>
-            </Field>
+            </div>
             <Field label="ส่วนลด — ลดได้สูงสุด/หน่วย (บาท)">
               <Input
                 min="0"

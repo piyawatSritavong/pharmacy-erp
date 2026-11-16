@@ -333,7 +333,7 @@ func (s *Service) fillFromClosedRound(ctx context.Context, reconciliationID stri
 		INNER JOIN invoices i ON i.id = s.invoice_id
 		WHERE s.reconciliation_id = $1
 		  AND s.branch_id = ANY($2::uuid[])
-		  AND s.invoice_created_at >= $3 AND s.invoice_created_at < $4
+		  AND i.issued_at >= $3 AND i.issued_at < $4
 	`, reconciliationID, pq.Array(branchIDs), periodStart, periodEnd)
 	if err != nil {
 		return err
@@ -494,7 +494,7 @@ func (s *Service) addUnpaidToBreakdown(ctx context.Context, branchIDs []string, 
 		WHERE i.deleted_at IS NULL
 		  AND i.invoice_status = 'issued'
 		  AND i.payment_status <> 'paid'
-		  AND i.created_at >= $1 AND i.created_at < $2
+		  AND i.issued_at >= $1 AND i.issued_at < $2
 		  AND i.branch_id = ANY($3::uuid[])
 	`, periodStart, periodEnd, pq.Array(branchIDs))
 	if err != nil {
@@ -533,7 +533,7 @@ func (s *Service) addTenderSplit(ctx context.Context, branchIDs []string, period
 		INNER JOIN invoice_payments p ON p.invoice_id = i.id
 		WHERE i.deleted_at IS NULL
 		  AND i.invoice_status = 'issued'
-		  AND i.created_at >= $1 AND i.created_at < $2
+		  AND i.issued_at >= $1 AND i.issued_at < $2
 		  AND i.branch_id = ANY($3::uuid[])
 		GROUP BY i.id, i.branch_id
 	`, periodStart, periodEnd, pq.Array(branchIDs))

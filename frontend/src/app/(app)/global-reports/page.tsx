@@ -6,14 +6,16 @@ import { getProfitLossReport, getTaxReport, requireSession } from "@/services/er
 export const metadata: Metadata = { title: "รายงาน" };
 
 export default async function GlobalReportsPage() {
-  requirePermission(await requireSession(), ["reports.view.global"]);
-  const [tax, profitLoss] = await Promise.all([getTaxReport(), getProfitLossReport()]);
+  const session = requirePermission(await requireSession(), ["reports.view.global"]);
+  // Profit needs cost, and cost is superadmin's alone.
+  const canViewCost = session.user.role_key === "super_admin";
+  const [tax, profitLoss] = await Promise.all([getTaxReport(), canViewCost ? getProfitLossReport() : Promise.resolve({ items: [] })]);
 
   return (
     <div className="space-y-6">
       <PageIntro
         title="รายงาน"
-        description="รายงานภาษีและกำไรขาดทุนจากยอดขายและต้นทุนที่บันทึกจริง"
+        description={canViewCost ? "รายงานภาษีและกำไรขาดทุนจากยอดขายและต้นทุนที่บันทึกจริง" : "รายงานภาษีจากยอดขายที่บันทึกจริง"}
       />
       <div className="space-y-6">
         <SectionCard title="รายงานภาษี" description="สรุปใบขายแยกตามสาขา">
@@ -28,7 +30,7 @@ export default async function GlobalReportsPage() {
             rows={tax.items}
           />
         </SectionCard>
-        <SectionCard title="กำไรและขาดทุน" description="คำนวณจากยอดขาย ต้นทุน และกำไรตามข้อมูลจริงในระบบ">
+        {canViewCost ? <SectionCard title="กำไรและขาดทุน" description="คำนวณจากยอดขาย ต้นทุน และกำไรตามข้อมูลจริงในระบบ">
           <DataTable
             columns={[
               { key: "branch_name", label: "สาขา" },
@@ -38,7 +40,7 @@ export default async function GlobalReportsPage() {
             ]}
             rows={profitLoss.items}
           />
-        </SectionCard>
+        </SectionCard> : null}
       </div>
     </div>
   );

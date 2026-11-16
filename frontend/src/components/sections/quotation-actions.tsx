@@ -100,7 +100,7 @@ export function ConvertQuotationButton({ id }: { id: string }) {
                       <div className="grid gap-2 sm:grid-cols-[1fr_120px_auto]" key={allocation.key}>
                         <Select value={allocation.inventory_lot_id} onChange={(event) => setAllocations((current) => current.map((row) => row.key === allocation.key ? { ...row, inventory_lot_id: event.target.value } : row))}>
                           <option value="">เลือก Lot</option>
-                          {(lots[allocation.quotation_item_id] || []).map((lot) => <option key={String(lot.id)} value={String(lot.id)}>{`${String(lot.lot_number)} · คงเหลือ ${Number(lot.remaining_quantity || 0).toLocaleString("th-TH")} · ต้นทุน ${Number(lot.unit_cost || 0).toLocaleString("th-TH")}`}</option>)}
+                          {(lots[allocation.quotation_item_id] || []).map((lot) => <option key={String(lot.id)} value={String(lot.id)}>{`${String(lot.lot_number)} · คงเหลือ ${Number(lot.remaining_quantity || 0).toLocaleString("th-TH")}${lot.unit_cost != null ? ` · ต้นทุน ${Number(lot.unit_cost).toLocaleString("th-TH")}` : ""}`}</option>)}
                         </Select>
                         <Input min="1" type="number" value={allocation.quantity} onChange={(event) => setAllocations((current) => current.map((row) => row.key === allocation.key ? { ...row, quantity: event.target.value } : row))} />
                         <Button disabled={rows.length === 1} onClick={() => setAllocations((current) => current.filter((row) => row.key !== allocation.key))} type="button" variant="destructive">ลบ</Button>

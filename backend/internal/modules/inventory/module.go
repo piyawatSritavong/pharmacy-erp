@@ -176,7 +176,7 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 		return ListResult{}, err
 	}
 	defer rows.Close()
-	items, err := scanInventory(rows, user.RoleKey == "super_admin", user.Portal != "pos" && user.RoleKey != "branch_pos")
+	items, err := scanInventory(rows, user.RoleKey == "super_admin", user.Portal != "pos" && user.RoleKey != "branch_pos", platform.CanViewCost(user))
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -192,7 +192,7 @@ func (s *Service) List(ctx context.Context, user platform.AuthUser, branchID str
 	return ListResult{Items: items, Total: total, Page: page, PageSize: pageSize, TotalPages: totalPages}, nil
 }
 
-func scanInventory(rows *sql.Rows, includeGhost bool, includeExactQuantity bool) ([]map[string]any, error) {
+func scanInventory(rows *sql.Rows, includeGhost bool, includeExactQuantity bool, includeCost bool) ([]map[string]any, error) {
 	items := []map[string]any{}
 	for rows.Next() {
 		var id, branchID, branchName, productID, sku, productName string
@@ -223,9 +223,11 @@ func scanInventory(rows *sql.Rows, includeGhost bool, includeExactQuantity bool)
 			"image_available":          imageKey != "",
 			"image_count":              imageCount,
 		}
+		if includeCost {
+			item["cost_price"] = costPrice
+		}
 		if includeExactQuantity {
 			item["qty_real"] = qtyReal
-			item["cost_price"] = costPrice
 			item["base_selling_price"] = baseSellingPrice
 			item["max_discount_amount"] = maxDiscount
 			item["expiry_warning_days"] = warningDays
@@ -303,7 +305,11 @@ func (s *Service) ListLots(ctx context.Context, user platform.AuthUser, branchID
 		if err := rows.Scan(&id, &lotNumber, &stockBucket, &received, &remaining, &cost, &expires, &receivedAt, &sourceType, &poNumber, &status); err != nil {
 			return nil, err
 		}
-		items = append(items, map[string]any{"id": id, "lot_number": lotNumber, "stock_bucket": stockBucket, "received_quantity": received, "remaining_quantity": remaining, "unit_cost": cost, "expires_on": nullableTime(expires), "received_at": receivedAt, "source_type": sourceType, "po_number": poNumber, "expiry_status": status})
+		item := map[string]any{"id": id, "lot_number": lotNumber, "stock_bucket": stockBucket, "received_quantity": received, "remaining_quantity": remaining, "expires_on": nullableTime(expires), "received_at": receivedAt, "source_type": sourceType, "po_number": poNumber, "expiry_status": status}
+		if platform.CanViewCost(user) {
+			item["unit_cost"] = cost
+		}
+		items = append(items, item)
 	}
 	return items, rows.Err()
 }

@@ -336,7 +336,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	protected.GET("/accounting/month-end/periods/:periodID/export", monthEndWorkflowHandler.Export, monthEndOnly)
 
 	protected.GET("/reports/tax", reportHandler.Tax, appMiddleware.RequireAnyPermission("reports.view.global"))
-	protected.GET("/reports/profit-loss", reportHandler.ProfitLoss, appMiddleware.RequireAnyPermission("reports.view.global"))
+	protected.GET("/reports/profit-loss", reportHandler.ProfitLoss, superadminOnly)
 
 	protected.GET("/marketplace/providers", marketplaceHandler.ListProviders, appMiddleware.RequireAnyPermission("marketplace.manage.global", "marketplace.view.branch"))
 	protected.GET("/marketplace/orders", marketplaceHandler.ListOrders, appMiddleware.RequireAnyPermission("marketplace.manage.global", "marketplace.view.branch"))

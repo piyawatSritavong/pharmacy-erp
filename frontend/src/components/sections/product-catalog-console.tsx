@@ -69,7 +69,8 @@ export function ProductCatalogConsole({
   defaultSalesChannel,
   pagination,
   canEditUnits = false,
-  canEditTiers = false
+  canEditTiers = false,
+  canViewCost = false
 }: {
   initialItems: Option[];
   categories: Option[];
@@ -78,6 +79,9 @@ export function ProductCatalogConsole({
   defaultSalesChannel: string;
   pagination: PaginationState;
   canEditUnits?: boolean;
+  // Cost is the owner's number. Others may key it on a new product but never
+  // read it back.
+  canViewCost?: boolean;
   canEditTiers?: boolean;
 }) {
   const router = useRouter();
@@ -312,9 +316,11 @@ export function ProductCatalogConsole({
             <Field error={errors.errors.unit_name} label="หน่วยนับ">
               <Input onChange={(event) => { setEditing((current) => ({ ...current, unit_name: event.target.value })); errors.clearError("unit_name"); }} value={String(editing.unit_name || "")} />
             </Field>
-            <Field label="ราคาทุน">
-              <Input onChange={(event) => setEditing((current) => ({ ...current, cost_price: event.target.value }))} type="number" value={String(editing.cost_price ?? 0)} />
-            </Field>
+            {canViewCost || !editing.id ? (
+              <Field hint={canViewCost ? undefined : "บันทึกแล้วเห็นได้เฉพาะ superadmin"} label="ราคาทุน">
+                <Input onChange={(event) => setEditing((current) => ({ ...current, cost_price: event.target.value }))} type="number" value={String(editing.cost_price ?? 0)} />
+              </Field>
+            ) : null}
             <Field label="ราคาขายตั้งต้น (คลังหลัก)">
               <Input onChange={(event) => setEditing((current) => ({ ...current, base_selling_price: event.target.value }))} type="number" value={String(editing.base_selling_price ?? 0)} />
             </Field>
