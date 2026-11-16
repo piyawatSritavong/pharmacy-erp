@@ -101,3 +101,21 @@ services:
       # client-bundle exposure that does not happen.
       - key: BACKEND_INTERNAL_URL
         sync: false
+      # Downtime alerts to LINE (src/app/api/alerts/uptime). UptimeRobot checks
+      # the API's /healthz every 5 minutes; its webhook alert contact calls
+      # https://<web origin>/api/alerts/uptime?token=<UPTIME_WEBHOOK_TOKEN>
+      # and this service pushes the message through the MeApplication LINE
+      # Official Account. The relay lives here, not in the API, so it still
+      # works while the API is the thing that is down.
+      #
+      # UPTIME_WEBHOOK_TOKEN: a long random string, the same one in the
+      # UptimeRobot webhook URL. LINE_CHANNEL_ACCESS_TOKEN: the OA's Messaging
+      # API channel access token (long-lived). LINE_ALERT_TO: comma-separated
+      # user ids (U...) or group ids (C...) to receive the alerts; each one
+      # must have added the OA as a friend, or the OA must be in the group.
+      - key: UPTIME_WEBHOOK_TOKEN
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: LINE_ALERT_TO
+        sync: false

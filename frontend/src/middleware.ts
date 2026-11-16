@@ -4,7 +4,12 @@ import type { NextRequest } from "next/server";
 import { AUTH_COOKIE } from "@/lib/auth";
 
 export function middleware(request: NextRequest) {
-  const isPublic = request.nextUrl.pathname === "/login" || request.nextUrl.pathname.startsWith("/api/backend");
+  // /api/alerts is called by the uptime monitor, which has no session; the
+  // route checks its own shared token.
+  const isPublic =
+    request.nextUrl.pathname === "/login" ||
+    request.nextUrl.pathname.startsWith("/api/backend") ||
+    request.nextUrl.pathname.startsWith("/api/alerts/");
   const hasToken = Boolean(request.cookies.get(AUTH_COOKIE)?.value);
 
   if (!isPublic && !hasToken) {

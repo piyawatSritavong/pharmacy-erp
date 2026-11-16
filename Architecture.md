@@ -151,7 +151,12 @@ MaxIdleConns = 10
 
 - **เปิด RLS + แยก DB role ที่ไม่ใช่ superuser** (ข้อเดียวที่ยังค้างจากแผนเดิม)
 - ทดสอบ `pg_dump` แล้ว restore ขึ้น project เปล่า จับเวลา — สัญญาลูกค้าไว้ว่าส่งข้อมูลได้ใน 7 วัน ยังไม่เคยพิสูจน์
-- ตั้ง UptimeRobot ยิง `/healthz` ทุก 5 นาที เข้า Telegram bot ที่มีอยู่แล้ว
+- ตั้ง UptimeRobot ยิง `/healthz` ทุก 5 นาที แล้วแจ้งเข้า LINE ผ่าน MeApplication OA (LINE Notify ปิดบริการแล้ว)
+  1. LINE Developers → channel Messaging API ของ MeApplication OA → ออก channel access token (long-lived)
+  2. หา user id (`U…`) ของคนที่จะรับ (Basic settings → Your user ID) หรือ group id (`C…`) ถ้าจะส่งเข้ากลุ่ม (ต้องเชิญ OA เข้ากลุ่ม และอ่าน id จาก webhook event ตอน OA เข้ากลุ่ม)
+  3. ตั้งค่า env ใน Render บริการ `pharmacy-erp-web`: `UPTIME_WEBHOOK_TOKEN` (สุ่มยาว ๆ), `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_ALERT_TO` (คั่นด้วยจุลภาค)
+  4. UptimeRobot → Alert Contacts → Webhook: URL `https://<โดเมนเว็บ>/api/alerts/uptime?token=<UPTIME_WEBHOOK_TOKEN>` เลือก POST แบบ JSON ส่ง `alertType`, `monitorFriendlyName`, `monitorURL`, `alertDetails`, `alertDuration`
+  5. สร้าง monitor ยิง `https://<api>/healthz` ทุก 5 นาที ผูกกับ webhook นี้ และผูกอีเมลไว้สำรองด้วย (ถ้าเว็บล่มพร้อม API ตัวส่ง LINE ก็ล่มด้วย)
 - ตั้ง Log Stream ถ้าต้องเก็บ access log ยาวกว่าที่ plan ให้
 - เขียนไฟล์ทะเบียน tenant — Pharmacy ใช้ Supabase project ref ไหน, Render service อะไร, subdomain อะไร
 - ล็อกอินพร้อมกันจากสองเครื่องจริง ทดสอบว่าไม่ดีดกัน (อย่าทดสอบในเบราว์เซอร์เดียว มันจะชนแน่นอนและไม่ใช่ของจริง)
