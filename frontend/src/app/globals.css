@@ -285,9 +285,13 @@ textarea:disabled {
 
 /* VisualViewport follows the software keyboard as well as browser chrome. */
 @media screen and (max-width: 639px) {
+  /* Phone dialogs and the cart are sheets from the bottom edge. Their bottom
+     follows the visible viewport, so an open keyboard pushes the sheet up
+     instead of covering its buttons. */
   .app-dialog {
-    top: calc(var(--app-viewport-top, 0px) + var(--app-viewport-height, 100dvh) / 2);
-    max-height: calc(var(--app-viewport-height, 100dvh) - 2rem);
+    top: auto;
+    bottom: max(0px, calc(100dvh - var(--app-viewport-top, 0px) - var(--app-viewport-height, 100dvh)));
+    max-height: calc(var(--app-viewport-height, 100dvh) - 1rem);
   }
   .app-sheet {
     top: var(--app-viewport-top, 0px);
@@ -295,7 +299,8 @@ textarea:disabled {
     max-height: var(--app-viewport-height, 100dvh);
   }
   .pos-cart[role="dialog"] {
-    top: calc(var(--app-viewport-top, 0px) + 0.5rem);
+    top: auto;
+    bottom: max(0px, calc(100dvh - var(--app-viewport-top, 0px) - var(--app-viewport-height, 100dvh)));
     max-height: calc(var(--app-viewport-height, 100dvh) - 1rem);
   }
 }

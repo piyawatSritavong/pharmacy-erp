@@ -202,6 +202,10 @@ export function PosWorkspace({
   // the grid to that promotion's eligible products.
   const [promotions, setPromotions] = useState<Option[]>([]);
   const [activePromoId, setActivePromoId] = useState("");
+  // Category chips: big equipment is found by its kind (beds, wheelchairs,
+  // oxygen) faster than by typing a name on a phone.
+  const [categories, setCategories] = useState<Option[]>([]);
+  const [categoryId, setCategoryId] = useState("");
   // Grid paging: the server filters and pages, the sentinel below the grid asks
   // for the next 18 as it scrolls into view.
   const [gridItems, setGridItems] = useState<Option[]>(products);
@@ -309,6 +313,7 @@ export function PosWorkspace({
         } else {
           query.set("page_size", String(GRID_PAGE_SIZE));
           if (debouncedSearch) query.set("search", debouncedSearch);
+          if (categoryId) query.set("category_id", categoryId);
         }
         const response = await proxyClient<{ items: Option[] }>(`/products?${query.toString()}`);
         const items = response.items || [];
@@ -324,7 +329,7 @@ export function PosWorkspace({
         setGridLoading(false);
       }
     },
-    [branchId, debouncedSearch, promoIdsKey]
+    [branchId, categoryId, debouncedSearch, promoIdsKey]
   );
 
   // Any change of branch, search term or promotion starts the list over.
@@ -520,6 +525,9 @@ export function PosWorkspace({
   }, [watchRemote]);
 
   const filteredProducts = gridItems;
+  // How many of each product the cart already holds, shown on its row.
+  const inCart = new Map<string, number>();
+  for (const line of cart) inCart.set(String(line.product.id), (inCart.get(String(line.product.id)) || 0) + line.quantity);
 
   function payload(extra?: { payment_type?: string; tendered_amount?: number; transfer_amount?: number }) {
     return {
@@ -578,6 +586,12 @@ export function PosWorkspace({
     // payload intentionally follows every cart and tax-document field.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branchId, cart, billDiscount, customer, customerName, customerTaxId, fullTaxInvoice, redeemPoints]);
+
+  useEffect(() => {
+    void proxyClient<{ items: Option[] }>("/product-categories")
+      .then((response) => setCategories(response.items || []))
+      .catch(() => setCategories([]));
+  }, []);
 
   useEffect(() => {
     // Active, in-date promotions for the shortcut bar; the backend already
@@ -1116,7 +1130,7 @@ export function PosWorkspace({
 	            <div className="grid grid-cols-[1fr_auto] gap-2 sm:flex sm:flex-col sm:gap-3 lg:flex-row lg:items-center">
 	              <div className="shrink-0">
 	                <p className="text-xs font-semibold text-primary">{branchName}</p>
-	                <h1 className="text-lg font-semibold tracking-tight">ขายหน้าร้าน</h1>
+	                <h1 className="hidden text-lg font-semibold tracking-tight sm:block">ขายหน้าร้าน</h1>
 	              </div>
 	              <label className="relative col-span-2 row-start-2 block min-w-0 flex-1">
                 <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
@@ -1124,11 +1138,11 @@ export function PosWorkspace({
                   aria-label="ค้นหาสินค้า"
                   className="h-11 rounded-xl border-0 bg-muted pl-10 shadow-none sm:h-12 sm:rounded-full sm:pl-12"
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="ค้นหาชื่อสินค้า SKU หรือบาร์โค้ด..."
+                  placeholder="ค้นหาชื่อหรือรหัสสินค้า"
                   value={search}
                 />
               </label>
-              <div className="col-start-2 row-start-1 flex items-center gap-2">
+              <div className="col-start-2 row-start-1 hidden items-center gap-2 sm:flex">
                 <Button className="relative rounded-xl sm:rounded-full xl:hidden" onClick={() => setCartOpen(true)} type="button">
                   <ShoppingCart className="h-4 w-4" />
                   ตะกร้า
@@ -1142,6 +1156,30 @@ export function PosWorkspace({
             </div>
 
           </div>
+
+          {categories.length > 0 ? (
+            <div aria-label="หมวดสินค้า" className="-mx-1 flex shrink-0 items-center gap-2 overflow-x-auto px-1 pb-1" role="group">
+              {[{ id: "", name: "ทุกหมวด" }, ...categories].map((category) => {
+                const id = String(category.id || "");
+                const active = categoryId === id;
+                return (
+                  <button
+                    aria-pressed={active}
+                    className={cn(
+                      "min-h-9 shrink-0 rounded-full border px-3 text-xs font-semibold transition",
+                      active ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:bg-muted"
+                    )}
+                    key={id || "all"}
+                    onClick={() => setCategoryId(id)}
+                    title={String(category.name)}
+                    type="button"
+                  >
+                    <span className="block max-w-44 truncate">{String(category.name)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
 
           {promotions.length > 0 ? (
             <div className="shrink-0">
@@ -1182,20 +1220,72 @@ export function PosWorkspace({
           ) : null}
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1" data-testid="product-scroll-area">
-            <div className="grid gap-2 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+            <div className="grid gap-1.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
               {filteredProducts.map((product) => {
               const stock = inventoryByProduct.get(String(product.id));
               return (
-                <article className="overflow-hidden rounded-2xl border bg-card shadow-card" key={String(product.id)}>
+                <article className="overflow-hidden rounded-xl border bg-card shadow-card sm:rounded-2xl" key={String(product.id)}>
+                  {/* Phone, held upright: one dense row per product, so a
+                      screen shows about ten. Tapping the row adds it. */}
                   <button
                     aria-busy={pendingProductId === String(product.id)}
                     aria-label={`เพิ่ม ${String(product.name)} ลงตะกร้า`}
-                    className="grid w-full grid-cols-[64px_minmax(0,1fr)] text-left disabled:opacity-60 sm:block"
+                    className="flex w-full items-center gap-3 p-2.5 text-left disabled:opacity-60 sm:hidden"
                     disabled={Boolean(pendingProductId) && pendingProductId !== String(product.id)}
                     onClick={() => void chooseProductLot(product)}
                     type="button"
                   >
-                    <div className="relative h-full min-h-20 overflow-hidden sm:h-44 bg-gradient-to-br from-placeholder-from to-placeholder-to">
+                    <span className="relative grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-placeholder-from to-placeholder-to">
+                      {Boolean(product.image_available) && !brokenImages.has(String(product.id)) ? (
+                        <Image
+                          alt=""
+                          className="object-cover"
+                          fill
+                          onError={() => setBrokenImages((current) => new Set(current).add(String(product.id)))}
+                          sizes="44px"
+                          src={`/api/backend/products/${String(product.id)}/image`}
+                          unoptimized
+                          loading="lazy"
+                        />
+                      ) : (
+                        <Package className="h-5 w-5 text-primary/35" />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="line-clamp-2 break-words text-sm font-semibold leading-snug">{String(product.name)}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">{stockLabel(stock, String(product.unit_name || "ชิ้น"))}</span>
+                    </span>
+                    <span className="flex shrink-0 flex-col items-end gap-1">
+                      <span className="text-sm font-bold tabular-nums text-primary">{currency(Number(product.effective_price || 0))}</span>
+                      <span
+                        className={cn(
+                          "inline-flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-xs font-bold",
+                          inCart.get(String(product.id))
+                            ? "bg-primary text-primary-foreground"
+                            : isSellable(stock)
+                              ? "bg-primary/10 text-primary"
+                              : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        {pendingProductId === String(product.id)
+                          ? "…"
+                          : inCart.get(String(product.id))
+                            ? `ในตะกร้า ${inCart.get(String(product.id))}`
+                            : isSellable(stock)
+                              ? <Plus className="h-4 w-4" />
+                              : "หมด"}
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    aria-busy={pendingProductId === String(product.id)}
+                    aria-label={`เพิ่ม ${String(product.name)} ลงตะกร้า`}
+                    className="hidden w-full text-left disabled:opacity-60 sm:block"
+                    disabled={Boolean(pendingProductId) && pendingProductId !== String(product.id)}
+                    onClick={() => void chooseProductLot(product)}
+                    type="button"
+                  >
+                    <div className="relative h-44 overflow-hidden bg-gradient-to-br from-placeholder-from to-placeholder-to">
                       {Boolean(product.image_available) && !brokenImages.has(String(product.id)) ? (
                         <Image
                           alt={String(product.name)}
@@ -1403,34 +1493,8 @@ export function PosWorkspace({
                       ))}
                     </Select>
                   ) : null}
-                  {/* Discount and quantity share one row so a full cart stays scannable. */}
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <Input
-                      aria-label={`ส่วนลด ${String(line.product.name)}`}
-                      className="h-11 min-w-[5rem] flex-1 text-xs xl:h-9"
-                      inputMode="decimal"
-                      disabled={Boolean(remoteLock)}
-                      onChange={(event) => updateLine(key, { discount: event.target.value })}
-                      placeholder="ส่วนลด ฿"
-                      value={line.discount}
-                    />
-                    <Button
-                      aria-label={`แก้ราคา ${String(line.product.name)}`}
-                      className="h-11 shrink-0 px-3 text-xs xl:h-9"
-                      disabled={Boolean(remoteLock)}
-                      onClick={() => setPriceEdit({
-                        key,
-                        name: String(line.product.name),
-                        unitName: String(priced?.unit_name || line.product.unit_name || "หน่วย"),
-                        shelf: Number(priced?.price_source === "override" ? 0 : priced?.shelf_unit_price ?? priced?.sold_unit_price ?? line.product.effective_price ?? 0),
-                        price: line.priceOverride || "",
-                        reason: line.priceReason || ""
-                      })}
-                      type="button"
-                      variant={line.priceOverride ? "default" : "secondary"}
-                    >
-                      {line.priceOverride ? `฿${Number(line.priceOverride).toLocaleString("th-TH")}` : "แก้ราคา"}
-                    </Button>
+                  {/* Two rows a thumb can work: how many, then what it costs. */}
+                  <div className="mt-2 flex items-center justify-between gap-2">
                     <div className="flex shrink-0 items-center rounded-full bg-card">
                       <button
                         aria-label={`ลดจำนวน ${String(line.product.name)}`}
@@ -1463,6 +1527,34 @@ export function PosWorkspace({
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Input
+                      aria-label={`ส่วนลด ${String(line.product.name)}`}
+                      className="h-11 min-w-0 flex-1 text-xs xl:h-9"
+                      inputMode="decimal"
+                      disabled={Boolean(remoteLock)}
+                      onChange={(event) => updateLine(key, { discount: event.target.value })}
+                      placeholder="ส่วนลด ฿"
+                      value={line.discount}
+                    />
+                    <Button
+                      aria-label={`แก้ราคา ${String(line.product.name)}`}
+                      className="h-11 shrink-0 px-3 text-xs xl:h-9"
+                      disabled={Boolean(remoteLock)}
+                      onClick={() => setPriceEdit({
+                        key,
+                        name: String(line.product.name),
+                        unitName: String(priced?.unit_name || line.product.unit_name || "หน่วย"),
+                        shelf: Number(priced?.price_source === "override" ? 0 : priced?.shelf_unit_price ?? priced?.sold_unit_price ?? line.product.effective_price ?? 0),
+                        price: line.priceOverride || "",
+                        reason: line.priceReason || ""
+                      })}
+                      type="button"
+                      variant={line.priceOverride ? "default" : "secondary"}
+                    >
+                      {line.priceOverride ? `฿${Number(line.priceOverride).toLocaleString("th-TH")}` : "แก้ราคา"}
+                    </Button>
                   </div>
                 </div>
               );
@@ -1805,7 +1897,7 @@ export function PosWorkspace({
 
             </div>
             <div className="mt-3 grid gap-3 sm:mt-6 sm:gap-4">
-              <div aria-label="ช่องทางชำระเงิน" className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup">
+              <div aria-label="ช่องทางชำระเงิน" className="grid grid-cols-3 gap-2 sm:grid-cols-4" role="radiogroup">
                 {([
                   ["cash", "เงินสด"],
                   ["bank_transfer", "เงินโอน"],

@@ -45,10 +45,10 @@ export function DialogContent({
     <DialogPrimitive.Portal>
       {/* print:hidden — a modal backdrop should never appear in printed/exported output (see D4's PO print layout). */}
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 print:hidden" />
-      {/* Centred on both axes and capped to the viewport, so a tall form
-          scrolls inside the dialog instead of running off-screen (the header
-          and action buttons stayed unreachable before). Every dialog in the
-          app inherits this — don't re-declare max-h/overflow at call sites. */}
+      {/* Capped to the viewport, so a tall form scrolls inside the dialog
+          instead of running off-screen (the header and action buttons stayed
+          unreachable before). Every dialog in the app inherits this — don't
+          re-declare max-h/overflow at call sites. */}
       <DialogPrimitive.Content
         onOpenAutoFocus={(event) => {
           returnFocus.current = opener?.current || document.activeElement as HTMLElement;
@@ -71,7 +71,9 @@ export function DialogContent({
           }
         }}
         className={cn(
-          "app-dialog fixed left-1/2 top-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-y-auto overscroll-contain rounded-2xl border border-border bg-card p-4 shadow-2xl sm:p-6",
+          // On a phone held upright a dialog is a sheet from the bottom edge,
+          // in reach of the thumb; from sm up it is centred on both axes.
+          "app-dialog fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-y-auto overscroll-contain rounded-t-2xl border border-border bg-card p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:p-6",
           className
         )}
       >
