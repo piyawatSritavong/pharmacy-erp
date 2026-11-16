@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { BusinessDocument } from "@/components/print/business-document";
 import {
   Eye,
   FilePlus2,
@@ -1409,167 +1410,70 @@ function PurchaseOrderPrintDocument({ detail }: { detail: Item }) {
     ? new Date(String(detail.due_date)).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })
     : "-";
   const discountTotal = Number(detail.line_discount_total || 0) + Number(detail.header_discount || 0);
+  const optional = (label: string, value: unknown) => (value ? [{ label, value: String(value) }] : []);
 
   return (
     <div className="hidden print:block">
-      <div className="mb-6 flex items-start justify-between border-b pb-4">
-        <div>
-          <p className="text-lg font-bold">PharmaPOS</p>
-          <p className="mt-1 font-bold">{String(detail.branch_name)}</p>
-          <p className="text-sm">{String(detail.branch_address || "-")}</p>
-          {detail.branch_tax_id ? (
-            <p className="text-sm">เลขประจำตัวผู้เสียภาษี {String(detail.branch_tax_id)}</p>
-          ) : null}
-        </div>
-        <div className="text-right">
-          <p className="text-2xl font-bold">ใบสั่งซื้อ</p>
-          <p className="text-sm text-muted-foreground">ใบสั่งซื้อ / Purchase Order</p>
-        </div>
-      </div>
-
-      <div className="mb-6 grid grid-cols-2 gap-6 text-sm">
-        <div>
-          <p className="font-bold text-primary">ผู้จำหน่าย</p>
-          <p className="mt-1 font-bold">{String(detail.supplier_name)}</p>
-          <p>{String(detail.supplier_address || "-")}</p>
-          {detail.supplier_tax_id ? (
-            <p>เลขประจำตัวผู้เสียภาษี {String(detail.supplier_tax_id)}</p>
-          ) : null}
-        </div>
-        <div className="space-y-1">
-          <p className="flex justify-between">
-            <span className="text-muted-foreground">เลขที่</span>
-            <strong>{String(detail.po_number)}</strong>
-          </p>
-          <p className="flex justify-between">
-            <span className="text-muted-foreground">วันที่</span>
-            <span>{purchasedDate}</span>
-          </p>
-          <p className="flex justify-between">
-            <span className="text-muted-foreground">ครบกำหนด</span>
-            <span>{dueDate}</span>
-          </p>
-          <p className="flex justify-between">
-            <span className="text-muted-foreground">ผู้สั่งซื้อ</span>
-            <span>{String(detail.created_by_name || "-")}</span>
-          </p>
-          {detail.job_name ? (
-            <p className="flex justify-between">
-              <span className="text-muted-foreground">ชื่องาน</span>
-              <span>{String(detail.job_name)}</span>
-            </p>
-          ) : null}
-          {detail.supplier_contact ? (
-            <p className="flex justify-between">
-              <span className="text-muted-foreground">ผู้ติดต่อ</span>
-              <span>{String(detail.supplier_contact)}</span>
-            </p>
-          ) : null}
-          {detail.supplier_phone ? (
-            <p className="flex justify-between">
-              <span className="text-muted-foreground">เบอร์โทร</span>
-              <span>{String(detail.supplier_phone)}</span>
-            </p>
-          ) : null}
-          {detail.supplier_email ? (
-            <p className="flex justify-between">
-              <span className="text-muted-foreground">อีเมล</span>
-              <span>{String(detail.supplier_email)}</span>
-            </p>
-          ) : null}
-        </div>
-      </div>
-
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b-2 border-foreground text-left">
-            <th className="w-10 py-2 pr-2">#</th>
-            <th className="py-2 pr-2">รายละเอียด</th>
-            <th className="py-2 pr-2 text-right">จำนวน</th>
-            <th className="py-2 pr-2 text-right">ราคาต่อหน่วย</th>
-            <th className="py-2 pr-2 text-right">ส่วนลด</th>
-            <th className="py-2 text-right">มูลค่า</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item, index) => (
-            <tr className="border-b" key={String(item.id)}>
-              <td className="py-2 pr-2 align-top">{index + 1}</td>
-              <td className="py-2 pr-2 align-top">
-                {String(item.product_name)}
-                <span className="block text-xs text-muted-foreground">{String(item.sku)}</span>
-              </td>
-              <td className="py-2 pr-2 text-right align-top">
-                {Number(item.received_quantity).toLocaleString("th-TH")} {String(item.unit_name || "")}
-              </td>
-              <td className="py-2 pr-2 text-right align-top">{currency(Number(item.unit_cost))}</td>
-              <td className="py-2 pr-2 text-right align-top">
-                {Number(item.line_discount) > 0 ? currency(Number(item.line_discount)) : "-"}
-              </td>
-              <td className="py-2 text-right align-top">{currency(Number(item.line_subtotal))}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <div className="ml-auto mt-4 max-w-xs space-y-1 text-sm">
-        <p className="flex justify-between">
-          <span>รวมเป็นเงิน</span>
-          <span>{currency(Number(detail.subtotal))}</span>
-        </p>
-        {discountTotal > 0 ? (
-          <p className="flex justify-between">
-            <span>ส่วนลด</span>
-            <span>-{currency(discountTotal)}</span>
-          </p>
-        ) : null}
-        {Number(detail.shipping_amount) > 0 ? (
-          <p className="flex justify-between">
-            <span>ค่าขนส่ง</span>
-            <span>{currency(Number(detail.shipping_amount))}</span>
-          </p>
-        ) : null}
-        {detail.vat_mode !== "none" ? (
-          <p className="flex justify-between">
-            <span>ภาษีมูลค่าเพิ่ม {Number(detail.vat_rate)}%</span>
-            <span>{currency(Number(detail.tax_amount))}</span>
-          </p>
-        ) : null}
-        <p className="flex justify-between border-t-2 border-foreground pt-1 text-base font-bold">
-          <span>จำนวนเงินรวมทั้งสิ้น</span>
-          <span>{currency(Number(detail.total_amount))}</span>
-        </p>
-      </div>
-
-      {detail.delivery_terms || detail.notes ? (
-        <div className="mt-8 grid gap-4 text-sm md:grid-cols-2">
-          {detail.delivery_terms ? (
-            <div>
-              <p className="font-bold">ข้อมูลการจัดส่ง</p>
-              <p className="whitespace-pre-wrap">{String(detail.delivery_terms)}</p>
-            </div>
-          ) : null}
-          {detail.notes ? (
-            <div>
-              <p className="font-bold">หมายเหตุ</p>
-              <p className="whitespace-pre-wrap">{String(detail.notes)}</p>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="mt-16 grid grid-cols-2 gap-10 text-center text-sm">
-        <div>
-          <p className="mb-12">ในนาม {String(detail.branch_name)}</p>
-          <p className="border-t pt-2">ผู้สั่งซื้อ</p>
-          <p className="mt-6 border-t pt-2">วันที่</p>
-        </div>
-        <div>
-          <p className="mb-12">ในนาม {String(detail.supplier_name)}</p>
-          <p className="border-t pt-2">ผู้ขาย</p>
-          <p className="mt-6 border-t pt-2">วันที่</p>
-        </div>
-      </div>
+      <BusinessDocument
+        columns={[
+          { key: "item", label: "รายการ" },
+          { key: "quantity", label: "จำนวน", align: "right" },
+          { key: "unit", label: "ราคาต่อหน่วย", align: "right" },
+          { key: "discount", label: "ส่วนลด", align: "right" },
+          { key: "total", label: "จำนวนเงิน", align: "right" },
+        ]}
+        facts={[
+          { label: "วันที่", value: purchasedDate },
+          { label: "ครบกำหนด", value: dueDate },
+          { label: "ผู้สั่งซื้อ", value: String(detail.created_by_name || "-") },
+          ...optional("ชื่องาน", detail.job_name),
+        ]}
+        issuer={{
+          name: String(detail.branch_name || "-"),
+          lines: [
+            String(detail.branch_address || ""),
+            detail.branch_tax_id ? `เลขประจำตัวผู้เสียภาษี ${String(detail.branch_tax_id)}` : "",
+          ],
+        }}
+        notes={[
+          ...(detail.delivery_terms ? [{ label: "ข้อมูลการจัดส่ง", body: String(detail.delivery_terms) }] : []),
+          ...(detail.notes ? [{ label: "หมายเหตุ", body: String(detail.notes) }] : []),
+        ]}
+        number={String(detail.po_number || "-")}
+        party={{
+          label: "ผู้จำหน่าย",
+          name: String(detail.supplier_name || "-"),
+          lines: [
+            String(detail.supplier_address || ""),
+            detail.supplier_tax_id ? `เลขประจำตัวผู้เสียภาษี ${String(detail.supplier_tax_id)}` : "",
+            detail.supplier_contact ? `ผู้ติดต่อ ${String(detail.supplier_contact)}` : "",
+            detail.supplier_phone ? `โทร ${String(detail.supplier_phone)}` : "",
+            detail.supplier_email ? `อีเมล ${String(detail.supplier_email)}` : "",
+          ],
+        }}
+        rows={items.map((item) => ({
+          item: (
+            <>
+              {String(item.product_name)}
+              <span className="block text-[11px] text-neutral-600">{String(item.sku)}</span>
+            </>
+          ),
+          quantity: `${Number(item.received_quantity).toLocaleString("th-TH")} ${String(item.unit_name || "")}`,
+          unit: currency(Number(item.unit_cost)),
+          discount: Number(item.line_discount) > 0 ? currency(Number(item.line_discount)) : "-",
+          total: currency(Number(item.line_subtotal)),
+        }))}
+        signatures={["ผู้สั่งซื้อ", "ผู้ขาย"]}
+        subtitle="Purchase Order"
+        title="ใบสั่งซื้อ"
+        totals={[
+          { label: "รวมเป็นเงิน", value: currency(Number(detail.subtotal)) },
+          ...(discountTotal > 0 ? [{ label: "ส่วนลด", value: `-${currency(discountTotal)}` }] : []),
+          ...(Number(detail.shipping_amount) > 0 ? [{ label: "ค่าขนส่ง", value: currency(Number(detail.shipping_amount)) }] : []),
+          ...(detail.vat_mode !== "none" ? [{ label: `ภาษีมูลค่าเพิ่ม ${Number(detail.vat_rate)}%`, value: currency(Number(detail.tax_amount)) }] : []),
+          { label: "จำนวนเงินรวมทั้งสิ้น", value: currency(Number(detail.total_amount)), strong: true },
+        ]}
+      />
     </div>
   );
 }
