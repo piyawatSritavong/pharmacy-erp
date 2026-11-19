@@ -103,6 +103,29 @@ func TestSignedURLIsAbsoluteAndCarriesTheExpiry(t *testing.T) {
 	}
 }
 
+// Self-hosted storage: the API signs on the private address and the browser
+// is handed the public one.
+func TestSignedURLUsesThePublicAddressWhenSet(t *testing.T) {
+	rec := &recorder{response: `{"signedURL":"/object/sign/product-images/a.jpg?token=abc"}`}
+	server := rec.server(t)
+	defer server.Close()
+
+	client := New(server.URL, "service-key", "product-images").WithPublicURL("https://storage.example.ts.net:8443/")
+	signed, err := client.SignedURL(context.Background(), "a.jpg", 90*time.Second)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	if rec.requestURI != "/storage/v1/object/sign/product-images/a.jpg" {
+		t.Fatalf("signing must still go to the private address, got %s", rec.requestURI)
+	}
+	if want := "https://storage.example.ts.net:8443/storage/v1/object/sign/product-images/a.jpg?token=abc"; signed != want {
+		t.Fatalf("expected %s, got %s", want, signed)
+	}
+	if New(server.URL, "k", "b").WithPublicURL("postgres://db") == nil {
+		t.Fatal("an invalid public URL must leave the client usable")
+	}
+}
+
 func TestSignedURLDefaultsToTheShortExpiry(t *testing.T) {
 	rec := &recorder{response: `{"signedURL":"/object/sign/product-images/a.jpg?token=abc"}`}
 	server := rec.server(t)

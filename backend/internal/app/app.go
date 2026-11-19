@@ -86,7 +86,7 @@ func (a *App) UploadProductImages(ctx context.Context) (uploaded int, skipped in
 	if strings.TrimSpace(a.Config.SupabaseServiceRoleKey) == "" {
 		return 0, 0, errors.New("SUPABASE_SERVICE_ROLE_KEY is empty; copy the service_role key from the Supabase dashboard under Settings → API")
 	}
-	images := objectstore.New(a.Config.SupabaseURL, a.Config.SupabaseServiceRoleKey, a.Config.ProductImageBucket)
+	images := objectstore.New(a.Config.SupabaseURL, a.Config.SupabaseServiceRoleKey, a.Config.ProductImageBucket).WithPublicURL(a.Config.SupabasePublicURL)
 	return InstallOchaImageAssets(ctx, images, manifest)
 }
 

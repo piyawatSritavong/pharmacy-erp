@@ -41,9 +41,13 @@ var ErrNotFound = errors.New("object not found")
 
 type Client struct {
 	baseURL string
-	key     string
-	bucket  string
-	http    *http.Client
+	// publicURL is the storage address handed to browsers in signed URLs;
+	// empty means baseURL. A self-hosted stack is reached on a private
+	// address by the API but on a public one by the browser.
+	publicURL string
+	key       string
+	bucket    string
+	http      *http.Client
 	// signed remembers URLs already minted, so a grid of product photos asks
 	// storage once per photo per few minutes rather than once per view.
 	signedMu sync.Mutex
@@ -105,6 +109,16 @@ func New(supabaseURL, serviceRoleKey, bucket string) *Client {
 		// stalled storage backend cannot hold a request handler open forever.
 		http: &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+// WithPublicURL sets the address browsers use for signed URLs. An empty or
+// invalid value leaves them on the API's own storage address.
+func (c *Client) WithPublicURL(publicURL string) *Client {
+	publicURL = strings.TrimRight(strings.TrimSpace(publicURL), "/")
+	if c != nil && publicURL != "" && ValidateURL(publicURL) == nil {
+		c.publicURL = publicURL
+	}
+	return c
 }
 
 // Configured reports whether uploads and reads can happen at all.
@@ -304,7 +318,11 @@ func (c *Client) SignedURL(ctx context.Context, objectPath string, ttl time.Dura
 		return "", errors.New("supabase storage: signed url was empty")
 	}
 	// The API answers with a path relative to /storage/v1, not an absolute URL.
-	absolute := c.baseURL + "/storage/v1" + ensureLeadingSlash(signed.SignedURL)
+	base := c.baseURL
+	if c.publicURL != "" {
+		base = c.publicURL
+	}
+	absolute := base + "/storage/v1" + ensureLeadingSlash(signed.SignedURL)
 	c.signedMu.Lock()
 	if c.signed == nil || len(c.signed) > 10000 {
 		c.signed = map[string]signedEntry{}

@@ -7,13 +7,16 @@ import (
 )
 
 type Config struct {
-	AppEnv                    string
-	HTTPPort                  string
-	DatabaseURL               string
-	JWTSecret                 string
-	FrontendURL               string
-	DefaultVATPct             float64
-	SupabaseURL               string
+	AppEnv        string
+	HTTPPort      string
+	DatabaseURL   string
+	JWTSecret     string
+	FrontendURL   string
+	DefaultVATPct float64
+	SupabaseURL   string
+	// SupabasePublicURL is where a browser reaches storage when the API talks
+	// to it on a private address (self-hosted). Empty: the same as SupabaseURL.
+	SupabasePublicURL         string
 	SupabaseServiceRoleKey    string
 	ProductImageBucket        string
 	AllowDestructiveSeed      bool
@@ -34,6 +37,7 @@ func Load() Config {
 		FrontendURL:               getenv("FRONTEND_URL", "http://localhost:3000"),
 		DefaultVATPct:             getenvFloat("DEFAULT_VAT_PCT", 7),
 		SupabaseURL:               getenv("SUPABASE_URL", ""),
+		SupabasePublicURL:         getenv("SUPABASE_PUBLIC_URL", ""),
 		SupabaseServiceRoleKey:    getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
 		ProductImageBucket:        getenv("PRODUCT_IMAGE_BUCKET", "product-images"),
 		AllowDestructiveSeed:      getenvBool("ALLOW_DESTRUCTIVE_SEED", false),

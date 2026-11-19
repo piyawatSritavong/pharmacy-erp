@@ -87,7 +87,7 @@ func NewServer(cfg config.Config, db *sql.DB) *Server {
 	// nil when the credentials are absent; every image path then answers with
 	// one clear "storage is not configured" rather than a different confusion
 	// at each call site.
-	productImages := objectstore.New(cfg.SupabaseURL, cfg.SupabaseServiceRoleKey, cfg.ProductImageBucket)
+	productImages := objectstore.New(cfg.SupabaseURL, cfg.SupabaseServiceRoleKey, cfg.ProductImageBucket).WithPublicURL(cfg.SupabasePublicURL)
 	authHandler := auth.NewHandler(auth.NewService(db, cfg))
 	branchHandler := branches.NewHandler(branches.NewService(db, auditService))
 	userHandler := users.NewHandler(users.NewService(db, auditService))
