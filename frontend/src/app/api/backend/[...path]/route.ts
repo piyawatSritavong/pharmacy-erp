@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { AUTH_COOKIE } from "@/lib/auth";
 import { BackendURLNotConfiguredError, resolveBackendURL } from "@/lib/backend-url";
+import { portalAllowed, portalForHost, wrongDoorMessage } from "@/lib/portal-host";
 
 
 /**
@@ -138,6 +139,20 @@ async function proxy(request: NextRequest, path: string[]) {
 	});
 
 		if (route === "auth/login" && response.ok) {
+			// The till's domain admits only till accounts and the back office's
+			// only back-office accounts. A wrong door gets no session cookie.
+			const hostPortal = portalForHost(request.headers.get("x-forwarded-host") || request.headers.get("host"));
+			if (hostPortal) {
+				let userPortal: unknown;
+				try {
+					userPortal = (JSON.parse(new TextDecoder().decode(payload)) as { user?: { portal?: unknown } }).user?.portal;
+				} catch {
+					userPortal = undefined;
+				}
+				if (!portalAllowed(hostPortal, userPortal)) {
+					return NextResponse.json({ message: wrongDoorMessage(hostPortal) }, { status: 403 });
+				}
+			}
 			const upstreamCookie = response.headers.get("set-cookie");
 			if (upstreamCookie) proxied.headers.append("Set-Cookie", upstreamCookie);
 		}

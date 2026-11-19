@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 import { Cross } from "lucide-react";
 
@@ -16,6 +16,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Sent here because the signed-in account belongs on the other domain.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("wrong_door")) {
+      setError("บัญชีที่เข้าอยู่ใช้กับเว็บนี้ไม่ได้ กรุณาเข้าสู่ระบบด้วยบัญชีของเว็บนี้");
+    }
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
